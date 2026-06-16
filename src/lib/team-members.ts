@@ -1,3 +1,5 @@
+import { createSupabaseBrowserClient } from "./supabase/client";
+
 export const teamRoles = [
   "Администратор",
   "Офис",
@@ -59,4 +61,20 @@ export function getTeamMemberInitials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+export async function readActiveTechnicianNamesFromTeamMembers() {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("team_members")
+    .select("name")
+    .eq("role", "Техник")
+    .eq("is_active", true)
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as Array<{ name?: string | null }>)
+    .map((member) => String(member.name ?? "").trim())
+    .filter(Boolean);
 }

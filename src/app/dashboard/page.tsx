@@ -13,7 +13,6 @@ import {
   QrCode,
   RefreshCw,
   ShieldAlert,
-  UserCheck,
   UserPlus,
   Wrench,
 } from "lucide-react";
@@ -31,6 +30,7 @@ import {
   collapseReplacedEquipmentTasks,
 } from "../../lib/map-objects";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
+import { getTeamMemberInitials } from "../../lib/team-members";
 
 type DataRecord = Record<string, unknown>;
 type LoadState = "loading" | "ready" | "error";
@@ -105,6 +105,7 @@ type ProtocolItem = {
 type TechnicianItem = {
   id: string;
   name: string;
+  photoUrl: string;
   active: boolean;
   archivedAt?: string;
 };
@@ -165,6 +166,7 @@ type UpcomingInspection = {
 type TechnicianStatus = "свободен" | "на обект" | "натоварен";
 type TechnicianSummary = {
   name: string;
+  photoUrl: string;
   todayTasks: number;
   lastActivity: string;
   status: TechnicianStatus;
@@ -385,18 +387,14 @@ function mapProtocol(row: DataRecord): ProtocolItem {
   };
 }
 
-function mapTechnicians(value: unknown): TechnicianItem[] {
-  if (!Array.isArray(value)) return [];
-
-  return value
-    .filter((item): item is DataRecord => Boolean(item) && typeof item === "object")
-    .map((item, index) => ({
-      id: textValue(item, ["id"]) || `technician-${index + 1}`,
-      name: textValue(item, ["name"]),
-      active: item["active"] !== false,
-      archivedAt: textValue(item, ["archivedAt", "archived_at"]),
-    }))
-    .filter((item) => item.name && item.active && !item.archivedAt);
+function mapTechnicianMember(row: DataRecord, index: number): TechnicianItem {
+  return {
+    id: textValue(row, ["id"]) || `technician-${index + 1}`,
+    name: textValue(row, ["name"]),
+    photoUrl: textValue(row, ["photo_url", "photoUrl"]),
+    active: row["is_active"] !== false,
+    archivedAt: "",
+  };
 }
 
 function taskSourceIsActive(task: ServiceTaskItem, protocolRefs: Set<string>) {
@@ -437,7 +435,7 @@ async function loadDashboardData(): Promise<DashboardData> {
     taskRows,
     problemRows,
     protocolRows,
-    settingsRows,
+    technicianRows,
   ] = await Promise.all([
     selectRows("locations"),
     selectRows("equipment"),
@@ -445,19 +443,19 @@ async function loadDashboardData(): Promise<DashboardData> {
     selectRows("problems"),
     selectRows("protocols"),
     supabase
-      .from("app_settings")
-      .select("key,value")
-      .eq("key", "firecontrol:settings:technicians")
+      .from("team_members")
+      .select("id,name,photo_url,is_active,role")
+      .eq("role", "Техник")
+      .eq("is_active", true)
+      .order("name", { ascending: true })
       .then(({ data, error }) => {
         if (error) {
-          console.warn("[dashboard] app_settings load failed", error.message);
+          console.warn("[dashboard] team_members load failed", error.message);
           return [];
         }
         return ((data as DataRecord[]) ?? []);
       }),
   ]);
-
-  const technicianValue = settingsRows[0]?.["value"];
 
   return {
     locations: locationRows.map(mapLocation),
@@ -467,7 +465,7 @@ async function loadDashboardData(): Promise<DashboardData> {
     tasks: taskRows.map(mapTask),
     problems: problemRows.map(mapProblem),
     protocols: protocolRows.map(mapProtocol),
-    technicians: mapTechnicians(technicianValue),
+    technicians: technicianRows.map(mapTechnicianMember).filter((item) => item.name && item.active),
   };
 }
 
@@ -752,8 +750,13 @@ function TechniciansCard({ technicians }: { technicians: TechnicianSummary[] }) 
               key={technician.name}
               className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white">
-                <UserCheck className="h-4 w-4" />
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-orange-50 text-sm font-black text-orange-700">
+                {technician.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={technician.photoUrl} alt={technician.name} className="h-full w-full object-cover" />
+                ) : (
+                  getTeamMemberInitials(technician.name)
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="truncate font-black text-slate-950">
@@ -770,7 +773,7 @@ function TechniciansCard({ technicians }: { technicians: TechnicianSummary[] }) 
             </div>
           ))
         ) : (
-          <EmptyState label="Няма техници, записани в Supabase настройките." />
+          <EmptyState label="Няма активни техници в Екип." />
         )}
       </div>
     </Card>
@@ -1043,6 +1046,7 @@ export default function DashboardPage() {
 
       return {
         name: technician.name,
+        photoUrl: technician.photoUrl,
         todayTasks: assignedTodayTasks.length,
         lastActivity: recentProtocol
           ? `Последно: ${relativeTime(recentProtocol.updatedAt || recentProtocol.date)}`

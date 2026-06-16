@@ -66,6 +66,24 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
   return "";
 }
 
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function isMissingRelationError(error: { message?: string; code?: string } | null | undefined) {
+  const message = error?.message?.toLowerCase() ?? "";
+  return error?.code === "42P01" || message.includes("does not exist") || message.includes("not found");
+}
+
+async function assertDeleteResult(
+  result: { error: { message?: string; code?: string } | null },
+  fallbackMessage: string
+) {
+  if (result.error && !isMissingRelationError(result.error)) {
+    throw new Error(result.error.message || fallbackMessage);
+  }
+}
+
 function inputDateToDate(value: string) {
   if (!value) return null;
 
@@ -340,6 +358,7 @@ export default function LocationsPage() {
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadLocations();
 
     window.addEventListener(serviceTasksUpdatedEvent, loadLocations);
@@ -357,16 +376,116 @@ export default function LocationsPage() {
 
     try {
       const supabase = createSupabaseBrowserClient();
+      const objectIdentifiers = uniqueValues([
+        location.id,
+        location.qrCode,
+        location.name,
+      ]);
+      const objectCodes = uniqueValues([location.qrCode, location.id]);
 
-      await supabase.from("location_services").delete().eq("location_id", location.id);
-      await supabase
+      const equipmentResult = await supabase
         .from("equipment")
-        .update({
-          archived: true,
-          archived_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .select("id")
         .eq("location_id", location.id);
+      if (equipmentResult.error && !isMissingRelationError(equipmentResult.error)) {
+        throw new Error(equipmentResult.error.message);
+      }
+      const equipmentIds = uniqueValues(
+        ((equipmentResult.data as DataRecord[]) ?? []).map((row) => textValue(row, ["id"]))
+      );
+
+      const photosResult = objectIdentifiers.length
+        ? await supabase
+            .from("protocol_photos")
+            .select("id,storage_path")
+            .in("object_id", objectIdentifiers)
+        : { data: [], error: null };
+      if (photosResult.error && !isMissingRelationError(photosResult.error)) {
+        throw new Error(photosResult.error.message);
+      }
+      const photoStoragePaths = uniqueValues(
+        ((photosResult.data as DataRecord[]) ?? []).map((row) => textValue(row, ["storage_path"]))
+      );
+      if (photoStoragePaths.length) {
+        await supabase.storage.from("protocol-photos").remove(photoStoragePaths);
+      }
+
+      await assertDeleteResult(
+        await supabase.from("location_services").delete().eq("location_id", location.id),
+        "Грешка при изтриване на услугите към обекта."
+      );
+
+      if (equipmentIds.length) {
+        await assertDeleteResult(
+          await supabase
+            .from("fire_extinguisher_service_history")
+            .delete()
+            .in("equipment_id", equipmentIds),
+          "Грешка при изтриване на сервизната история."
+        );
+      }
+
+      if (objectIdentifiers.length) {
+        await assertDeleteResult(
+          await supabase.from("fire_extinguisher_service_history").delete().in("object_id", objectIdentifiers),
+          "Грешка при изтриване на сервизната история."
+        );
+        await assertDeleteResult(
+          await supabase.from("service_tasks").delete().in("object_id", objectIdentifiers),
+          "Грешка при изтриване на задачите към обекта."
+        );
+        await assertDeleteResult(
+          await supabase.from("service_tasks").delete().in("object_code", objectIdentifiers),
+          "Грешка при изтриване на задачите към обекта."
+        );
+        await assertDeleteResult(
+          await supabase.from("service_tasks").delete().in("object_name", objectIdentifiers),
+          "Грешка при изтриване на задачите към обекта."
+        );
+        await assertDeleteResult(
+          await supabase.from("problems").delete().in("object_id", objectIdentifiers),
+          "Грешка при изтриване на проблемите към обекта."
+        );
+        await assertDeleteResult(
+          await supabase.from("protocol_photos").delete().in("object_id", objectIdentifiers),
+          "Грешка при изтриване на снимките към обекта."
+        );
+      }
+
+      await assertDeleteResult(
+        await supabase.from("protocols").delete().eq("location_id", location.id),
+        "Грешка при изтриване на протоколите към обекта."
+      );
+      if (objectCodes.length) {
+        await assertDeleteResult(
+          await supabase.from("protocols").delete().in("object_code", objectCodes),
+          "Грешка при изтриване на протоколите към обекта."
+        );
+      }
+      if (location.name) {
+        await assertDeleteResult(
+          await supabase.from("protocols").delete().eq("object_name", location.name),
+          "Грешка при изтриване на протоколите към обекта."
+        );
+      }
+
+      await assertDeleteResult(
+        await supabase.from("sales_opportunities").update({ converted_object_id: null }).eq("converted_object_id", location.id),
+        "Грешка при изчистване на търговските връзки към обекта."
+      );
+
+      await assertDeleteResult(
+        await supabase.from("equipment").delete().eq("location_id", location.id),
+        "Грешка при изтриване на оборудването към обекта."
+      );
+      await assertDeleteResult(
+        await supabase.from("equipment").delete().eq("object_id", location.id),
+        "Грешка при изтриване на оборудването към обекта."
+      );
+      await assertDeleteResult(
+        await supabase.from("equipment").delete().eq("site_id", location.id),
+        "Грешка при изтриване на оборудването към обекта."
+      );
 
       const { error } = await supabase
         .from("locations")
@@ -382,6 +501,7 @@ export default function LocationsPage() {
       setLocations((current) =>
         current.filter((item) => item.id !== location.id)
       );
+      window.dispatchEvent(new Event(serviceTasksUpdatedEvent));
       setDeleteDialog(null);
     } catch {
       setErrorMessage("Грешка при връзка със Supabase");
@@ -395,6 +515,8 @@ export default function LocationsPage() {
     setDeleteDialog({
       title: "Изтриване на обект",
       itemLabel: `обекта ${location.name}`,
+      details:
+        "Ще бъдат изтрити всички свързани данни: оборудване, услуги, задачи, проблеми, протоколи, снимки и сервизна история. Това действие е необратимо.",
       onConfirm: () => deleteLocation(location),
     });
   }

@@ -50,6 +50,7 @@ import {
   type CompanySettings,
   type ProtocolSettings,
 } from "../../../lib/settings";
+import { readActiveTechnicianNamesFromTeamMembers } from "../../../lib/team-members";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
 import {
   mapProtocolPhoto,
@@ -2989,8 +2990,19 @@ export function ProtocolForm({
   const activeChecklist = protocolType ? checklistByType[protocolType] : [];
   const [checks, setChecks] = useState<Record<string, CheckValue>>({});
   useEffect(() => {
-    function refreshTechnicianSettings() {
-      const activeTechnicians = readActiveTechnicianNames();
+    let mounted = true;
+
+    async function refreshTechnicianSettings() {
+      let activeTechnicians = readActiveTechnicianNames();
+      try {
+        const teamTechnicians = await readActiveTechnicianNamesFromTeamMembers();
+        if (teamTechnicians.length) activeTechnicians = teamTechnicians;
+      } catch {
+        activeTechnicians = readActiveTechnicianNames();
+      }
+
+      if (!mounted) return;
+
       const protocolSettings = readProtocolSettings();
       setCompanySettings(readCompanySettings());
       const centers = readServiceCenters()
@@ -3048,11 +3060,12 @@ export function ProtocolForm({
       );
     }
 
-    refreshTechnicianSettings();
+    void refreshTechnicianSettings();
     window.addEventListener(settingsUpdatedEvent, refreshTechnicianSettings);
     window.addEventListener("storage", refreshTechnicianSettings);
 
     return () => {
+      mounted = false;
       window.removeEventListener(
         settingsUpdatedEvent,
         refreshTechnicianSettings

@@ -10,7 +10,6 @@ import {
   Save,
   Trash2,
   UserRound,
-  UsersRound,
   Wrench,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
@@ -26,29 +25,24 @@ import {
   type CompanySettings,
   type ProtocolSettings,
   type ServiceCenterSetting,
-  type TechnicianSetting,
   defaultCompanySettings,
   defaultProtocolSettings,
   defaultServiceCenters,
-  defaultTechnicians,
   readCompanySettings,
   readCompanySettingsFromSupabase,
   readProtocolSettings,
   readProtocolSettingsFromSupabase,
   readServiceCenters,
   readServiceCentersFromSupabase,
-  readTechnicians,
-  readTechniciansFromSupabase,
   writeCompanySettingsToSupabase,
   writeProtocolSettingsToSupabase,
   writeServiceCentersToSupabase,
-  writeTechniciansToSupabase,
 } from "../../lib/settings";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 
 type DataRecord = Record<string, unknown>;
 type LoadState = "loading" | "ready" | "error";
-type SectionId = "technicians" | "service-centers" | "services" | "protocols" | "documents";
+type SectionId = "service-centers" | "services" | "protocols" | "documents";
 type CatalogKey =
   | "objectTypes"
   | "extinguisherBrands"
@@ -68,8 +62,7 @@ type ServiceSetting = {
   archivedAt: string;
 };
 
-const sections: Array<{ id: SectionId; label: string; icon: typeof UsersRound }> = [
-  { id: "technicians", label: "Техници", icon: UsersRound },
+const sections: Array<{ id: SectionId; label: string; icon: typeof UserRound }> = [
   { id: "service-centers", label: "Сервизи", icon: UserRound },
   { id: "services", label: "Услуги", icon: Wrench },
   { id: "protocols", label: "Протоколи", icon: FolderOpen },
@@ -87,15 +80,6 @@ const catalogGroups: Array<{ key: CatalogKey; title: string; placeholder: string
   { key: "extinguisherServiceTypes", title: "Видове обслужване", placeholder: "Напр. презареждане" },
   { key: "serviceSystemStatuses", title: "Статуси", placeholder: "Напр. Изрядна" },
 ];
-
-const emptyTechnician: TechnicianSetting = {
-  id: "",
-  name: "",
-  role: "Сервизен техник",
-  phone: "",
-  email: "",
-  active: true,
-};
 
 const emptyServiceCenter: ServiceCenterSetting = {
   id: "",
@@ -190,17 +174,13 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 }
 
 export default function SettingsPage() {
-  const [activeSection, setActiveSection] = useState<SectionId>("technicians");
+  const [activeSection, setActiveSection] = useState<SectionId>("service-centers");
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [deleteDialog, setDeleteDialog] =
     useState<DeleteConfirmDialogState | null>(null);
-
-  const [technicians, setTechnicians] = useState<TechnicianSetting[]>(defaultTechnicians);
-  const [newTechnician, setNewTechnician] = useState<TechnicianSetting>(emptyTechnician);
-  const [editingTechnicianId, setEditingTechnicianId] = useState("");
 
   const [serviceCenters, setServiceCenters] = useState<ServiceCenterSetting[]>(defaultServiceCenters);
   const [newServiceCenter, setNewServiceCenter] = useState<ServiceCenterSetting>(emptyServiceCenter);
@@ -220,10 +200,6 @@ export default function SettingsPage() {
 
   const [company, setCompany] = useState<CompanySettings>(defaultCompanySettings);
 
-  const activeTechnicians = useMemo(
-    () => technicians.filter((technician) => technician.active && !technician.archivedAt),
-    [technicians]
-  );
   const activeServiceCenters = useMemo(
     () => serviceCenters.filter((service) => service.active && !service.archivedAt),
     [serviceCenters]
@@ -250,15 +226,13 @@ export default function SettingsPage() {
       setLoadState("loading");
       setErrorMessage("");
 
-      setTechnicians(readTechnicians());
       setServiceCenters(readServiceCenters());
       setProtocols(readProtocolSettings());
       setCompany(readCompanySettings());
 
       try {
-        const [dbTechnicians, dbServiceCenters, dbProtocols, dbCompany] =
+        const [dbServiceCenters, dbProtocols, dbCompany] =
           await Promise.all([
-            readTechniciansFromSupabase(),
             readServiceCentersFromSupabase(),
             readProtocolSettingsFromSupabase(),
             readCompanySettingsFromSupabase(),
@@ -266,7 +240,6 @@ export default function SettingsPage() {
 
         if (!mounted) return;
 
-        setTechnicians(dbTechnicians);
         setServiceCenters(dbServiceCenters);
         setProtocols(dbProtocols);
         setCompany(dbCompany);
@@ -334,84 +307,6 @@ export default function SettingsPage() {
     );
   }
 
-  async function persistTechnicians(next: TechnicianSetting[], message: string) {
-    setSaving(true);
-    try {
-      await writeTechniciansToSupabase(next);
-      setTechnicians(next);
-      showToast(message);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Грешка при запис в базата.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function addTechnician(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const name = newTechnician.name.trim();
-    if (!name) return;
-
-    await persistTechnicians(
-      [
-        ...technicians,
-        {
-          ...emptyTechnician,
-          id: createId("tech"),
-          name,
-          role: newTechnician.role.trim() || "Сервизен техник",
-          phone: newTechnician.phone.trim(),
-        },
-      ],
-      "Техникът е добавен."
-    );
-    setNewTechnician(emptyTechnician);
-  }
-
-  async function saveTechnician(technician: TechnicianSetting) {
-    await persistTechnicians(
-      technicians.map((item) =>
-        item.id === technician.id
-          ? {
-              ...item,
-              name: technician.name.trim(),
-              role: technician.role.trim() || "Сервизен техник",
-              phone: technician.phone.trim(),
-            }
-          : item
-      ),
-      "Техникът е обновен."
-    );
-    setEditingTechnicianId("");
-  }
-
-  async function archiveTechnician(id: string) {
-    await persistTechnicians(
-      technicians.map((item) =>
-        item.id === id
-          ? { ...item, active: false, archivedAt: item.archivedAt || new Date().toISOString() }
-          : item
-      ),
-      "Техникът е архивиран."
-    );
-  }
-
-  async function confirmDeleteTechnician(id: string) {
-    await persistTechnicians(
-      technicians.filter((item) => item.id !== id),
-      "Техникът е изтрит."
-    );
-    setDeleteDialog(null);
-  }
-
-  function deleteTechnician(id: string) {
-    const technician = technicians.find((item) => item.id === id);
-    setDeleteDialog({
-      title: "Изтриване на техник",
-      itemLabel: technician?.name ? `техника ${technician.name}` : "този техник",
-      onConfirm: () => confirmDeleteTechnician(id),
-    });
-  }
   async function persistServiceCenters(next: ServiceCenterSetting[], message: string) {
     setSaving(true);
     try {
@@ -773,56 +668,6 @@ export default function SettingsPage() {
             </Card>
           ) : null}
 
-          {loadState !== "loading" && activeSection === "technicians" ? (
-            <Card className="p-5">
-              <SectionHeader title="Техници" description="Хората, които се избират при протоколи и сервизни посещения." />
-              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
-                {activeTechnicians.length ? (
-                  activeTechnicians.map((technician) => {
-                    const editing = editingTechnicianId === technician.id;
-                    return (
-                      <PersonCard
-                        key={technician.id}
-                        title={technician.name}
-                        subtitle={technician.role}
-                        phone={technician.phone}
-                        editing={editing}
-                        onEdit={() => setEditingTechnicianId(technician.id)}
-                        onDelete={() => deleteTechnician(technician.id)}
-                      >
-                        <EditableTechnician
-                          technician={technician}
-                          onChange={(next) =>
-                            setTechnicians((items) => items.map((item) => item.id === next.id ? next : item))
-                          }
-                          onSave={() => saveTechnician(technician)}
-                        />
-                      </PersonCard>
-                    );
-                  })
-                ) : (
-                  <EmptyState>Няма активни техници.</EmptyState>
-                )}
-              </div>
-              <form onSubmit={addTechnician} className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-                  <Field label="Име">
-                    <Input value={newTechnician.name} onChange={(event) => setNewTechnician((item) => ({ ...item, name: event.target.value }))} placeholder="Иван Петров" />
-                  </Field>
-                  <Field label="Роля">
-                    <Input value={newTechnician.role} onChange={(event) => setNewTechnician((item) => ({ ...item, role: event.target.value }))} placeholder="Сервизен техник" />
-                  </Field>
-                  <Field label="Телефон">
-                    <Input value={newTechnician.phone} onChange={(event) => setNewTechnician((item) => ({ ...item, phone: event.target.value }))} placeholder="+359..." />
-                  </Field>
-                </div>
-                <div className="mt-4 flex justify-end">
-                  <Button type="submit" disabled={saving}><Plus size={16} />Добави техник</Button>
-                </div>
-              </form>
-            </Card>
-          ) : null}
-
           {loadState !== "loading" && activeSection === "service-centers" ? (
             <Card className="p-5">
               <SectionHeader title="Сервизи" description="Сервизи A, B и C за избор при създаване на протоколи." />
@@ -1088,25 +933,6 @@ function PersonCard({
         <Button type="button" variant="outline" size="sm" onClick={onEdit}><PenLine size={14} />Редактирай</Button>
         <Button type="button" variant="ghost" size="icon" onClick={onDelete} aria-label="Изтрий"><Trash2 size={16} /></Button>
       </div>
-    </div>
-  );
-}
-
-function EditableTechnician({
-  technician,
-  onChange,
-  onSave,
-}: {
-  technician: TechnicianSetting;
-  onChange: (technician: TechnicianSetting) => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-3">
-      <Field label="Име"><Input value={technician.name} onChange={(event) => onChange({ ...technician, name: event.target.value })} /></Field>
-      <Field label="Роля"><Input value={technician.role} onChange={(event) => onChange({ ...technician, role: event.target.value })} /></Field>
-      <Field label="Телефон"><Input value={technician.phone} onChange={(event) => onChange({ ...technician, phone: event.target.value })} /></Field>
-      <div className="flex justify-end"><Button type="button" onClick={onSave}><Save size={15} />Запази</Button></div>
     </div>
   );
 }

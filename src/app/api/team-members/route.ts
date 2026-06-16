@@ -34,8 +34,8 @@ export async function POST(request: Request) {
     const notes = clean(payload.notes);
     const role = clean(payload.role);
 
-    if (!name || !phone || !isTeamRole(role)) {
-      return Response.json({ error: "Попълнете име, телефон и роля." }, { status: 400 });
+    if (!name || !phone || !email || !isTeamRole(role)) {
+      return Response.json({ error: "Попълнете име, телефон, email и роля." }, { status: 400 });
     }
 
     const supabase = createSupabaseServerClient();
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
         .insert({
           name,
           phone,
-          email: email || null,
+          email,
           role,
           notes: notes || null,
           employee_code: employeeCode,

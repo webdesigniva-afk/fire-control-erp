@@ -7,6 +7,7 @@ import { AppShell } from "../../components/app-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import {
   type ServiceTask,
   formatTaskDate,
@@ -16,15 +17,91 @@ import {
   updateServiceTaskStatus,
 } from "../../lib/tasks";
 
+function normalizedTaskType(task: ServiceTask) {
+  return (task.type || task.taskType || "").trim().toLowerCase();
+}
+
+function normalizedTaskStatus(task: ServiceTask) {
+  return String(task.status || "").trim().toLowerCase();
+}
+
+function isProblemTask(task: ServiceTask) {
+  const type = normalizedTaskType(task);
+  return type === "problem" || type === "defect" || Boolean(task.relatedProblemId);
+}
+
+function isCompletedTask(task: ServiceTask) {
+  const status = normalizedTaskStatus(task);
+  return status === "completed" || status === "done" || status === "resolved";
+}
+
+function dateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function textValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number") return String(value);
+  }
+
+  return "";
+}
+
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+async function readExistingLocationIdentifiers() {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("locations")
+    .select("id,qr_code,code,name,object_name,title");
+
+  if (error) throw new Error(error.message);
+
+  return new Set(
+    ((data as Record<string, unknown>[]) ?? []).flatMap((row) =>
+      uniqueValues([
+        textValue(row, ["id"]),
+        textValue(row, ["qr_code", "code"]),
+        textValue(row, ["name", "object_name", "title"]),
+      ])
+    )
+  );
+}
+
+function taskBelongsToExistingLocation(task: ServiceTask, locationIdentifiers: Set<string>) {
+  const taskIdentifiers = uniqueValues([
+    task.objectId ?? "",
+    task.objectCode,
+    task.objectName,
+  ]);
+
+  if (!taskIdentifiers.length) return true;
+  return taskIdentifiers.some((value) => locationIdentifiers.has(value));
+}
+
 export default function TasksPage() {
   const [tasks, setTasks] = useState<ServiceTask[]>([]);
-  const [filter, setFilter] = useState("all");
+  const [periodFilter, setPeriodFilter] = useState("upcoming");
+  const [statusFilter, setStatusFilter] = useState("active");
 
   useEffect(() => {
     async function refreshTasks() {
       try {
-        const dbTasks = await readServiceTasksFromSupabase();
-        setTasks(dbTasks);
+        const [dbTasks, locationIdentifiers] = await Promise.all([
+          readServiceTasksFromSupabase(),
+          readExistingLocationIdentifiers(),
+        ]);
+        setTasks(dbTasks.filter((task) => taskBelongsToExistingLocation(task, locationIdentifiers)));
       } catch {
         setTasks(readServiceTasks());
       }
@@ -40,44 +117,32 @@ export default function TasksPage() {
     };
   }, []);
 
-  function normalizedTaskType(task: ServiceTask) {
-    return (task.type || task.taskType || "").trim().toLowerCase();
-  }
-
-  function normalizedTaskStatus(task: ServiceTask) {
-    return String(task.status || "").trim().toLowerCase();
-  }
-
-  function isProblemTask(task: ServiceTask) {
-    const type = normalizedTaskType(task);
-    return type === "problem" || type === "defect" || Boolean(task.relatedProblemId);
-  }
-
-  function isCompletedTask(task: ServiceTask) {
-    const status = normalizedTaskStatus(task);
-    return status === "completed" || status === "done" || status === "resolved";
-  }
-
   const plannedTasks = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = dateKey(new Date());
+    const weekEnd = dateKey(addDays(new Date(), 7));
+    const monthEnd = dateKey(addDays(new Date(), 30));
+
     return tasks
       .filter((task) => {
-        const type = normalizedTaskType(task);
-        const taskTypeText = task.taskType.toLowerCase();
-        if (filter === "mine") return Boolean(task.assignedTo);
-        if (filter === "problems") return isProblemTask(task) && !isCompletedTask(task);
-        if (filter === "visits") return type === "visit" || taskTypeText.includes("посещение");
-        if (filter === "service") return type === "service" || taskTypeText.includes("обслуж");
-        if (filter === "repairs") return type === "repair";
-        if (filter === "calls") return type === "call";
-        if (filter === "overdue") {
-          return Boolean(task.dueDate && task.dueDate < today && !isCompletedTask(task));
+        const completed = isCompletedTask(task);
+        const problem = isProblemTask(task);
+        const dueDate = task.dueDate || "";
+
+        if (statusFilter === "active" && completed) return false;
+        if (statusFilter === "completed" && !completed) return false;
+        if (statusFilter === "problems" && (!problem || completed)) return false;
+
+        if (periodFilter === "today") return dueDate === today;
+        if (periodFilter === "week") return Boolean(dueDate && dueDate >= today && dueDate <= weekEnd);
+        if (periodFilter === "month") return Boolean(dueDate && dueDate >= today && dueDate <= monthEnd);
+        if (periodFilter === "overdue") {
+          return Boolean(dueDate && dueDate < today && !completed);
         }
-        if (filter === "completed") return isCompletedTask(task);
+
         return true;
       })
       .sort((first, second) => (first.dueDate || "9999").localeCompare(second.dueDate || "9999"));
-  }, [filter, tasks]);
+  }, [periodFilter, statusFilter, tasks]);
 
   async function completeTask(taskId: string) {
     const nextTasks = tasks.map((task) =>
@@ -87,15 +152,18 @@ export default function TasksPage() {
     await updateServiceTaskStatus(taskId, "COMPLETED");
   }
 
-  const taskFilters = [
-    ["all", "Всички"],
-    ["mine", "Мои"],
-    ["problems", "Проблеми"],
-    ["visits", "Посещения"],
-    ["service", "Обслужване"],
-    ["repairs", "Ремонти"],
-    ["calls", "Обаждания"],
+  const periodFilters = [
+    ["upcoming", "Предстоящи"],
+    ["today", "Днес"],
+    ["week", "7 дни"],
+    ["month", "30 дни"],
     ["overdue", "Просрочени"],
+    ["all", "Всички"],
+  ];
+
+  const statusFilters = [
+    ["active", "Активни"],
+    ["problems", "Проблеми"],
     ["completed", "Приключени"],
   ];
 
@@ -144,13 +212,6 @@ export default function TasksPage() {
     return task.taskType || task.title || "Планирано посещение";
   }
 
-  function taskSourceLabel(task: ServiceTask) {
-    return (
-      task.sourceLabel ||
-      (task.sourceProtocolNumber ? `Протокол №${task.sourceProtocolNumber}` : "")
-    );
-  }
-
   return (
     <AppShell
       title="Задачи"
@@ -172,23 +233,47 @@ export default function TasksPage() {
                 </p>
               </div>
             </div>
-            <Badge variant="orange">{plannedTasks.length} активни</Badge>
+            <Badge variant="orange">{plannedTasks.length} задачи</Badge>
           </div>
         </Card>
 
-        <div className="flex flex-wrap gap-2">
-          {taskFilters.map(([value, label]) => (
-            <Button
-              key={value}
-              type="button"
-              variant={filter === value ? "primary" : "outline"}
-              size="sm"
-              onClick={() => setFilter(value)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
+        <Card className="p-4">
+          <div className="grid gap-4 xl:grid-cols-[1fr_auto] xl:items-center">
+            <div>
+              <p className="mb-2 text-xs font-black uppercase text-slate-400">Период</p>
+              <div className="flex flex-wrap gap-2">
+                {periodFilters.map(([value, label]) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant={periodFilter === value ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setPeriodFilter(value)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-black uppercase text-slate-400">Състояние</p>
+              <div className="flex flex-wrap gap-2">
+                {statusFilters.map(([value, label]) => (
+                  <Button
+                    key={value}
+                    type="button"
+                    variant={statusFilter === value ? "primary" : "outline"}
+                    size="sm"
+                    onClick={() => setStatusFilter(value)}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Card>
 
         {plannedTasks.length ? (
           <div className="space-y-3">
