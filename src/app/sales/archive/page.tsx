@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -126,9 +126,7 @@ function RestoreConfirmModal({
           </button>
         </div>
         <div className="space-y-4 p-6">
-          <p className="text-sm font-medium leading-6 text-slate-600">
-            Записът ще бъде възстановен в активния pipeline в колоната, съответстваща на неговия етап.
-          </p>
+          <p className="text-sm font-medium leading-6 text-slate-600">`r`n            Сигурни ли сте, че искате да изтриете "{companyName}" завинаги? Записът ще бъде изтрит от търговския поток, заедно със свързаните услуги, история и търговски follow-up задачи.`r`n          </p>
           <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
             <Button type="button" variant="outline" onClick={onCancel} disabled={restoring}>Отказ</Button>
             <button
@@ -179,9 +177,7 @@ function DeleteConfirmModal({
           </button>
         </div>
         <div className="space-y-4 p-6">
-          <p className="text-sm font-medium leading-6 text-slate-600">
-            Записът ще бъде изтрит от търговския поток, заедно със свързаните услуги, история и търговски follow-up задачи. Това действие не може да бъде върнато.
-          </p>
+          <p className="text-sm font-medium leading-6 text-slate-600">`r`n            Сигурни ли сте, че искате да изтриете "{companyName}" завинаги? Записът ще бъде изтрит от търговския поток, заедно със свързаните услуги, история и търговски follow-up задачи.`r`n          </p>
           <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
             <Button type="button" variant="outline" onClick={onCancel} disabled={deleting}>Отказ</Button>
             <button
@@ -191,7 +187,7 @@ function DeleteConfirmModal({
               className="inline-flex h-11 items-center gap-2 rounded-xl bg-red-600 px-5 text-sm font-black text-white transition hover:bg-red-700 disabled:opacity-60"
             >
               {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
-              {deleting ? "Изтриване..." : "Изтрий окончателно"}
+              {deleting ? "Изтриване..." : "Изтрий"}
             </button>
           </div>
         </div>
@@ -486,3 +482,4 @@ export default function SalesArchivePage() {
     </AppShell>
   );
 }
+

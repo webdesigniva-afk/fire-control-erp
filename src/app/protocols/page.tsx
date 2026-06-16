@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { syncProtocolsToSupabase } from "../../lib/protocols-sync";
@@ -19,6 +19,10 @@ import { AppShell } from "../../components/app-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import {
+  DeleteConfirmDialog,
+  type DeleteConfirmDialogState,
+} from "../../components/ui/delete-confirm-dialog";
 import { Input } from "../../components/ui/input";
 import { TabButton, Tabs } from "../../components/ui/tabs";
 import {
@@ -154,10 +158,10 @@ const demoProtocols: ProtocolListItem[] = [
 ];
 
 const statusVariant = {
-  Чернова: "neutral",
+  "Чернова": "neutral",
   "За преглед": "warning",
-  Завършен: "success",
-  Изпратен: "orange",
+  "Завършен": "success",
+  "Изпратен": "orange",
 } as const;
 
 function formatStoredDate(value: string) {
@@ -307,6 +311,9 @@ export default function ProtocolsPage() {
     "all"
   );
   const [searchQuery, setSearchQuery] = useState("");
+  const [deleteDialog, setDeleteDialog] =
+    useState<DeleteConfirmDialogState | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Sync any localStorage-only protocols to Supabase once on mount.
   // This is idempotent — only records missing from the DB are pushed.
@@ -384,10 +391,10 @@ export default function ProtocolsPage() {
   const counts = useMemo(() => {
     const result: Record<ProtocolStatus | "all", number> = {
       all: allProtocols.length,
-      Чернова: 0,
+      "Чернова": 0,
       "За преглед": 0,
-      Завършен: 0,
-      Изпратен: 0,
+      "Завършен": 0,
+      "Изпратен": 0,
     };
     for (const item of allProtocols) {
       result[item.status] += 1;
@@ -410,13 +417,8 @@ export default function ProtocolsPage() {
     });
   }, [allProtocols, activeFilter, searchQuery]);
 
-  async function handleDeleteProtocol(protocol: ProtocolListItem) {
-    const confirmed = window.confirm(
-      `Сигурни ли сте, че искате да изтриете протокол "${protocol.number}"?`
-    );
-
-    if (!confirmed) return;
-
+  async function deleteProtocol(protocol: ProtocolListItem) {
+    setIsDeleting(true);
     try {
       await deleteProtocolEverywhere(protocol.number);
     } catch (error) {
@@ -424,10 +426,21 @@ export default function ProtocolsPage() {
         error instanceof Error ? error.message : "Неуспешно изтриване от базата."
       );
       return;
+    } finally {
+      setIsDeleting(false);
     }
 
+    setDeleteDialog(null);
     setStoredProtocols(readStoredProtocols());
     setDeletedDemoProtocolNumbers(readDeletedDemoProtocolNumbers());
+  }
+
+  function handleDeleteProtocol(protocol: ProtocolListItem) {
+    setDeleteDialog({
+      title: "Изтриване на протокол",
+      itemLabel: `протокол ${protocol.number}`,
+      onConfirm: () => deleteProtocol(protocol),
+    });
   }
 
   return (
@@ -617,6 +630,14 @@ export default function ProtocolsPage() {
           ))}
         </section>
       )}
+      <DeleteConfirmDialog
+        dialog={deleteDialog}
+        busy={isDeleting}
+        onCancel={() => {
+          if (!isDeleting) setDeleteDialog(null);
+        }}
+      />
     </AppShell>
   );
 }
+

@@ -3078,7 +3078,7 @@ function EquipmentTab() {
               <div>
                 <h3 className="text-lg font-black">Изтриване на оборудване</h3>
                 <p className="mt-2 text-sm font-bold leading-6 text-slate-600">
-                  Сигурни ли сте, че искате да изтриете това оборудване? Това действие не може да бъде отменено.
+                  Сигурни ли сте, че искате да изтриете "{deleteTarget.name || deleteTarget.serialNumber || "това оборудване"}" завинаги?
                 </p>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={() => setDeleteTarget(null)} aria-label="Затвори">
@@ -3715,7 +3715,7 @@ function MediaTab() {
   function handleDelete(photo: ProtocolPhotoRecord) {
     setDeleteDialog({
       title: "Изтриване на снимка",
-      message: "Сигурни ли сте, че искате да изтриете тази снимка?",
+      message: "Сигурни ли сте, че искате да изтриете \"тази снимка\" завинаги?",
       confirmLabel: "Изтрий",
       variant: "danger",
       onConfirm: () => deletePhoto(photo),
@@ -4687,8 +4687,8 @@ export default function LocationProfilePage() {
 
     setConfirmationDialog({
       title: "Изтриване на обект",
-      message: `Сигурни ли сте, че искате да изтриете обекта "${locationProfile.name}"?`,
-      confirmLabel: "Изтрий обекта",
+      message: `Сигурни ли сте, че искате да изтриете "${locationProfile.name}" завинаги?`,
+      confirmLabel: "Изтрий",
       variant: "danger",
       onConfirm: deleteLocation,
     });

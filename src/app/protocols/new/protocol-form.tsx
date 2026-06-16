@@ -863,7 +863,7 @@ function mapEquipmentItem(row: DataRecord): Equipment {
     stickerNumber: textValue(row, ["sticker_number"]),
     category:
       name.toLowerCase().includes("пожарогас") ||
-      type.toLowerCase().includes("Ð¿Ð¾Ð¶Ð°Ñ€Ð¾Ð³Ð°Ñ") ||
+      type.toLowerCase().includes("пожарогас") ||
       classification.toLowerCase().includes("extinguisher")
         ? "extinguisher"
         : "system",

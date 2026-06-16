@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
@@ -17,6 +17,10 @@ import { AppShell } from "../../components/app-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import {
+  DeleteConfirmDialog,
+  type DeleteConfirmDialogState,
+} from "../../components/ui/delete-confirm-dialog";
 import { Input } from "../../components/ui/input";
 import {
   type CompanySettings,
@@ -191,6 +195,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [deleteDialog, setDeleteDialog] =
+    useState<DeleteConfirmDialogState | null>(null);
 
   const [technicians, setTechnicians] = useState<TechnicianSetting[]>(defaultTechnicians);
   const [newTechnician, setNewTechnician] = useState<TechnicianSetting>(emptyTechnician);
@@ -390,16 +396,22 @@ export default function SettingsPage() {
     );
   }
 
-  async function deleteTechnician(id: string) {
-    const confirmed = window.confirm("Сигурни ли сте, че искате да изтриете този техник?");
-    if (!confirmed) return;
-
+  async function confirmDeleteTechnician(id: string) {
     await persistTechnicians(
       technicians.filter((item) => item.id !== id),
       "Техникът е изтрит."
     );
+    setDeleteDialog(null);
   }
 
+  function deleteTechnician(id: string) {
+    const technician = technicians.find((item) => item.id === id);
+    setDeleteDialog({
+      title: "Изтриване на техник",
+      itemLabel: technician?.name ? `техника ${technician.name}` : "този техник",
+      onConfirm: () => confirmDeleteTechnician(id),
+    });
+  }
   async function persistServiceCenters(next: ServiceCenterSetting[], message: string) {
     setSaving(true);
     try {
@@ -462,16 +474,22 @@ export default function SettingsPage() {
     );
   }
 
-  async function deleteServiceCenter(id: string) {
-    const confirmed = window.confirm("Сигурни ли сте, че искате да изтриете този сервиз?");
-    if (!confirmed) return;
-
+  async function confirmDeleteServiceCenter(id: string) {
     await persistServiceCenters(
       serviceCenters.filter((item) => item.id !== id),
       "Сервизът е изтрит."
     );
+    setDeleteDialog(null);
   }
 
+  function deleteServiceCenter(id: string) {
+    const serviceCenter = serviceCenters.find((item) => item.id === id);
+    setDeleteDialog({
+      title: "Изтриване на сервиз",
+      itemLabel: serviceCenter?.name ? `сервиза ${serviceCenter.name}` : "този сервиз",
+      onConfirm: () => confirmDeleteServiceCenter(id),
+    });
+  }
   async function addService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = newServiceName.trim();
@@ -571,10 +589,7 @@ export default function SettingsPage() {
     }
   }
 
-  async function deleteService(service: ServiceSetting) {
-    const confirmed = window.confirm("Сигурни ли сте, че искате да изтриете тази услуга?");
-    if (!confirmed) return;
-
+  async function confirmDeleteService(service: ServiceSetting) {
     setSaving(true);
     try {
       const supabase = createSupabaseBrowserClient();
@@ -607,11 +622,20 @@ export default function SettingsPage() {
 
       await loadServices();
       showToast("Услугата е изтрита.");
+      setDeleteDialog(null);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Грешка при изтриване на услугата.");
     } finally {
       setSaving(false);
     }
+  }
+  function deleteService(service: ServiceSetting) {
+    setDeleteDialog({
+      title: "Изтриване на услуга",
+      itemLabel: `услугата ${service.name}`,
+      details: "Ще бъдат изтрити и връзките към обекти и оферти.",
+      onConfirm: () => confirmDeleteService(service),
+    });
   }
 
   async function persistProtocols(next: ProtocolSettings, message: string) {
@@ -669,10 +693,7 @@ export default function SettingsPage() {
     );
   }
 
-  async function deleteCatalogValue(key: CatalogKey, value: string) {
-    const confirmed = window.confirm("Сигурни ли сте, че искате да изтриете тази стойност?");
-    if (!confirmed) return;
-
+  async function confirmDeleteCatalogValue(key: CatalogKey, value: string) {
     await persistProtocols(
       {
         ...protocols,
@@ -680,8 +701,16 @@ export default function SettingsPage() {
       },
       "Стойността е изтрита."
     );
+    setDeleteDialog(null);
   }
 
+  function deleteCatalogValue(key: CatalogKey, value: string) {
+    setDeleteDialog({
+      title: "Изтриване на стойност",
+      itemLabel: `стойността ${value}`,
+      onConfirm: () => confirmDeleteCatalogValue(key, value),
+    });
+  }
   async function saveCompany(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
@@ -1005,6 +1034,13 @@ export default function SettingsPage() {
           ) : null}
         </div>
       </div>
+      <DeleteConfirmDialog
+        dialog={deleteDialog}
+        busy={saving}
+        onCancel={() => {
+          if (!saving) setDeleteDialog(null);
+        }}
+      />
     </AppShell>
   );
 }
@@ -1093,3 +1129,7 @@ function EditableServiceCenter({
     </div>
   );
 }
+
+
+
+

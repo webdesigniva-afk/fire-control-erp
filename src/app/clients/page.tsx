@@ -18,6 +18,10 @@ import { AppShell } from "../../components/app-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import {
+  DeleteConfirmDialog,
+  type DeleteConfirmDialogState,
+} from "../../components/ui/delete-confirm-dialog";
 import { Input } from "../../components/ui/input";
 import { readServiceCenters } from "../../lib/settings";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
@@ -147,6 +151,8 @@ export default function ClientsPage() {
   >("loading");
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [deleteDialog, setDeleteDialog] =
+    useState<DeleteConfirmDialogState | null>(null);
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -358,13 +364,7 @@ export default function ClientsPage() {
     }
   }
 
-  async function handleDeleteClient(client: ClientProfile) {
-    const confirmed = window.confirm(
-      `Сигурни ли сте, че искате да изтриете клиента "${client.name}"? Това ще изтрие и свързаните му обекти.`
-    );
-
-    if (!confirmed) return;
-
+  async function deleteClient(client: ClientProfile) {
     setLoadState("deleting");
     setMessage("");
     setErrorMessage("");
@@ -377,6 +377,7 @@ export default function ClientsPage() {
         throw new Error(error.message || "Клиентът не беше изтрит");
       }
 
+      setDeleteDialog(null);
       setMessage("Клиентът е изтрит успешно");
       setSelectedClientId("");
       await loadClients();
@@ -386,6 +387,15 @@ export default function ClientsPage() {
       );
       setLoadState("error");
     }
+  }
+
+  function handleDeleteClient(client: ClientProfile) {
+    setDeleteDialog({
+      title: "Изтриване на клиент",
+      itemLabel: `клиента ${client.name}`,
+      details: "Това ще изтрие и свързаните му обекти.",
+      onConfirm: () => deleteClient(client),
+    });
   }
 
   return (
@@ -731,6 +741,13 @@ export default function ClientsPage() {
           </Card>
         </div>
       </div>
+      <DeleteConfirmDialog
+        dialog={deleteDialog}
+        busy={loadState === "deleting"}
+        onCancel={() => {
+          if (loadState !== "deleting") setDeleteDialog(null);
+        }}
+      />
     </AppShell>
   );
 }

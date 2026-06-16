@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   Clock3,
   FileText,
-  Flame,
   Loader2,
   QrCode,
   RefreshCw,
@@ -1109,19 +1108,10 @@ export default function DashboardPage() {
       title="Оперативен център"
       description="Оперативен преглед на проверки, проблеми, задачи и екипи"
       headerAction={
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" variant="outline" onClick={refreshDashboard}>
-            <RefreshCw className="h-4 w-4" />
-            Обнови
-          </Button>
-          <Link
-            href="/tasks"
-            className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-transparent bg-gradient-to-r from-red-600 via-red-500 to-orange-400 px-4 text-sm font-bold leading-none text-white shadow-[0_10px_24px_rgba(239,68,68,0.18)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(239,68,68,0.24)]"
-          >
-            <Flame className="h-4 w-4" />
-            Днешни задачи
-          </Link>
-        </div>
+        <Button type="button" variant="outline" onClick={refreshDashboard}>
+          <RefreshCw className="h-4 w-4" />
+          Обнови
+        </Button>
       }
     >
       <div className="space-y-6">

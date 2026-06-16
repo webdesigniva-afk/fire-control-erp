@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -7,6 +7,10 @@ import { ArrowLeft, Download, Frown, Meh, PenLine, Printer, Smile, Trash2 } from
 import { Badge } from "../../../../components/ui/badge";
 import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
+import {
+  DeleteConfirmDialog,
+  type DeleteConfirmDialogState,
+} from "../../../../components/ui/delete-confirm-dialog";
 import {
   deleteProtocolEverywhere,
   protocolsStorageKey,
@@ -121,7 +125,7 @@ const subscriptionChecklistRows: Array<{
 
 const printSlugByType: Record<string, string> = {
   "Абонаментно обслужване / профилактичен преглед": "subscription-service",
-  Пожарогасители: "extinguisher-handover",
+  "Пожарогасители": "extinguisher-handover",
   "Протокол за поддръжка на ПИС": "service-maintenance",
   "Сервизен протокол": "service-maintenance",
 };
@@ -370,6 +374,9 @@ export default function ProtocolViewPage() {
   const [loadState, setLoadState] = useState<"loading" | "loaded" | "missing">(
     "loading"
   );
+  const [deleteDialog, setDeleteDialog] =
+    useState<DeleteConfirmDialogState | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [previewId] = useState(() => {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
       return crypto.randomUUID();
@@ -476,21 +483,29 @@ export default function ProtocolViewPage() {
     [previewId, protocol]
   );
 
-  async function handleDeleteProtocol() {
+  async function deleteProtocol() {
     if (!protocol) return;
 
-    const confirmed = window.confirm(
-      `Сигурни ли сте, че искате да изтриете протокол "${protocol.number}"?`
-    );
-
-    if (!confirmed) return;
-
+    setIsDeleting(true);
     try {
       await deleteProtocolByNumber(protocol.number);
+      setDeleteDialog(null);
       router.push("/protocols");
     } catch (error) {
       window.alert(error instanceof Error ? error.message : "Неуспешно изтриване от базата.");
+    } finally {
+      setIsDeleting(false);
     }
+  }
+
+  function handleDeleteProtocol() {
+    if (!protocol) return;
+
+    setDeleteDialog({
+      title: "Изтриване на протокол",
+      itemLabel: `протокол ${protocol.number}`,
+      onConfirm: deleteProtocol,
+    });
   }
 
   function handlePrintProtocol() {
@@ -950,6 +965,14 @@ export default function ProtocolViewPage() {
           </footer>
         </Card>
       </div>
+      <DeleteConfirmDialog
+        dialog={deleteDialog}
+        busy={isDeleting}
+        onCancel={() => {
+          if (!isDeleting) setDeleteDialog(null);
+        }}
+      />
     </main>
   );
 }
+

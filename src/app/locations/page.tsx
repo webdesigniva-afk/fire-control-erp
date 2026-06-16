@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -20,6 +20,10 @@ import { AppShell } from "../../components/app-shell";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
+import {
+  DeleteConfirmDialog,
+  type DeleteConfirmDialogState,
+} from "../../components/ui/delete-confirm-dialog";
 import { Input } from "../../components/ui/input";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import { serviceTasksUpdatedEvent } from "../../lib/tasks";
@@ -44,10 +48,10 @@ type LocationListItem = {
 };
 
 const statusVariant = {
-  Изряден: "success",
-  Проблем: "danger",
-  Просрочен: "danger",
-  Неактивен: "neutral",
+  "Изряден": "success",
+  "Проблем": "danger",
+  "Просрочен": "danger",
+  "Неактивен": "neutral",
 } as const;
 
 function textValue(record: DataRecord | null | undefined, keys: string[]) {
@@ -166,6 +170,8 @@ export default function LocationsPage() {
   );
   const [deletingLocationId, setDeletingLocationId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [deleteDialog, setDeleteDialog] =
+    useState<DeleteConfirmDialogState | null>(null);
 
   const metrics = useMemo(() => {
     const total = locations.length;
@@ -345,13 +351,7 @@ export default function LocationsPage() {
     };
   }, []);
 
-  async function handleDeleteLocation(location: LocationListItem) {
-    const confirmed = window.confirm(
-      `Сигурни ли сте, че искате да изтриете обекта "${location.name}"?`
-    );
-
-    if (!confirmed) return;
-
+  async function deleteLocation(location: LocationListItem) {
     setDeletingLocationId(location.id);
     setErrorMessage("");
 
@@ -382,12 +382,21 @@ export default function LocationsPage() {
       setLocations((current) =>
         current.filter((item) => item.id !== location.id)
       );
+      setDeleteDialog(null);
     } catch {
       setErrorMessage("Грешка при връзка със Supabase");
       setLoadState("error");
     } finally {
       setDeletingLocationId("");
     }
+  }
+
+  function handleDeleteLocation(location: LocationListItem) {
+    setDeleteDialog({
+      title: "Изтриване на обект",
+      itemLabel: `обекта ${location.name}`,
+      onConfirm: () => deleteLocation(location),
+    });
   }
 
   const filterButtons: Array<{
@@ -646,6 +655,14 @@ export default function LocationsPage() {
           </Link>
         </div>
       ) : null}
+      <DeleteConfirmDialog
+        dialog={deleteDialog}
+        busy={Boolean(deletingLocationId)}
+        onCancel={() => {
+          if (!deletingLocationId) setDeleteDialog(null);
+        }}
+      />
     </AppShell>
   );
 }
+

@@ -178,7 +178,7 @@ function mapTaskRow(row: Record<string, unknown>): ServiceTask {
     protocolId: String(row["protocol_id"] ?? "") || undefined,
     title: String(row["title"] ?? ""),
     description: String(row["description"] ?? ""),
-    taskType: String(row["task_type"] ?? "") || "ÐŸÐ»Ð°Ð½Ð¸Ñ€Ð°Ð½Ð¾ Ð¿Ð¾ÑÐµÑ‰ÐµÐ½Ð¸Ðµ",
+    taskType: String(row["task_type"] ?? "") || "Планирано посещение",
     type: String(row["type"] ?? row["task_type"] ?? "") || undefined,
     activities: activities.length ? activities : fallbackActivity,
     objectCode: String(row["object_code"] ?? ""),
@@ -204,7 +204,7 @@ function mapProblemRow(row: Record<string, unknown>): Problem {
     id: String(row["id"] ?? ""),
     objectId: String(row["object_id"] ?? ""),
     protocolId: String(row["protocol_id"] ?? "") || undefined,
-    title: String(row["title"] ?? "") || "ÐŸÑ€Ð¾Ð±Ð»ÐµÐ¼",
+    title: String(row["title"] ?? "") || "Проблем",
     description: String(row["description"] ?? ""),
     severity: normalizeProblemSeverity(row["severity"]),
     status: normalizeProblemStatus(row["status"]),
@@ -221,7 +221,7 @@ function taskPayload(task: ServiceTask) {
     protocol_id: task.protocolId || task.sourceProtocolId || null,
     title: task.title || "",
     description: task.description || task.title || "",
-    task_type: task.taskType || "ÐŸÐ»Ð°Ð½Ð¸Ñ€Ð°Ð½Ð¾ Ð¿Ð¾ÑÐµÑ‰ÐµÐ½Ð¸Ðµ",
+    task_type: task.taskType || "Планирано посещение",
     activities: task.activities,
     object_code: task.objectCode,
     object_id: task.objectId || task.objectCode || null,
@@ -331,7 +331,7 @@ function mapTaskActivities(value: unknown): ServiceTaskActivity[] {
 }
 
 function describeActivities(activities: ServiceTaskActivity[]) {
-  return activities.map((activity) => `â€¢ ${activity.title}`).join("\n");
+  return activities.map((activity) => `• ${activity.title}`).join("\n");
 }
 
 function groupActivitiesByDueDate(
@@ -370,14 +370,14 @@ export function recurrenceMonthsFromPeriodicity(periodicity: string) {
     .replace(/\s+/g, " ")
     .trim();
 
-  if (normalized === "ÐµÐ¶ÐµÐ¼ÐµÑÐµÑ‡Ð½Ð¾") return 1;
+  if (normalized === "ежемесечно") return 1;
   if (
-    normalized === "Ð½Ð° Ñ‚Ñ€Ð¸ Ð¼ÐµÑÐµÑ†Ð°" ||
-    normalized === "Ð½Ð° Ñ‚Ñ€Ð¸ Ð¼ÐµÑÐµÑ†Ð° (3/6/9/12)"
+    normalized === "на три месеца" ||
+    normalized === "на три месеца (3/6/9/12)"
   ) {
     return 3;
   }
-  if (normalized === "Ð³Ð¾Ð´Ð¸ÑˆÐ½Ð¾" || normalized === "Ð³Ð¾Ð´Ð¸ÑˆÐ½Ð¾ (12)") return 12;
+  if (normalized === "годишно" || normalized === "годишно (12)") return 12;
 
   return 0;
 }
@@ -468,7 +468,7 @@ export async function updateServiceTaskStatus(
       await upsertServiceTask({
         title: completedTask.title,
         description: describeActivities(nextActivities),
-        taskType: completedTask.taskType || "ÐŸÐ»Ð°Ð½Ð¸Ñ€Ð°Ð½Ð¾ Ð¿Ð¾ÑÐµÑ‰ÐµÐ½Ð¸Ðµ",
+        taskType: completedTask.taskType || "Планирано посещение",
         activities: nextActivities,
         objectCode: completedTask.objectCode,
         objectId: completedTask.objectId,
@@ -702,7 +702,7 @@ export async function upsertDefectTask(
       .insert({
         object_id: task.objectId || task.objectCode || "",
         protocol_id: sourceProtocolId,
-        title: task.title || "ÐŸÑ€Ð¾Ð±Ð»ÐµÐ¼",
+        title: task.title || "Проблем",
         description: task.description || task.title || "",
         severity: "MEDIUM",
         status: "OPEN",
@@ -793,7 +793,7 @@ export async function clearPlannedSubscriptionTasksForObject(
 ) {
   const supabase = createSupabaseBrowserClient();
   const keys = Array.from(new Set(objectKeys.map((key) => key.trim()).filter(Boolean)));
-  const plannedTaskType = "ÐŸÐ»Ð°Ð½Ð¸Ñ€Ð°Ð½Ð¾ Ð¿Ð¾ÑÐµÑ‰ÐµÐ½Ð¸Ðµ";
+  const plannedTaskType = "Планирано посещение";
   const recurrenceMonths = new Set(
     recurrenceMonthValues.filter((value) => Number.isFinite(value) && value > 0)
   );
@@ -970,7 +970,7 @@ export async function upsertServiceTask(task: Omit<ServiceTask, "id" | "createdA
 }
 
 export function formatTaskDate(value: string) {
-  if (!value) return "Ð‘ÐµÐ· Ð´Ð°Ñ‚Ð°";
+  if (!value) return "Без дата";
   const [year, month, day] = value.split("-");
   return day && month && year ? `${day}.${month}.${year}` : value;
 }

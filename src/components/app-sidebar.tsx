@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -9,14 +9,14 @@ import {
   ChartNoAxesColumnIncreasing,
   ClipboardCheck,
   Flame,
+  Handshake,
   PanelLeft,
   PanelLeftClose,
   PanelLeftDashed,
   LayoutDashboard,
   MapPinned,
   Settings,
-  Users,
-  UsersRound,
+  UserCog,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,8 +33,8 @@ const sidebarStorageKey = "firecontrol-sidebar-mode";
 const menu: MenuItem[] = [
   { label: "Дашборд", href: "/dashboard", icon: LayoutDashboard },
   { label: "Продажби", href: "/sales", icon: ChartNoAxesColumnIncreasing },
-  { label: "Клиенти", href: "/clients", icon: Users },
-  { label: "Екип", href: "/team", icon: UsersRound },
+  { label: "Клиенти", href: "/clients", icon: Handshake },
+  { label: "Екип", href: "/team", icon: UserCog },
   { label: "Обекти", href: "/locations", icon: Building2 },
   { label: "Карта", href: "/map", icon: MapPinned },
   { label: "Задачи", href: "/tasks", icon: CalendarCheck },
@@ -173,3 +173,4 @@ export function AppSidebar() {
     </aside>
   );
 }
+
