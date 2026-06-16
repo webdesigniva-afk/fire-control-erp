@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 175" role="img" aria-labelledby="title">
+  <title id="title">FIREControl</title>
+  <defs>
+    <linearGradient id="flameOuter" x1="40" y1="10" x2="120" y2="150" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d20f17"/>
+      <stop offset="1" stop-color="#ff6b00"/>
+    </linearGradient>
+    <linearGradient id="flameInner" x1="70" y1="24" x2="108" y2="148" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff36a"/>
+      <stop offset="1" stop-color="#fff7df"/>
+    </linearGradient>
+    <linearGradient id="wordFire" x1="150" y1="30" x2="425" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d93628"/>
+      <stop offset="1" stop-color="#ef4b2d"/>
+    </linearGradient>
+    <linearGradient id="wordControl" x1="420" y1="35" x2="740" y2="140" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff6b00"/>
+      <stop offset="1" stop-color="#ff8500"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(22 4)">
+    <path d="M72 165c-34-15-53-43-51-75 2-32 22-52 39-70-3 18 0 31 12 43 2-29 18-50 42-63-9 30-5 48 14 67 19 19 23 43 11 66-12 23-35 32-67 32Z" fill="url(#flameOuter)"/>
+    <path d="M75 157c-25-11-39-30-38-52 2-22 15-36 28-50 0 21 7 34 21 43 1-25 9-43 27-57-3 28 4 43 18 59 11 12 12 29 2 41-11 14-29 19-58 16Z" fill="#fff1a0"/>
+    <path d="M81 154c-16-8-25-21-24-37 1-13 7-23 18-35 3 19 13 31 28 38-5-21 0-38 10-51 5 22 18 35 24 49 5 13-2 25-17 32-10 5-24 6-39 4Z" fill="url(#flameInner)"/>
+  </g>
+  <text x="150" y="135" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="92" font-weight="900" fill="url(#wordFire)" stroke="#b91c1c" stroke-width="1">FIRE</text>
+  <text x="382" y="135" font-family="Arial Black, Arial, Helvetica, sans-serif" font-size="92" font-weight="900" fill="url(#wordControl)">Control</text>
+</svg>

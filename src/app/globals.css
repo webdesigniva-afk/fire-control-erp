@@ -1,0 +1,201 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+:root {
+  --background: #f6f7f9;
+  --foreground: #111827;
+  --brand-orange: #f97316;
+  --brand-red: #dc2626;
+  --brand-amber: #f59e0b;
+  --surface: #ffffff;
+  --surface-muted: #f8fafc;
+  --border-subtle: #e5e7eb;
+  --border-strong: #cbd5e1;
+  --text-muted: #64748b;
+  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.04),
+    0 12px 32px rgba(15, 23, 42, 0.06);
+  --shadow-lift: 0 2px 5px rgba(15, 23, 42, 0.05),
+    0 18px 45px rgba(15, 23, 42, 0.1);
+  --ring-brand: 0 0 0 4px rgba(249, 115, 22, 0.14);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  outline-color: var(--brand-orange);
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a {
+  transition-property: color, background-color, border-color, box-shadow,
+    transform, opacity;
+  transition-duration: 180ms;
+  transition-timing-function: ease;
+}
+
+input,
+select,
+textarea {
+  transition-property: color, background-color, border-color, box-shadow;
+  transition-duration: 180ms;
+  transition-timing-function: ease;
+}
+
+::selection {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.leaflet-container {
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+.firecontrol-map-popup .leaflet-popup-content-wrapper {
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.14);
+}
+
+.firecontrol-map-popup .leaflet-popup-content {
+  margin: 12px;
+}
+
+.firecontrol-map-popup .leaflet-popup-tip {
+  box-shadow: none;
+}
+
+.app-shell table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.app-shell thead {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.app-shell th {
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+}
+
+.object-qr-card {
+  container-type: inline-size;
+}
+
+.object-qr-card__header {
+  align-items: stretch;
+}
+
+.object-qr-card__actions {
+  flex-shrink: 0;
+}
+
+@container (min-width: 700px) {
+  .object-qr-card__header {
+    align-items: flex-start;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+
+  .object-qr-card__actions {
+    flex-wrap: nowrap;
+    width: auto;
+  }
+}
+
+.app-shell tbody tr {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.app-shell tbody tr:hover {
+  background: #fff7ed;
+}
+
+.app-shell ::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.app-shell ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-shell ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+.app-shell ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .fire-sticker {
+    border-radius: 20px !important;
+    height: 120mm !important;
+    margin: 0 auto !important;
+    max-width: none !important;
+    width: 186mm !important;
+  }
+
+  body.print-object-passport {
+    background: #ffffff;
+  }
+
+  body.print-object-passport * {
+    visibility: hidden;
+  }
+
+  body.print-object-passport .object-passport-print,
+  body.print-object-passport .object-passport-print * {
+    visibility: visible;
+  }
+
+  body.print-object-passport .object-passport-print {
+    display: block !important;
+    left: 0;
+    margin: 0;
+    position: absolute;
+    top: 0;
+  }
+
+  @page {
+    margin: 6mm;
+    size: auto;
+  }
+}
