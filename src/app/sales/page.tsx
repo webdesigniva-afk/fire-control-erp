@@ -1078,14 +1078,14 @@ export default function SalesPage() {
 
   const newRecordButton = (
     <button type="button" onClick={() => setModalOpen(true)}
-      className="flex h-11 items-center gap-2 rounded-xl border border-transparent bg-gradient-to-r from-red-600 via-red-500 to-orange-400 px-4 text-sm font-bold text-white shadow-[0_10px_24px_rgba(239,68,68,0.18)] hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(239,68,68,0.24)] active:translate-y-0 sm:px-5">
-      <Plus size={18} />
+      className="flex h-9 items-center gap-2 rounded-xl border border-transparent bg-gradient-to-r from-red-600 via-red-500 to-orange-400 px-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(239,68,68,0.18)] transition hover:-translate-y-0.5 hover:shadow-[0_16px_32px_rgba(239,68,68,0.24)] active:translate-y-0">
+      <Plus size={16} />
       Нов запис
     </button>
   );
 
   return (
-    <AppShell title="Продажби" description="Търговски pipeline от първи контакт до активен договор" headerAction={newRecordButton}>
+    <AppShell title="Продажби" description="Търговски pipeline от първи контакт до активен договор">
       <div className="space-y-6">
         <Card className="p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1097,6 +1097,7 @@ export default function SalesPage() {
             </div>
             <div className="flex items-center gap-3">
               {loadState === "error" && <span className="text-sm font-bold text-red-600">Грешка при зареждане</span>}
+              {newRecordButton}
               <Link
                 href="/sales/archive"
                 className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-500 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
