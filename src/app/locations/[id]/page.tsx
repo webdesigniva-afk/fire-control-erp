@@ -1339,6 +1339,14 @@ function generatedEquipmentName(form: EquipmentFormState) {
       .join(" ");
   }
 
+  if (type === "Пожарен кран") {
+    return [type, normalizeDisplayPart(form.subtype)].filter(Boolean).join(" ");
+  }
+
+  if (type === "Димоотвеждане") {
+    return [type, normalizeDisplayPart(form.systemType)].filter(Boolean).join(" ");
+  }
+
   if (type === "Аварийно осветление") {
     return [type, normalizeDisplayPart(form.subtype)].filter(Boolean).join(" ");
   }
@@ -1352,6 +1360,22 @@ function isFireExtinguisherEquipment(item: EquipmentItem) {
     .toLowerCase();
 
   return haystack.includes("пожарогас") || haystack.includes("extinguisher");
+}
+
+function isFireHydrantEquipment(item: EquipmentItem) {
+  const haystack = [item.type, item.category, item.name]
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes("пожарен кран") || haystack.includes("fire-hydrant");
+}
+
+function isSmokeControlEquipment(item: EquipmentItem) {
+  const haystack = [item.type, item.category, item.name]
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes("димоотвеждане") || haystack.includes("smoke-control");
 }
 
 function extinguisherDisplayType(item: EquipmentItem) {
@@ -1370,12 +1394,20 @@ function extinguisherDisplayType(item: EquipmentItem) {
 
 function equipmentDetailRows(item: EquipmentItem) {
   const isExtinguisher = isFireExtinguisherEquipment(item);
+  const isHydrant = isFireHydrantEquipment(item);
+  const isSmokeControl = isSmokeControlEquipment(item);
   const rows: { label: string; value: string }[] = [
     { label: "Име", value: item.name },
     { label: "Тип оборудване", value: item.type },
   ];
 
-  if (item.subtype) {
+  if (isHydrant) {
+    if (item.subtype) rows.push({ label: "Тип кран", value: item.subtype });
+    if (item.capacity) {
+      rows.push({ label: "Дължина на шланга", value: item.capacity });
+    }
+    if (item.description) rows.push({ label: "Диаметър", value: item.description });
+  } else if (item.subtype && !isSmokeControl) {
     rows.push({
       label: item.type === "Аварийно осветление" ? "Тип" : "Вид / подтип",
       value: item.subtype,
@@ -1412,6 +1444,14 @@ function equipmentDetailRows(item: EquipmentItem) {
     if (item.totalDevices) rows.push({ label: "Брой спринклери", value: item.totalDevices });
     if (item.pumpGroup) rows.push({ label: "Помпена група", value: item.pumpGroup });
     if (item.pumpStationLocation) rows.push({ label: "Локация на помпената станция", value: item.pumpStationLocation });
+  }
+
+  if (item.type === "Димоотвеждане") {
+    if (item.systemType) rows.push({ label: "Тип", value: item.systemType });
+    if (item.subtype) rows.push({ label: "Люк", value: item.subtype });
+    if (item.capacity) rows.push({ label: "Вентилатор", value: item.capacity });
+    if (item.description) rows.push({ label: "Клапа", value: item.description });
+    if (item.totalDevices) rows.push({ label: "Брой", value: item.totalDevices });
   }
 
   if (item.brand) rows.push({ label: "Марка", value: item.brand });
@@ -2846,11 +2886,15 @@ function EquipmentTab() {
             ? form.systemAddress.trim() || null
             : null,
         system_type:
-          (form.type === "Пожароизвестителна централа" || form.type === "Спринклерна система")
+          (form.type === "Пожароизвестителна централа" ||
+            form.type === "Спринклерна система" ||
+            form.type === "Димоотвеждане")
             ? form.systemType.trim() || null
             : null,
         total_devices:
-          (form.type === "Пожароизвестителна централа" || form.type === "Спринклерна система") && form.totalDevices
+          (form.type === "Пожароизвестителна централа" ||
+            form.type === "Спринклерна система" ||
+            form.type === "Димоотвеждане") && form.totalDevices
             ? Number(form.totalDevices)
             : null,
         pump_group:
@@ -2992,6 +3036,8 @@ function EquipmentTab() {
     form.type === "Пожароизвестител" ||
     form.type === "Пожароизвестителна централа";
   const showDescription = form.type === "Спринклерна система";
+  const showHydrantFields = form.type === "Пожарен кран";
+  const showSmokeControlFields = form.type === "Димоотвеждане";
   const showCommonFields = Boolean(form.type);
 
   return (
@@ -3069,6 +3115,60 @@ function EquipmentTab() {
                   value={form.subtype}
                   onChange={(value) => updateForm("subtype", value)}
                 />
+              ) : null}
+
+              {showHydrantFields ? (
+                <>
+                  <EquipmentField
+                    label="Тип кран"
+                    value={form.subtype}
+                    placeholder="Стенен, вътрешен..."
+                    onChange={(value) => updateForm("subtype", value)}
+                  />
+                  <EquipmentField
+                    label="Дължина на шланга"
+                    value={form.capacity}
+                    placeholder="20 м"
+                    onChange={(value) => updateForm("capacity", value)}
+                  />
+                  <EquipmentField
+                    label="Диаметър"
+                    value={form.description}
+                    placeholder="DN 50"
+                    onChange={(value) => updateForm("description", value)}
+                  />
+                </>
+              ) : null}
+
+              {showSmokeControlFields ? (
+                <>
+                  <EquipmentField
+                    label="Тип"
+                    value={form.systemType}
+                    onChange={(value) => updateForm("systemType", value)}
+                  />
+                  <EquipmentField
+                    label="Люк"
+                    value={form.subtype}
+                    onChange={(value) => updateForm("subtype", value)}
+                  />
+                  <EquipmentField
+                    label="Вентилатор"
+                    value={form.capacity}
+                    onChange={(value) => updateForm("capacity", value)}
+                  />
+                  <EquipmentField
+                    label="Клапа"
+                    value={form.description}
+                    onChange={(value) => updateForm("description", value)}
+                  />
+                  <EquipmentField
+                    label="Брой"
+                    value={form.totalDevices}
+                    type="number"
+                    onChange={(value) => updateForm("totalDevices", value)}
+                  />
+                </>
               ) : null}
 
               {showDescription ? (
@@ -3339,7 +3439,9 @@ function EquipmentTab() {
               {equipmentDetailRows(viewingEquipment).map((row) => (
                 <EquipmentDetailRow key={row.label} label={row.label} value={row.value} />
               ))}
-              {viewingEquipment.description ? (
+              {viewingEquipment.description &&
+              !isFireHydrantEquipment(viewingEquipment) &&
+              !isSmokeControlEquipment(viewingEquipment) ? (
               <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2 lg:col-span-3">
                 <div className="text-xs font-black uppercase text-slate-400">
                   Описание
