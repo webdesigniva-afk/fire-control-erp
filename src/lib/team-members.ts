@@ -95,7 +95,7 @@ export async function readActiveTechnicianSignaturesFromTeamMembers() {
   const { data, error } = await supabase
     .from("team_members")
     .select("name,signature_url")
-    .eq("role", "Ð¢ÐµÑ…Ð½Ð¸Ðº")
+    .eq("role", "Техник")
     .eq("is_active", true)
     .order("name", { ascending: true });
 

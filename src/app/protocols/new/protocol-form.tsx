@@ -41,7 +41,6 @@ import { Input } from "../../../components/ui/input";
 import {
   defaultProtocolSettings,
   defaultCompanySettings,
-  readActiveTechnicianNames,
   readCompanySettings,
   readProtocolSettings,
   readServiceCenters,
@@ -51,7 +50,6 @@ import {
   type ProtocolSettings,
 } from "../../../lib/settings";
 import {
-  readActiveTechnicianNamesFromTeamMembers,
   readActiveTechnicianSignaturesFromTeamMembers,
 } from "../../../lib/team-members";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
@@ -2934,9 +2932,7 @@ export function ProtocolForm({
   const [selectedObjectCode, setSelectedObjectCode] = useState(
     initialObjectCode ?? qrObject?.code ?? ""
   );
-  const [technicianOptions, setTechnicianOptions] = useState(
-    legacyTechnicianOptions
-  );
+  const [technicianOptions, setTechnicianOptions] = useState<string[]>([]);
   const [technicianSignatures, setTechnicianSignatures] = useState<Record<string, string>>({});
   const [companySettings, setCompanySettings] = useState(defaultCompanySettings);
   const [selectedTechnician, setSelectedTechnician] = useState("");
@@ -2998,19 +2994,18 @@ export function ProtocolForm({
     let mounted = true;
 
     async function refreshTechnicianSettings() {
-      let activeTechnicians = readActiveTechnicianNames();
+      let activeTechnicians: string[] = [];
       let activeSignatures: Record<string, string> = {};
       try {
-        const teamTechnicians = await readActiveTechnicianNamesFromTeamMembers();
-        if (teamTechnicians.length) activeTechnicians = teamTechnicians;
         const teamSignatures = await readActiveTechnicianSignaturesFromTeamMembers();
+        activeTechnicians = teamSignatures.map((technician) => technician.name);
         activeSignatures = Object.fromEntries(
           teamSignatures
             .filter((technician) => technician.signature_url)
             .map((technician) => [technician.name, technician.signature_url as string])
         );
       } catch {
-        activeTechnicians = readActiveTechnicianNames();
+        activeTechnicians = [];
         activeSignatures = {};
       }
 
@@ -3033,6 +3028,9 @@ export function ProtocolForm({
 
       setTechnicianOptions(activeTechnicians);
       setTechnicianSignatures(activeSignatures);
+      setSelectedTechnician((current) =>
+        current && activeTechnicians.includes(current) ? current : ""
+      );
       setExtinguisherDropdowns({
         extinguisherBrands:
           protocolSettings.extinguisherBrands.length > 0
