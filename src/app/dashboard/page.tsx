@@ -336,6 +336,61 @@ function mapTask(row: DataRecord): ServiceTaskItem {
   };
 }
 
+function mapSalesFollowUpTask(row: DataRecord): ServiceTaskItem | null {
+  const id = textValue(row, ["id"]);
+  const dueDate = textValue(row, ["next_action_date"]);
+  if (!id || !dueDate) return null;
+
+  const company = textValue(row, ["company_name"]) || "Лийд";
+  const action = textValue(row, ["next_action"]) || "Следващо действие";
+
+  return {
+    id: `sales-${id}`,
+    title: action,
+    objectId: id,
+    objectCode: "",
+    objectName: textValue(row, ["object_name"]) || company,
+    client: company,
+    technician: "",
+    dueDate,
+    taskType: "Търговско проследяване",
+    status: "planned",
+    sourceProtocolId: id,
+    sourceProtocolType: "sales_lead",
+    sourceLabel: "Лийд",
+    updatedAt: textValue(row, ["updated_at", "created_at"]),
+    createdAt: Number(textValue(row, ["created_at_ms"])) || Date.parse(textValue(row, ["created_at"])) || 0,
+  };
+}
+
+async function selectSalesFollowUpRows() {
+  const supabase = createSupabaseBrowserClient();
+  const primaryResult = await supabase
+    .from("sales_opportunities")
+    .select("id,company_name,object_name,next_action,next_action_date,created_at,updated_at,archived")
+    .not("next_action_date", "is", null)
+    .or("archived.is.false,archived.is.null");
+  let data = primaryResult.data as DataRecord[] | null;
+  let error = primaryResult.error;
+
+  if (error) {
+    const fallbackResult = await supabase
+      .from("sales_opportunities")
+      .select("id,company_name,object_name,next_action,next_action_date,created_at,updated_at")
+      .not("next_action_date", "is", null);
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
+
+  if (error) {
+    console.warn("[dashboard] sales follow-up load failed", error.message);
+    return [];
+  }
+
+  return ((data as DataRecord[]) ?? []);
+}
+
 function mapProblem(row: DataRecord): ProblemItem {
   const severity = textValue(row, ["severity"]).toUpperCase();
   const status = textValue(row, ["status"]).toUpperCase();
@@ -433,6 +488,7 @@ async function loadDashboardData(): Promise<DashboardData> {
     locationRows,
     equipmentRows,
     taskRows,
+    salesFollowUpRows,
     problemRows,
     protocolRows,
     technicianRows,
@@ -440,6 +496,7 @@ async function loadDashboardData(): Promise<DashboardData> {
     selectRows("locations"),
     selectRows("equipment"),
     selectRows("service_tasks"),
+    selectSalesFollowUpRows(),
     selectRows("problems"),
     selectRows("protocols"),
     supabase
@@ -462,7 +519,10 @@ async function loadDashboardData(): Promise<DashboardData> {
     equipment: equipmentRows
       .filter((row) => row["archived"] !== true)
       .map(mapEquipment),
-    tasks: taskRows.map(mapTask),
+    tasks: [
+      ...taskRows.map(mapTask).filter((task) => task.sourceProtocolType !== "sales_lead"),
+      ...salesFollowUpRows.map(mapSalesFollowUpTask).filter((task): task is ServiceTaskItem => Boolean(task)),
+    ],
     problems: problemRows.map(mapProblem),
     protocols: protocolRows.map(mapProtocol),
     technicians: technicianRows.map(mapTechnicianMember).filter((item) => item.name && item.active),
@@ -842,6 +902,8 @@ export default function DashboardPage() {
     }
 
     function taskHasActiveDashboardContext(task: ServiceTaskItem) {
+      if (task.sourceProtocolType === "sales_lead") return true;
+
       const hasProtocolSource = Boolean(
         task.sourceProtocolId || task.sourceProtocolNumber || task.sourceLabel
       );
@@ -885,6 +947,10 @@ export default function DashboardPage() {
     );
 
     function objectHrefFromTask(task: ServiceTaskItem) {
+      if (task.sourceProtocolType === "sales_lead" && task.objectId) {
+        return `/sales/${encodeURIComponent(task.objectId)}`;
+      }
+
       const location = locationFromTask(task);
       const objectRef = location?.qrCode || task.objectCode || task.objectId;
 

@@ -325,7 +325,7 @@ export default function SalesArchivePage() {
   const deleteTarget = deleteTargetId ? items.find((i) => i.id === deleteTargetId) : null;
 
   return (
-    <AppShell title="Архив — Продажби" description="Архивирани търговски записи">
+    <AppShell title="Архив — Продажби" description="Архивирани търговски записи" showSearch={false}>
       <div className="space-y-6">
         {/* Header card */}
         <Card className="p-5">

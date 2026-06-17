@@ -34,6 +34,7 @@ import {
   serviceOptionName,
 } from "../../../lib/services";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
+import { serviceTasksUpdatedEvent } from "../../../lib/tasks";
 
 // Types
 type Stage = "lead" | "offer" | "order" | "contract";
@@ -53,12 +54,21 @@ type Opportunity = {
   next_action: string;
   next_action_date: string | null;
   notes: string;
+  created_at: string;
   last_activity_at: string;
   converted_to_service: boolean;
   converted_client_id: string | null;
   converted_object_id: string | null;
   archived: boolean;
-  services: string[];
+  hasOfferDraft: boolean;
+  hasContractDraft: boolean;
+  hasAcceptedContract: boolean;
+  services: OpportunityService[];
+};
+
+type OpportunityService = {
+  category: string;
+  name: string;
 };
 
 type ActivityLog = {
@@ -100,13 +110,12 @@ const NEXT_STAGE: Record<Stage, Stage | null> = {
 
 const NEXT_STAGE_BUTTON: Record<Stage, string> = {
   lead: "Преминаване към Оферта",
-  offer: "Преминаване към Поръчка",
+  offer: "Създай оферта",
   order: "Преминаване към Договор",
   contract: "—",
 };
 
 const NEXT_STAGE_STATUS: Partial<Record<Stage, string>> = {
-  offer: "Изпратена оферта",
   order: "Потвърден",
   contract: "Потвърден",
 };
@@ -114,6 +123,7 @@ const NEXT_STAGE_STATUS: Partial<Record<Stage, string>> = {
 const STATUS_VARIANT: Record<string, BadgeVariant> = {
   "Нов": "orange", "В контакт": "info", "Чака оферта": "warning",
   "Изпратена оферта": "orange", "Чака потвърждение": "warning",
+  "Запазена като чернова": "warning",
   "Потвърден": "success", "Отказан": "danger",
 };
 
@@ -162,6 +172,48 @@ function formatRelative(dateString: string): string {
   if (diffDays === 1) return "вчера";
   if (diffDays < 7) return `преди ${diffDays} дни`;
   return formatDate(dateString);
+}
+
+function parseServiceValue(value: string): OpportunityService {
+  const [category, ...rest] = value.split(" / ");
+  if (rest.length > 0) {
+    return { category: category.trim(), name: rest.join(" / ").trim() };
+  }
+  return { category: "", name: value.trim() };
+}
+
+function mapOpportunityService(row: { service_category?: string | null; service_name: string }): OpportunityService {
+  const category = String(row.service_category ?? "").trim();
+  const name = String(row.service_name ?? "").trim();
+  return category ? { category, name } : parseServiceValue(name);
+}
+
+function serviceFormValue(service: OpportunityService): string {
+  return service.category ? `${service.category} / ${service.name}` : service.name;
+}
+
+function serviceDisplayName(service: OpportunityService): string {
+  return service.category ? `${service.category} - ${service.name}` : service.name;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function groupServicesByCategory(services: OpportunityService[]) {
+  return services.reduce<Record<string, string[]>>((groups, service) => {
+    const category = service.category || "Други";
+    groups[category] = [...(groups[category] ?? []), service.name];
+    return groups;
+  }, {});
+}
+
+function displayOpportunityStatus(opportunity: Opportunity) {
+  if (opportunity.stage === "offer" && opportunity.hasOfferDraft) {
+    return "Запазена като чернова";
+  }
+
+  return opportunity.status;
 }
 
 // Sub-components
@@ -273,6 +325,57 @@ function ArchiveConfirmModal({
   );
 }
 
+function StartServiceConfirmModal({
+  companyName,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  companyName: string;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget && !loading) onCancel(); }}
+    >
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-black text-slate-950">Стартиране на обслужване</h2>
+            <p className="mt-0.5 text-xs font-semibold text-slate-500">{companyName}</p>
+          </div>
+          <button type="button" onClick={onCancel} disabled={loading}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="space-y-5 p-6">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold leading-6 text-emerald-900">
+            Ще бъде създаден клиент и обект в оперативната система.
+            <br />
+            Продължаване?
+          </div>
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Отказ</Button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={onConfirm}
+              className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-green-600 to-emerald-500 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md disabled:opacity-60"
+            >
+              {loading ? <Loader2 size={17} className="animate-spin" /> : <Play size={17} />}
+              Стартирай обслужване
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Edit Modal
 function EditModal({ open, opportunity, onClose, onSaved }: {
   open: boolean; opportunity: Opportunity; onClose: () => void;
@@ -290,7 +393,7 @@ function EditModal({ open, opportunity, onClose, onSaved }: {
       next_action: opp.next_action,
       next_action_date: opp.next_action_date ?? "",
       notes: opp.notes,
-      services: [...opp.services],
+      services: opp.services.map(serviceFormValue),
     };
   }
 
@@ -366,14 +469,27 @@ function EditModal({ open, opportunity, onClose, onSaved }: {
       await supabase.from("sales_opportunity_services").delete().eq("opportunity_id", opportunity.id);
       if (form.services.length > 0) {
         await supabase.from("sales_opportunity_services").insert(
-          form.services.map((service_name) => ({ opportunity_id: opportunity.id, service_name }))
+          form.services.map((value) => {
+            const service = parseServiceValue(value);
+            return {
+              opportunity_id: opportunity.id,
+              service_category: service.category,
+              service_name: service.name,
+            };
+          })
         );
       }
       await supabase.from("sales_activity_logs").insert({
         opportunity_id: opportunity.id, type: "note",
         title: "Запис редактиран", description: "Данните по записа са обновени.",
       });
-      onSaved({ ...opportunity, ...form, next_action_date: form.next_action_date || null, services: form.services });
+      onSaved({
+        ...opportunity,
+        ...form,
+        next_action_date: form.next_action_date || null,
+        services: form.services.map(parseServiceValue),
+      });
+      window.dispatchEvent(new Event(serviceTasksUpdatedEvent));
       onClose();
     } catch (err) { setError(err instanceof Error ? err.message : "Неочаквана грешка."); setSaving(false); }
   }
@@ -485,6 +601,7 @@ export default function SalesDealPage() {
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [movingStage, setMovingStage] = useState(false);
   const [startingService, setStartingService] = useState(false);
+  const [startServiceOpen, setStartServiceOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -499,10 +616,10 @@ export default function SalesDealPage() {
     setLoadState("loading");
     try {
       const supabase = createSupabaseBrowserClient();
-      const [oppResult, logsResult] = await Promise.all([
+      const [oppResult, logsResult, offerDraftResult, contractDraftResult] = await Promise.all([
         supabase
           .from("sales_opportunities")
-          .select("*, sales_opportunity_services(service_name)")
+          .select("*, sales_opportunity_services(service_category, service_name)")
           .eq("id", id)
           .maybeSingle(),
         supabase
@@ -510,6 +627,18 @@ export default function SalesDealPage() {
           .select("*")
           .eq("opportunity_id", id)
           .order("created_at", { ascending: false }),
+        supabase
+          .from("saved_documents")
+          .select("id")
+          .eq("id", `offer-${id}`)
+          .eq("kind", "offer")
+          .maybeSingle(),
+        supabase
+          .from("saved_documents")
+          .select("id, payload")
+          .eq("id", `contract-${id}`)
+          .eq("kind", "contract")
+          .maybeSingle(),
       ]);
       if (oppResult.error) { setLoadState("error"); return; }
       if (!oppResult.data) { setLoadState("not-found"); return; }
@@ -528,13 +657,18 @@ export default function SalesDealPage() {
         next_action: String(row.next_action ?? ""),
         next_action_date: row.next_action_date ? String(row.next_action_date) : null,
         notes: String(row.notes ?? ""),
+        created_at: String(row.created_at ?? row.created_at_ms ?? row.last_activity_at ?? new Date().toISOString()),
         last_activity_at: String(row.last_activity_at ?? new Date().toISOString()),
         converted_to_service: Boolean(row.converted_to_service),
         converted_client_id: row.converted_client_id ? String(row.converted_client_id) : null,
         converted_object_id: row.converted_object_id ? String(row.converted_object_id) : null,
         archived: Boolean(row.archived),
+        hasOfferDraft: Boolean(offerDraftResult.data),
+        hasContractDraft: Boolean(contractDraftResult.data),
+        hasAcceptedContract: (isRecord(contractDraftResult.data?.payload) && contractDraftResult.data.payload.status === "accepted") || String(row.status ?? "") === "Потвърден",
         services: Array.isArray(row.sales_opportunity_services)
-          ? (row.sales_opportunity_services as { service_name: string }[]).map((s) => s.service_name)
+          ? (row.sales_opportunity_services as { service_category?: string | null; service_name: string }[])
+              .map(mapOpportunityService)
           : [],
       });
       setActivityLogs(
@@ -610,10 +744,6 @@ export default function SalesDealPage() {
 
   async function handleStartService() {
     if (!opportunity || startingService) return;
-    const confirmed = window.confirm(
-      `Стартиране на обслужване за "${opportunity.company_name}".\n\nЩе бъде създаден клиент и обект в оперативната система.\nПродължаване?`
-    );
-    if (!confirmed) return;
     setStartingService(true);
     try {
       const supabase = createSupabaseBrowserClient();
@@ -648,7 +778,7 @@ export default function SalesDealPage() {
           address: opportunity.object_address.trim(),
           region: "",
           status: "изряден",
-          service: opportunity.services.join(", "),
+          service: opportunity.services.map(serviceDisplayName).join(", "),
         })
         .select("id, qr_code").single();
       if (locationError || !newLocation) { showToast("Грешка при създаване на обект.", "error"); return; }
@@ -664,6 +794,7 @@ export default function SalesDealPage() {
         title: "Стартирано обслужване",
         description: `Създаден е клиент и обект: ${opportunity.company_name} / ${opportunity.object_name || opportunity.company_name}`,
       });
+      setStartServiceOpen(false);
       router.push(`/locations/${encodeURIComponent(String(newLocation.qr_code))}`);
     } catch { showToast("Неочаквана грешка. Моля опитайте отново.", "error"); setStartingService(false); }
   }
@@ -671,7 +802,7 @@ export default function SalesDealPage() {
   // Render states
   if (loadState === "loading") {
     return (
-      <AppShell title="Продажби" description="Зареждане...">
+      <AppShell title="Продажби" description="Зареждане..." showSearch={false}>
         <div className="flex h-64 items-center justify-center">
           <Loader2 size={32} className="animate-spin text-orange-500" />
         </div>
@@ -681,7 +812,7 @@ export default function SalesDealPage() {
 
   if (loadState === "not-found") {
     return (
-      <AppShell title="Продажби" description="Записът не е намерен">
+      <AppShell title="Продажби" description="Записът не е намерен" showSearch={false}>
         <Card className="p-8 text-center">
           <p className="text-lg font-black text-slate-600">Записът не е намерен.</p>
           <Link href="/sales" className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-orange-600 hover:text-orange-700">
@@ -694,7 +825,7 @@ export default function SalesDealPage() {
 
   if (loadState === "error" || !opportunity) {
     return (
-      <AppShell title="Продажби" description="Грешка">
+      <AppShell title="Продажби" description="Грешка" showSearch={false}>
         <Card className="p-8 text-center">
           <p className="text-lg font-black text-red-600">Грешка при зареждане.</p>
           <button onClick={loadData} className="mt-4 text-sm font-bold text-orange-600 hover:text-orange-700">Опитай отново</button>
@@ -705,9 +836,11 @@ export default function SalesDealPage() {
 
   const nextStage = NEXT_STAGE[opportunity.stage];
   const isContract = opportunity.stage === "contract";
+  const servicesByCategory = groupServicesByCategory(opportunity.services);
+  const visibleStatus = displayOpportunityStatus(opportunity);
 
   return (
-    <AppShell title="Продажби" description="Пълна търговска възможност и подготовка за оперативен процес">
+    <AppShell title="Продажби" description="Пълна търговска възможност и подготовка за оперативен процес" showSearch={false}>
       <div className="space-y-6">
         <PageHeader
           title={opportunity.company_name}
@@ -727,20 +860,28 @@ export default function SalesDealPage() {
                 <Archive size={18} />
                 Архивирай
               </button>
-              <Link href={`/sales/offer/${opportunity.id}`} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-5 text-sm font-black text-orange-700 transition hover:bg-orange-100">
-                <FileText size={18} />
-                Генерирай оферта
-              </Link>
-              {nextStage && (
+              {opportunity.stage === "offer" && (
+                <Link href={`/sales/offer/${opportunity.id}`} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-5 text-sm font-black text-orange-700 transition hover:bg-orange-100">
+                  <FileText size={18} />
+                  {opportunity.hasOfferDraft ? "Отвори чернова" : "Създай оферта"}
+                </Link>
+              )}
+              {opportunity.stage === "contract" && (
+                <Link href={`/sales/contract/${opportunity.id}`} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-5 text-sm font-black text-orange-700 transition hover:bg-orange-100">
+                  <FileText size={18} />
+                  {opportunity.hasContractDraft ? "Отвори договор" : "Създай договор"}
+                </Link>
+              )}
+              {nextStage && opportunity.stage !== "offer" && (
                 <button type="button" disabled={movingStage} onClick={handleMoveStage}
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md disabled:opacity-60">
                   {movingStage ? <Loader2 size={18} className="animate-spin" /> : <ArrowRight size={18} />}
                   {NEXT_STAGE_BUTTON[opportunity.stage]}
                 </button>
               )}
-              {isContract && !opportunity.converted_to_service && (
-                <button type="button" disabled={startingService} onClick={handleStartService}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-green-600 to-emerald-500 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md disabled:opacity-60">
+              {isContract && opportunity.hasAcceptedContract && !opportunity.converted_to_service && (
+                <button type="button" disabled={startingService} onClick={() => setStartServiceOpen(true)}
+                  className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-green-600 to-emerald-500 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md disabled:opacity-60">
                   {startingService ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
                   Стартирай обслужване
                 </button>
@@ -793,7 +934,7 @@ export default function SalesDealPage() {
             <div className="mt-4 space-y-3">
               <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
                 <div className="text-xs font-black uppercase tracking-wide text-slate-400">Статус</div>
-                <Badge variant={STATUS_VARIANT[opportunity.status] ?? "neutral"}>{opportunity.status}</Badge>
+                <Badge variant={STATUS_VARIANT[visibleStatus] ?? "warning"}>{visibleStatus}</Badge>
               </div>
               <div className="rounded-2xl bg-orange-50 px-4 py-3">
                 <div className="text-xs font-black uppercase tracking-wide text-orange-500/70">Следващо действие</div>
@@ -809,6 +950,10 @@ export default function SalesDealPage() {
                 <div className="text-xs font-black uppercase tracking-wide text-slate-400">Последна активност</div>
                 <div className="mt-1 text-sm font-bold text-slate-700">{formatRelative(opportunity.last_activity_at)}</div>
               </div>
+              <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-400">Дата на създаване</div>
+                <div className="mt-1 text-sm font-bold text-slate-700">{formatDate(opportunity.created_at)}</div>
+              </div>
             </div>
           </Card>
         </div>
@@ -816,8 +961,17 @@ export default function SalesDealPage() {
         {opportunity.services.length > 0 && (
           <Card className="p-5">
             <h2 className="text-lg font-black">Услуги</h2>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {opportunity.services.map((s) => <ServiceTag key={s} name={s} />)}
+            <div className="mt-4 space-y-3">
+              {Object.entries(servicesByCategory).map(([category, services]) => (
+                <div key={category} className="rounded-2xl bg-slate-50 p-4">
+                  <div className="text-xs font-black uppercase tracking-wide text-slate-400">{category}</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {services.map((service) => (
+                      <ServiceTag key={`${category}-${service}`} name={service} />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </Card>
         )}
@@ -877,6 +1031,15 @@ export default function SalesDealPage() {
           archiving={archiving}
           onConfirm={handleArchive}
           onCancel={() => { if (!archiving) setArchiveOpen(false); }}
+        />
+      )}
+
+      {startServiceOpen && opportunity && (
+        <StartServiceConfirmModal
+          companyName={opportunity.company_name}
+          loading={startingService}
+          onConfirm={handleStartService}
+          onCancel={() => { if (!startingService) setStartServiceOpen(false); }}
         />
       )}
 

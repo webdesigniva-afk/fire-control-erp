@@ -17,6 +17,11 @@ import {
   updateServiceTaskStatus,
 } from "../../lib/tasks";
 
+type TaskListItem = ServiceTask & {
+  href?: string;
+  sourceKind?: "service" | "sales";
+};
+
 function normalizedTaskType(task: ServiceTask) {
   return (task.type || task.taskType || "").trim().toLowerCase();
 }
@@ -30,7 +35,15 @@ function isProblemTask(task: ServiceTask) {
   return type === "problem" || type === "defect" || Boolean(task.relatedProblemId);
 }
 
-function isCompletedTask(task: ServiceTask) {
+function isSalesTask(task: TaskListItem | ServiceTask) {
+  return "sourceKind" in task && task.sourceKind === "sales";
+}
+
+function isCompletedTask(task: TaskListItem, todayKey = dateKey(new Date())) {
+  if (isSalesTask(task)) {
+    return Boolean(task.dueDate && task.dueDate < todayKey);
+  }
+
   const status = normalizedTaskStatus(task);
   return status === "completed" || status === "done" || status === "resolved";
 }
@@ -89,22 +102,107 @@ function taskBelongsToExistingLocation(task: ServiceTask, locationIdentifiers: S
   return taskIdentifiers.some((value) => locationIdentifiers.has(value));
 }
 
+function mapSalesFollowUp(row: Record<string, unknown>): TaskListItem | null {
+  const id = String(row.id ?? "");
+  const dueDate = String(row.next_action_date ?? "");
+  if (!id || !dueDate) return null;
+
+  const company = String(row.company_name ?? "").trim();
+  const action = String(row.next_action ?? "").trim() || "Следващо действие";
+  const objectName = String(row.object_name ?? "").trim();
+  const contactName = String(row.contact_name ?? "").trim();
+  const phone = String(row.phone ?? "").trim();
+
+  return {
+    id: `sales-${id}`,
+    title: `${action}${company ? `: ${company}` : ""}`,
+    description: [
+      company ? `Лийд: ${company}` : "",
+      contactName ? `Контакт: ${contactName}` : "",
+      phone ? `Телефон: ${phone}` : "",
+    ].filter(Boolean).join("\n"),
+    taskType: "Търговско проследяване",
+    type: "sales_follow_up",
+    activities: [{ row: "", title: action, description: "", recurrenceMonths: 0 }],
+    objectCode: "",
+    objectId: id,
+    objectName: objectName || company || "Лийд",
+    client: company,
+    dueDate,
+    sourceProtocolId: id,
+    sourceProtocolType: "sales_lead",
+    sourceLabel: "Лийд",
+    status: "planned",
+    createdAt: Date.parse(String(row.created_at ?? "")) || 0,
+    href: `/sales/${id}`,
+    sourceKind: "sales",
+  };
+}
+
+async function readSalesFollowUpTasks() {
+  const supabase = createSupabaseBrowserClient();
+  const primaryResult = await supabase
+    .from("sales_opportunities")
+    .select("id,company_name,contact_name,phone,object_name,next_action,next_action_date,created_at,archived")
+    .not("next_action_date", "is", null)
+    .or("archived.is.false,archived.is.null")
+    .order("next_action_date", { ascending: true });
+  let data = primaryResult.data as Record<string, unknown>[] | null;
+  let error = primaryResult.error;
+
+  if (error) {
+    const fallbackResult = await supabase
+      .from("sales_opportunities")
+      .select("id,company_name,contact_name,phone,object_name,next_action,next_action_date,created_at")
+      .not("next_action_date", "is", null)
+      .order("next_action_date", { ascending: true });
+
+    data = fallbackResult.data;
+    error = fallbackResult.error;
+  }
+
+  if (error) throw new Error(error.message);
+  return ((data as Record<string, unknown>[]) ?? [])
+    .map(mapSalesFollowUp)
+    .filter((task): task is TaskListItem => Boolean(task));
+}
+
 export default function TasksPage() {
-  const [tasks, setTasks] = useState<ServiceTask[]>([]);
+  const [tasks, setTasks] = useState<TaskListItem[]>([]);
   const [periodFilter, setPeriodFilter] = useState("upcoming");
   const [statusFilter, setStatusFilter] = useState("active");
 
   useEffect(() => {
     async function refreshTasks() {
+      let dbTasks: ServiceTask[] = [];
+      let locationIdentifiers = new Set<string>();
+      let salesTasks: TaskListItem[] = [];
+
       try {
-        const [dbTasks, locationIdentifiers] = await Promise.all([
-          readServiceTasksFromSupabase(),
-          readExistingLocationIdentifiers(),
-        ]);
-        setTasks(dbTasks.filter((task) => taskBelongsToExistingLocation(task, locationIdentifiers)));
+        dbTasks = await readServiceTasksFromSupabase();
       } catch {
-        setTasks(readServiceTasks());
+        dbTasks = readServiceTasks();
       }
+
+      try {
+        locationIdentifiers = await readExistingLocationIdentifiers();
+      } catch {
+        locationIdentifiers = new Set<string>();
+      }
+
+      try {
+        salesTasks = await readSalesFollowUpTasks();
+      } catch {
+        salesTasks = [];
+      }
+
+      setTasks([
+        ...dbTasks.filter((task) =>
+          task.sourceProtocolType !== "sales_lead" &&
+          taskBelongsToExistingLocation(task, locationIdentifiers)
+        ),
+        ...salesTasks,
+      ]);
     }
 
     void refreshTasks();
@@ -124,7 +222,7 @@ export default function TasksPage() {
 
     return tasks
       .filter((task) => {
-        const completed = isCompletedTask(task);
+        const completed = isCompletedTask(task, today);
         const problem = isProblemTask(task);
         const dueDate = task.dueDate || "";
 
@@ -145,10 +243,25 @@ export default function TasksPage() {
   }, [periodFilter, statusFilter, tasks]);
 
   async function completeTask(taskId: string) {
+    const task = tasks.find((item) => item.id === taskId);
     const nextTasks = tasks.map((task) =>
       task.id === taskId ? { ...task, status: "COMPLETED" as const } : task
     );
     setTasks(nextTasks);
+
+    if (task?.sourceKind === "sales" && task.objectId) {
+      const supabase = createSupabaseBrowserClient();
+      await supabase
+        .from("sales_opportunities")
+        .update({
+          next_action_date: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", task.objectId);
+      window.dispatchEvent(new Event(serviceTasksUpdatedEvent));
+      return;
+    }
+
     await updateServiceTaskStatus(taskId, "COMPLETED");
   }
 
@@ -277,73 +390,112 @@ export default function TasksPage() {
 
         {plannedTasks.length ? (
           <div className="space-y-3">
-            {plannedTasks.map((task) => (
-              <Card key={task.id} className="p-5" hover>
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-                        <ClipboardCheck size={18} />
-                      </div>
-                      <div>
-                        <h3 className="font-black text-slate-950">
-                          {taskDisplayTitle(task)}
-                        </h3>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <Badge variant={isProblemTask(task) ? "danger" : "neutral"}>
-                            {taskTypeLabel(task)}
-                          </Badge>
-                          <Badge variant="neutral">{String(task.status)}</Badge>
+            {plannedTasks.map((task) => {
+              if (isSalesTask(task)) {
+                return (
+                  <Card key={task.id} className="p-5" hover>
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                          <ClipboardCheck size={18} />
                         </div>
-                        <p className="mt-1 text-sm font-black text-slate-600">
-                          Дейности: {task.activities?.length || 1}
-                        </p>
-                        <ul className="mt-2 space-y-1 text-sm font-medium leading-6 text-slate-500">
-                          {(task.activities?.length
-                            ? task.activities
-                            : [{ title: task.title }]
-                          ).map((activity, index) => (
-                            <li key={`${task.id}-${index}`} className="flex gap-2">
-                              <span className="text-orange-500">•</span>
-                              <span>{activity.title}</span>
-                            </li>
-                          ))}
-                        </ul>
-                        <p className="mt-2 text-sm font-medium text-slate-500">
-                          {task.objectName || "Обект"} · {task.client || "Клиент"}
-                        </p>
-                        {task.sourceLabel || task.sourceProtocolNumber ? (
-                          <p className="mt-1 text-xs font-black uppercase text-slate-400">
-                            {task.sourceLabel ||
-                              `Протокол №${task.sourceProtocolNumber}`}
+                        <div className="min-w-0">
+                          <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                            Лийд
+                          </div>
+                          <h3 className="mt-1 font-black text-slate-950">
+                            {task.activities[0]?.title || task.taskType || "Следващо действие"}
+                          </h3>
+                          <p className="mt-1 text-sm font-semibold text-slate-500">
+                            {task.client || task.objectName || "Без фирма"}
                           </p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Badge variant="warning">{formatTaskDate(task.dueDate)}</Badge>
+                        {task.href ? (
+                          <Link
+                            href={task.href}
+                            className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                          >
+                            Отвори лийд
+                          </Link>
                         ) : null}
                       </div>
                     </div>
-                  </div>
+                  </Card>
+                );
+              }
 
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <Badge variant="warning">{formatTaskDate(task.dueDate)}</Badge>
-                    {task.objectCode ? (
-                      <Link
-                        href={`/locations/${encodeURIComponent(task.objectCode)}`}
-                        className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+              return (
+                <Card key={task.id} className="p-5" hover>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                          <ClipboardCheck size={18} />
+                        </div>
+                        <div>
+                          <h3 className="font-black text-slate-950">
+                            {taskDisplayTitle(task)}
+                          </h3>
+                          <div className="mt-1 flex flex-wrap items-center gap-2">
+                            <Badge variant={isProblemTask(task) ? "danger" : "neutral"}>
+                              {taskTypeLabel(task)}
+                            </Badge>
+                            <Badge variant="neutral">{String(task.status)}</Badge>
+                          </div>
+                          <p className="mt-1 text-sm font-black text-slate-600">
+                            Дейности: {task.activities?.length || 1}
+                          </p>
+                          <ul className="mt-2 space-y-1 text-sm font-medium leading-6 text-slate-500">
+                            {(task.activities?.length
+                              ? task.activities
+                              : [{ title: task.title }]
+                            ).map((activity, index) => (
+                              <li key={`${task.id}-${index}`} className="flex gap-2">
+                                <span className="text-orange-500">•</span>
+                                <span>{activity.title}</span>
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="mt-2 text-sm font-medium text-slate-500">
+                            {task.objectName || "Обект"} · {task.client || "Клиент"}
+                          </p>
+                          {task.sourceLabel || task.sourceProtocolNumber ? (
+                            <p className="mt-1 text-xs font-black uppercase text-slate-400">
+                              {task.sourceLabel ||
+                                `Протокол №${task.sourceProtocolNumber}`}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <Badge variant="warning">{formatTaskDate(task.dueDate)}</Badge>
+                      {task.objectCode ? (
+                        <Link
+                          href={`/locations/${encodeURIComponent(task.objectCode)}`}
+                          className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                        >
+                          Отвори обект
+                        </Link>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => completeTask(task.id)}
                       >
-                        Отвори обект
-                      </Link>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => completeTask(task.id)}
-                    >
-                      <CheckCircle2 size={17} />
-                      Завърши
-                    </Button>
+                        <CheckCircle2 size={17} />
+                        Завърши
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
           </div>
         ) : (
           <Card className="p-8 text-center">

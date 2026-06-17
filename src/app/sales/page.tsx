@@ -9,6 +9,7 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
+  FileText,
   Flame,
   Loader2,
   MoveRight,
@@ -51,10 +52,14 @@ type Opportunity = {
   next_action: string;
   next_action_date: string | null;
   notes: string;
+  created_at: string;
   last_activity_at: string;
   converted_to_service: boolean;
   archived: boolean;
-  services: string[];
+  hasOfferDraft: boolean;
+  hasContractDraft: boolean;
+  hasAcceptedContract: boolean;
+  services: OpportunityService[];
 };
 
 type NewLeadForm = {
@@ -75,6 +80,7 @@ type NewLeadForm = {
 type Toast = { id: string; message: string; type: "success" | "error" };
 type DuplicateMatch = { id: string; label: string; href: string; source: "client" | "lead" };
 type LeadSelectedService = { category: string; service: string };
+type OpportunityService = { category: string; name: string };
 
 // Constants
 const STAGES: { key: Stage; label: string; accent: string }[] = [
@@ -97,13 +103,12 @@ const NEXT_STAGE: Record<Stage, Stage | null> = {
 
 const NEXT_STAGE_LABEL: Record<Stage, string> = {
   lead:     "Към оферта",
-  offer:    "Към поръчка",
+  offer:    "Създай оферта",
   order:    "Към договор",
   contract: "—",
 };
 
 const NEXT_STAGE_STATUS: Partial<Record<Stage, string>> = {
-  offer:    "Изпратена оферта",
   order:    "Потвърден",
   contract: "Потвърден",
 };
@@ -120,6 +125,7 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   "В контакт":         "info",
   "Чака оферта":       "warning",
   "Изпратена оферта":  "orange",
+  "Запазена като чернова": "warning",
   "Чака потвърждение": "warning",
   "Потвърден":         "success",
   "Отказан":           "danger",
@@ -192,8 +198,68 @@ function formatRelative(dateString: string): string {
   return date.toLocaleDateString("bg-BG");
 }
 
+function formatDate(dateString: string): string {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("bg-BG");
+}
+
+function parseServiceValue(value: string): OpportunityService {
+  const [category, ...rest] = value.split(" / ");
+  if (rest.length > 0) {
+    return { category: category.trim(), name: rest.join(" / ").trim() };
+  }
+  return { category: "", name: value.trim() };
+}
+
+function mapOpportunityService(row: { service_category?: string | null; service_name: string }): OpportunityService {
+  const category = String(row.service_category ?? "").trim();
+  const name = String(row.service_name ?? "").trim();
+  return category ? { category, name } : parseServiceValue(name);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function compactServiceCategory(category: string): string {
+  const normalized = category.trim().toLowerCase();
+  if (normalized === "противопожарно оборудване и сервиз") return "ПОС";
+  if (normalized === "пожароизвестителни системи") return "ПС";
+  return category;
+}
+
+function groupedServiceLabels(services: OpportunityService[]): string[] {
+  const grouped = services.reduce<Record<string, string[]>>((acc, service) => {
+    if (!service.category) {
+      acc[service.name] = acc[service.name] ?? [];
+      return acc;
+    }
+
+    const category = compactServiceCategory(service.category);
+    acc[category] = uniqueValues([...(acc[category] ?? []), service.name]);
+    return acc;
+  }, {});
+
+  return Object.entries(grouped).map(([category, names]) =>
+    names.length > 0 ? `${category} - ${names.join(", ")}` : category
+  );
+}
+
+function serviceDisplayName(service: OpportunityService): string {
+  return service.category ? `${service.category} - ${service.name}` : service.name;
+}
+
 function statusVariant(status: string): BadgeVariant {
   return STATUS_VARIANT[status] ?? "neutral";
+}
+
+function displayOpportunityStatus(opportunity: Opportunity) {
+  if (opportunity.stage === "offer" && opportunity.hasOfferDraft) {
+    return "Запазена като чернова";
+  }
+
+  return opportunity.status;
 }
 
 function uniqueValues(values: string[]) {
@@ -313,23 +379,31 @@ function SectionHeader({
 function PipelineCard({
   item,
   onMoveStage,
+  onStartService,
   movingId,
+  startingServiceId,
   onArchive,
 }: {
   item: Opportunity;
   onMoveStage: (id: string, nextStage: Stage) => void;
+  onStartService: (item: Opportunity) => void;
   movingId: string;
+  startingServiceId: string;
   onArchive: (id: string) => void;
 }) {
   const nextStage = NEXT_STAGE[item.stage];
+  const visibleStatus = displayOpportunityStatus(item);
+  const shouldShowStatus = !(item.stage === "offer" && item.status === "Изпратена оферта" && !item.hasOfferDraft);
   return (
     <Card hover className="p-4">
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0">
           <h3 className="font-black text-slate-950 leading-5">{item.company_name}</h3>
+          {shouldShowStatus ? (
           <div className="mt-2">
-            <Badge variant={statusVariant(item.status)}>{item.status}</Badge>
+            <Badge variant={statusVariant(visibleStatus)}>{visibleStatus}</Badge>
           </div>
+          ) : null}
         </div>
         <button
           type="button"
@@ -359,6 +433,10 @@ function PipelineCard({
             <span className="font-bold truncate">{item.object_name}</span>
           </div>
         )}
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <CalendarClock size={13} className="shrink-0" />
+          <span className="font-semibold">Създаден: {formatDate(item.created_at)}</span>
+        </div>
       </div>
       {item.services.length > 0 && (
         <div className="mt-3 rounded-2xl bg-slate-50 p-3">
@@ -366,14 +444,23 @@ function PipelineCard({
             Услуги
           </div>
           <div className="flex flex-wrap gap-1">
-            {item.services.map((s) => <ServiceTag key={s} name={s} />)}
+            {groupedServiceLabels(item.services).map((label) => (
+              <ServiceTag key={label} name={label} />
+            ))}
           </div>
         </div>
       )}
       <div className="mt-3 rounded-2xl bg-orange-50 px-3 py-2.5">
-        <div className="text-xs font-black text-orange-700">
-          <CalendarClock size={12} className="inline mr-1" />
-          {item.next_action || "—"}
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-black text-orange-700">
+          <span className="inline-flex items-center gap-1">
+            <CalendarClock size={12} />
+            {item.next_action || "-"}
+          </span>
+          {item.next_action_date ? (
+            <span className="font-bold text-orange-600/80">
+              - {formatDate(item.next_action_date)}
+            </span>
+          ) : null}
         </div>
         <div className="mt-1 text-xs font-semibold text-slate-400">
           Последна активност: {formatRelative(item.last_activity_at)}
@@ -386,7 +473,37 @@ function PipelineCard({
         >
           Отвори
         </Link>
-        {nextStage && (
+        {item.stage === "offer" ? (
+          <Link
+            href={`/sales/offer/${item.id}`}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+          >
+            <FileText size={14} />
+            {item.hasOfferDraft ? "Отвори чернова" : "Създай оферта"}
+          </Link>
+        ) : item.stage === "contract" ? (
+          item.hasAcceptedContract && !item.converted_to_service ? (
+          <button
+            type="button"
+            disabled={startingServiceId === item.id}
+            onClick={() => onStartService(item)}
+            className={`inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl px-3 text-sm font-black transition ${
+              "bg-gradient-to-r from-green-600 to-emerald-500 text-white shadow-sm hover:shadow-md disabled:opacity-60"
+            }`}
+          >
+            {startingServiceId === item.id ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+            Стартирай обслужване
+          </button>
+          ) : (
+          <Link
+            href={`/sales/contract/${item.id}`}
+            className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+          >
+            <FileText size={14} />
+            {item.hasContractDraft ? "Отвори договор" : "Създай договор"}
+          </Link>
+          )
+        ) : nextStage ? (
           <button
             type="button"
             disabled={movingId === item.id}
@@ -398,7 +515,7 @@ function PipelineCard({
               : <ArrowRight size={14} />}
             {NEXT_STAGE_LABEL[item.stage]}
           </button>
-        )}
+        ) : null}
       </div>
     </Card>
   );
@@ -459,6 +576,57 @@ function ArchiveConfirmModal({
             >
               {archiving ? <Loader2 size={15} className="animate-spin" /> : <Archive size={15} />}
               {archiving ? "Архивиране..." : "Архивирай"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StartServiceConfirmModal({
+  companyName,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  companyName: string;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget && !loading) onCancel(); }}
+    >
+      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-black text-slate-950">Стартиране на обслужване</h2>
+            <p className="mt-0.5 text-xs font-semibold text-slate-500">{companyName}</p>
+          </div>
+          <button type="button" onClick={onCancel} disabled={loading}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="space-y-5 p-6">
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-semibold leading-6 text-emerald-900">
+            Ще бъде създаден клиент и обект в оперативната система.
+            <br />
+            Продължаване?
+          </div>
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>Отказ</Button>
+            <button
+              type="button"
+              disabled={loading}
+              onClick={onConfirm}
+              className="inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-green-600 to-emerald-500 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md disabled:opacity-60"
+            >
+              {loading ? <Loader2 size={17} className="animate-spin" /> : <ArrowRight size={17} />}
+              Стартирай обслужване
             </button>
           </div>
         </div>
@@ -976,6 +1144,8 @@ export default function SalesPage() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [archiveTargetId, setArchiveTargetId] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [serviceTarget, setServiceTarget] = useState<Opportunity | null>(null);
+  const [startingServiceId, setStartingServiceId] = useState("");
 
   function showToast(message: string, type: Toast["type"] = "success") {
     const id = Date.now().toString();
@@ -989,10 +1159,28 @@ export default function SalesPage() {
       const supabase = createSupabaseBrowserClient();
       const { data, error } = await supabase
         .from("sales_opportunities")
-        .select("*, sales_opportunity_services(service_name)")
+        .select("*, sales_opportunity_services(service_category, service_name)")
         .eq("archived", false)
         .order("last_activity_at", { ascending: false });
       if (error) { setLoadState("error"); return; }
+      const offerDraftIds = (data ?? []).map((row) => `offer-${String(row.id)}`);
+      const contractDraftIds = (data ?? []).map((row) => `contract-${String(row.id)}`);
+      let draftIdSet = new Set<string>();
+      let acceptedContractIdSet = new Set<string>();
+      if (offerDraftIds.length > 0 || contractDraftIds.length > 0) {
+        const { data: draftRows } = await supabase
+          .from("saved_documents")
+          .select("id, payload")
+          .in("id", [...offerDraftIds, ...contractDraftIds]);
+
+        const rows = (draftRows as { id: string; payload?: unknown }[] | null) ?? [];
+        draftIdSet = new Set(rows.map((row) => row.id));
+        acceptedContractIdSet = new Set(
+          rows
+            .filter((row) => row.id.startsWith("contract-") && isRecord(row.payload) && row.payload.status === "accepted")
+            .map((row) => row.id)
+        );
+      }
       const mapped: Opportunity[] = (data ?? []).map((row) => ({
         id: String(row.id),
         company_name: String(row.company_name ?? ""),
@@ -1007,11 +1195,16 @@ export default function SalesPage() {
         next_action: String(row.next_action ?? ""),
         next_action_date: row.next_action_date ? String(row.next_action_date) : null,
         notes: String(row.notes ?? ""),
+        created_at: String(row.created_at ?? row.created_at_ms ?? row.last_activity_at ?? new Date().toISOString()),
         last_activity_at: String(row.last_activity_at ?? new Date().toISOString()),
         converted_to_service: Boolean(row.converted_to_service),
         archived: Boolean(row.archived),
+        hasOfferDraft: draftIdSet.has(`offer-${String(row.id)}`),
+        hasContractDraft: draftIdSet.has(`contract-${String(row.id)}`),
+        hasAcceptedContract: acceptedContractIdSet.has(`contract-${String(row.id)}`) || String(row.status ?? "") === "Потвърден",
         services: Array.isArray(row.sales_opportunity_services)
-          ? (row.sales_opportunity_services as { service_name: string }[]).map((s) => s.service_name)
+          ? (row.sales_opportunity_services as { service_category?: string | null; service_name: string }[])
+              .map(mapOpportunityService)
           : [],
       }));
       setOpportunities(mapped);
@@ -1073,6 +1266,88 @@ export default function SalesPage() {
     }
   }
 
+  async function handleStartService() {
+    if (!serviceTarget || startingServiceId) return;
+    setStartingServiceId(serviceTarget.id);
+    try {
+      const supabase = createSupabaseBrowserClient();
+      let clientId: string | null = null;
+      const { data: existingClient } = await supabase
+        .from("clients")
+        .select("id")
+        .ilike("name", serviceTarget.company_name.trim())
+        .maybeSingle();
+
+      if (existingClient) {
+        clientId = String(existingClient.id);
+      } else {
+        const { data: newClient, error: clientError } = await supabase
+          .from("clients")
+          .insert({
+            name: serviceTarget.company_name.trim(),
+            contact_person: serviceTarget.contact_name.trim(),
+            phone: serviceTarget.phone.trim(),
+            email: serviceTarget.email.trim(),
+            address: serviceTarget.object_address.trim(),
+            bulstat: "",
+          })
+          .select("id")
+          .single();
+        if (clientError || !newClient) {
+          showToast("Грешка при създаване на клиент.", "error");
+          setStartingServiceId("");
+          return;
+        }
+        clientId = String(newClient.id);
+      }
+
+      const qrCode = `SALE-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+      const { data: newLocation, error: locationError } = await supabase
+        .from("locations")
+        .insert({
+          client_id: clientId,
+          object_type: serviceTarget.object_type.trim(),
+          qr_code: qrCode,
+          name: serviceTarget.object_name.trim() || serviceTarget.company_name.trim(),
+          address: serviceTarget.object_address.trim(),
+          region: "",
+          status: "изряден",
+          service: serviceTarget.services.map(serviceDisplayName).join(", "),
+        })
+        .select("id, qr_code")
+        .single();
+
+      if (locationError || !newLocation) {
+        showToast("Грешка при създаване на обект.", "error");
+        setStartingServiceId("");
+        return;
+      }
+
+      const now = new Date().toISOString();
+      await supabase.from("sales_opportunities").update({
+        converted_to_service: true,
+        converted_client_id: clientId,
+        converted_object_id: String(newLocation.id),
+        last_activity_at: now,
+        updated_at: now,
+      }).eq("id", serviceTarget.id);
+      await supabase.from("sales_activity_logs").insert({
+        opportunity_id: serviceTarget.id,
+        type: "converted",
+        title: "Стартирано обслужване",
+        description: `Създаден е клиент и обект: ${serviceTarget.company_name} / ${serviceTarget.object_name || serviceTarget.company_name}`,
+      });
+
+      showToast("Обслужването е стартирано.");
+      setServiceTarget(null);
+      setStartingServiceId("");
+      await loadOpportunities();
+    } catch {
+      showToast("Неочаквана грешка. Моля опитайте отново.", "error");
+      setStartingServiceId("");
+    }
+  }
+
   const byStage = (stage: Stage) => opportunities.filter((o) => o.stage === stage);
   const archiveTarget = archiveTargetId ? opportunities.find((o) => o.id === archiveTargetId) : null;
 
@@ -1085,7 +1360,7 @@ export default function SalesPage() {
   );
 
   return (
-    <AppShell title="Продажби" description="Търговски pipeline от първи контакт до активен договор">
+    <AppShell title="Продажби" description="Търговски pipeline от първи контакт до активен договор" showSearch={false}>
       <div className="space-y-6">
         <Card className="p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1144,7 +1419,9 @@ export default function SalesPage() {
                               key={item.id}
                               item={item}
                               onMoveStage={handleMoveStage}
+                              onStartService={setServiceTarget}
                               movingId={movingId}
+                              startingServiceId={startingServiceId}
                               onArchive={(id) => setArchiveTargetId(id)}
                             />
                           ))
@@ -1164,6 +1441,14 @@ export default function SalesPage() {
           archiving={archiving}
           onConfirm={handleArchive}
           onCancel={() => { if (!archiving) setArchiveTargetId(null); }}
+        />
+      )}
+      {serviceTarget && (
+        <StartServiceConfirmModal
+          companyName={serviceTarget.company_name}
+          loading={startingServiceId === serviceTarget.id}
+          onConfirm={handleStartService}
+          onCancel={() => { if (!startingServiceId) setServiceTarget(null); }}
         />
       )}
       <ToastContainer toasts={toasts} />
