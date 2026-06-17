@@ -147,7 +147,7 @@ type DayTask = {
   object: string;
   type: string;
   technician: string;
-  status: string;
+  sourceLabel: string;
   href: string;
 };
 
@@ -641,7 +641,7 @@ function AttentionCard({ items }: { items: AttentionItem[] }) {
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
         {items.length ? (
           items.map((item) => (
             <div
@@ -692,35 +692,38 @@ function AttentionCard({ items }: { items: AttentionItem[] }) {
 }
 
 function TodayTasksCard({ tasks }: { tasks: DayTask[] }) {
+  const todayLabel = formatDate(toLocalDateKey(new Date()));
+
   return (
     <Card className="p-5">
       <div className="flex items-start justify-between gap-3">
-        <SectionHeader title="Задачи за деня" eyebrow="днес" />
+        <SectionHeader title="Задачи за деня" eyebrow={`днес · ${todayLabel}`} />
         <div className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-blue-700">
           <Clock3 className="h-5 w-5" />
         </div>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
         {tasks.length ? (
           tasks.map((task) => (
             <div
               key={`${task.due}-${task.object}-${task.type}`}
               className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-4 transition hover:-translate-y-0.5 hover:border-orange-200 hover:bg-white hover:shadow-md"
             >
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-16 shrink-0 items-center justify-center rounded-xl bg-slate-950 text-xs font-black text-white">
-                  {task.due}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-black text-slate-950">{task.object}</div>
-                  <p className="mt-1 text-sm font-medium leading-5 text-slate-500">
-                    {task.type}
-                  </p>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Badge variant="neutral">{task.technician}</Badge>
-                    <StatusBadge status={task.status} />
-                  </div>
+              <div className="min-w-0">
+                <div className="font-black text-slate-950">{task.object}</div>
+                <p className="mt-1 text-sm font-medium leading-5 text-slate-500">
+                  {task.type}
+                </p>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
+                  {task.technician ? (
+                    <span>Техник: {task.technician}</span>
+                  ) : (
+                    <span>Техник: не е зададен</span>
+                  )}
+                  {task.sourceLabel && task.sourceLabel !== "—" ? (
+                    <span>Източник: {task.sourceLabel}</span>
+                  ) : null}
                 </div>
               </div>
               <Link
@@ -743,7 +746,7 @@ function ActivityCard({ activities }: { activities: Activity[] }) {
   return (
     <Card className="p-5">
       <SectionHeader title="Последна активност" eyebrow="история" />
-      <div className="mt-5 space-y-4">
+      <div className="mt-5 max-h-[420px] space-y-4 overflow-y-auto pr-1">
         {activities.length ? (
           activities.map((activity) => {
             const Icon = activity.icon;
@@ -777,7 +780,7 @@ function UpcomingCard({ inspections }: { inspections: UpcomingInspection[] }) {
   return (
     <Card className="p-5">
       <SectionHeader title="Следващи проверки" eyebrow="7 дни" />
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
         {inspections.length ? (
           inspections.map((inspection) => (
             <div
@@ -813,7 +816,7 @@ function TechniciansCard({ technicians }: { technicians: TechnicianSummary[] }) 
   return (
     <Card className="p-5">
       <SectionHeader title="Техници" eyebrow="екип" />
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
         {technicians.length ? (
           technicians.map((technician) => (
             <div
@@ -902,6 +905,13 @@ export default function DashboardPage() {
         [protocol.id, protocol.number].filter(Boolean)
       )
     );
+    const techniciansByProtocolRef = new Map<string, string>();
+    for (const protocol of data.protocols) {
+      if (!protocol.technician) continue;
+      for (const ref of [protocol.id, protocol.number].filter(Boolean)) {
+        techniciansByProtocolRef.set(ref, protocol.technician);
+      }
+    }
 
     function locationFromTask(task: ServiceTaskItem) {
       return (
@@ -920,6 +930,19 @@ export default function DashboardPage() {
 
       return Boolean(locationFromTask(task)) ||
         (hasProtocolSource && taskSourceIsActive(task, protocolRefs));
+    }
+
+    function technicianForTask(task: ServiceTaskItem) {
+      return (
+        task.technician ||
+        (task.sourceProtocolId
+          ? techniciansByProtocolRef.get(task.sourceProtocolId)
+          : "") ||
+        (task.sourceProtocolNumber
+          ? techniciansByProtocolRef.get(task.sourceProtocolNumber)
+          : "") ||
+        ""
+      );
     }
 
     const plannedTasks = collapseReplacedEquipmentTasks(
@@ -1037,13 +1060,13 @@ export default function DashboardPage() {
       const identity = `${item.object}-${item.category}-${item.description}`;
       attentionItemsByIdentity.set(identity, item);
     }
-    const attentionItems = Array.from(attentionItemsByIdentity.values()).slice(0, 8);
+    const attentionItems = Array.from(attentionItemsByIdentity.values());
     const dayTasks: DayTask[] = todayTasks.map((task) => ({
       due: formatDate(task.dueDate),
       object: task.objectName,
       type: task.title,
-      technician: task.technician || "не е зададен техник",
-      status: "planned",
+      technician: technicianForTask(task),
+      sourceLabel: task.sourceLabel || task.sourceProtocolType || "—",
       href: objectHrefFromTask(task) || "/tasks",
     }));
 
@@ -1052,10 +1075,9 @@ export default function DashboardPage() {
         date: formatDate(task.dueDate),
         object: task.objectName,
         type: task.title,
-        technician: task.technician || "не е зададен техник",
+        technician: technicianForTask(task) || "не е зададен техник",
         status: "\u043f\u0440\u0435\u0434\u0441\u0442\u043e\u0438" as const,
       }))
-      .slice(0, 6);
 
     const recentProtocolActivities: Activity[] = data.protocols
       .filter((protocol) => protocol.updatedAt || protocol.date)
@@ -1122,7 +1144,7 @@ export default function DashboardPage() {
 
     const technicianSummaries: TechnicianSummary[] = data.technicians.map((technician) => {
       const assignedTodayTasks = todayTasks.filter(
-        (task) => task.technician === technician.name
+        (task) => technicianForTask(task) === technician.name
       );
       const recentProtocol = data.protocols
         .filter((protocol) => protocol.technician === technician.name)

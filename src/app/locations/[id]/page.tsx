@@ -7,6 +7,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type Dispatch,
@@ -206,6 +207,12 @@ type UpcomingObjectAction = {
   sourceProtocolRow: string;
   sourceProtocolType: string;
   recurrenceMonths?: number;
+  relatedProblemId?: string;
+  resolutionType?: string;
+  resolutionNote?: string;
+  resolutionDate?: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
   source: UpcomingObjectActionSource;
   createdAt: string;
   assignee: string;
@@ -546,7 +553,7 @@ function visitDisplayTitle(action: UpcomingObjectAction) {
 
   const recurrenceMonths = actionRecurrenceMonths(action);
   if (recurrenceMonths === 1) return "Месечна проверка ПГИ";
-  if (recurrenceMonths === 3) return "Тримесечна проверка ПГИ";
+  if (recurrenceMonths === 3) return "Проверка на 3 месеца ПГИ";
   if (recurrenceMonths === 12) return "Годишна проверка ПГИ";
 
   return actionDisplayTitle(action);
@@ -570,6 +577,7 @@ function dateProximityLabel(value: string) {
   const days = daysUntilDate(value);
   if (days === null) return { label: "Без дата", variant: "neutral" as const };
   if (days < 0) return { label: "Просрочено", variant: "danger" as const };
+  if (days === 0) return { label: "Днес", variant: "warning" as const };
   if (days > 30) return { label: `след ${days} дни`, variant: "success" as const };
   if (days > 7) return { label: `след ${days} дни`, variant: "warning" as const };
   return { label: `след ${days} дни`, variant: "danger" as const };
@@ -592,6 +600,75 @@ function findFireExtinguisherEquipment(
     const itemName = cleanFireExtinguisherName(item.name).toLowerCase();
     return itemName && (actionName.includes(itemName) || itemName.includes(actionName));
   });
+}
+
+type UpcomingVisitRenderItem =
+  | {
+      kind: "action";
+      id: string;
+      action: UpcomingObjectAction;
+    }
+  | {
+      kind: "fireExtinguisherGroup";
+      id: string;
+      actions: UpcomingObjectAction[];
+      dueDate: string;
+      sourceLabel: string;
+      sourceProtocolNumber: string;
+      items: {
+        action: UpcomingObjectAction;
+        equipmentItem?: EquipmentItem;
+        label: string;
+        stickerNumber: string;
+        location: string;
+      }[];
+    };
+
+function buildUpcomingVisitRenderItems(
+  actions: UpcomingObjectAction[],
+  equipment: EquipmentItem[]
+): UpcomingVisitRenderItem[] {
+  const items: UpcomingVisitRenderItem[] = [];
+  const fireGroups = new Map<string, Extract<UpcomingVisitRenderItem, { kind: "fireExtinguisherGroup" }>>();
+
+  actions.forEach((action) => {
+    if (!isFireExtinguisherAction(action)) {
+      items.push({ kind: "action", id: action.id, action });
+      return;
+    }
+
+    const groupKey = [
+      action.dueDate || "no-date",
+      action.sourceProtocolNumber || action.sourceProtocolId || action.sourceLabel || "no-protocol",
+    ].join("|");
+    let group = fireGroups.get(groupKey);
+
+    if (!group) {
+      group = {
+        kind: "fireExtinguisherGroup",
+        id: `fire-extinguishers-${groupKey}`,
+        actions: [],
+        dueDate: action.dueDate,
+        sourceLabel: actionSourceLabel(action),
+        sourceProtocolNumber: action.sourceProtocolNumber,
+        items: [],
+      };
+      fireGroups.set(groupKey, group);
+      items.push(group);
+    }
+
+    const equipmentItem = findFireExtinguisherEquipment(action, equipment);
+    group.actions.push(action);
+    group.items.push({
+      action,
+      equipmentItem,
+      label: fireExtinguisherEquipmentLabel(action, equipmentItem),
+      stickerNumber: equipmentItem?.stickerNumber || "",
+      location: equipmentItem?.location || "",
+    });
+  });
+
+  return items;
 }
 
 function uniqueActionActivityTitles(action: UpcomingObjectAction) {
@@ -1712,6 +1789,10 @@ function OverviewTab() {
   const upcomingVisitActions = upcomingActions.filter(
     (action) => action.source !== "defect" && !isCompletedAction(action)
   );
+  const upcomingVisitRenderItems = useMemo(
+    () => buildUpcomingVisitRenderItems(upcomingVisitActions, equipment),
+    [upcomingVisitActions, equipment]
+  );
 
   function toggleUpcomingActionActivities(actionId: string) {
     setExpandedUpcomingActionIds((current) => {
@@ -1858,21 +1939,97 @@ function OverviewTab() {
               </div>
             ) : null}
 
-            {upcomingActionsLoadState === "ready" && upcomingVisitActions.length === 0 ? (
+            {upcomingActionsLoadState === "ready" && upcomingVisitRenderItems.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-center text-sm font-bold text-slate-500">
                 Няма предстоящи посещения или действия за този обект.
               </div>
             ) : null}
 
             {upcomingActionsLoadState === "ready"
-              ? upcomingVisitActions.map((action) => {
+              ? upcomingVisitRenderItems.map((renderItem) => {
+                  if (renderItem.kind === "fireExtinguisherGroup") {
+                    const proximity = dateProximityLabel(renderItem.dueDate);
+                    const isExpanded = expandedUpcomingActionIds.has(renderItem.id);
+                    const visibleItems = isExpanded
+                      ? renderItem.items
+                      : renderItem.items.slice(0, 6);
+                    const hiddenItemCount =
+                      renderItem.items.length - visibleItems.length;
+                    const protocolText =
+                      renderItem.sourceProtocolNumber
+                        ? `Протокол №${renderItem.sourceProtocolNumber}`
+                        : renderItem.sourceLabel;
+
+                    return (
+                      <div
+                        key={renderItem.id}
+                        className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-slate-400">
+                            <CalendarDays size={14} />
+                            {formatDateValue(renderItem.dueDate) || "Без дата"}
+                          </div>
+                          <Badge variant={proximity.variant}>{proximity.label}</Badge>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-start gap-2 font-black leading-tight text-slate-950">
+                              <Wrench size={17} className="mt-0.5 shrink-0 text-blue-600" />
+                              <span>Пожарогасители за обслужване</span>
+                            </div>
+                            <div className="mt-1 text-sm font-bold text-slate-500">
+                              {renderItem.items.length} бр.
+                              {protocolText ? ` · ${protocolText}` : ""}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                          {visibleItems.map((item) => (
+                            <div
+                              key={item.action.id}
+                              className="grid gap-1 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_120px_minmax(120px,0.55fr)] md:items-center"
+                            >
+                              <div className="min-w-0 font-black leading-5 text-slate-900">
+                                {item.label}
+                              </div>
+                              <div className="font-bold text-slate-500">
+                                {item.stickerNumber ? `Стикер №${item.stickerNumber}` : "Без стикер"}
+                              </div>
+                              <div className="min-w-0 font-bold text-slate-500">
+                                {item.location || "Без локация"}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {hiddenItemCount > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleUpcomingActionActivities(renderItem.id)}
+                            className="mt-3 text-sm font-black text-orange-600 transition hover:text-orange-700"
+                          >
+                            +{hiddenItemCount} още
+                          </button>
+                        ) : isExpanded && renderItem.items.length > 6 ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleUpcomingActionActivities(renderItem.id)}
+                            className="mt-3 text-sm font-black text-orange-600 transition hover:text-orange-700"
+                          >
+                            Покажи по-малко
+                          </button>
+                        ) : null}
+                      </div>
+                    );
+                  }
+
+                  const action = renderItem.action;
                   const activityTitles = uniqueActionActivityTitles(action);
                   const sourceLabel = actionSourceLabel(action);
                   const proximity = dateProximityLabel(action.dueDate);
-                  const isFireExtinguisher = isFireExtinguisherAction(action);
-                  const fireExtinguisherEquipment = isFireExtinguisher
-                    ? findFireExtinguisherEquipment(action, equipment)
-                    : undefined;
                   const isExpanded = expandedUpcomingActionIds.has(action.id);
                   const visibleActivities = isExpanded
                     ? activityTitles
@@ -1919,51 +2076,6 @@ function OverviewTab() {
                               Маркирай като решен
                             </Button>
                           </div>
-                        </>
-                      ) : isFireExtinguisher ? (
-                        <>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-slate-400">
-                              <CalendarDays size={14} />
-                              {formatDateValue(action.dueDate) || "Без дата"}
-                            </div>
-                            <Badge variant={proximity.variant}>
-                              {proximity.label}
-                            </Badge>
-                          </div>
-                          <div className="mt-3">
-                            <div className="flex items-start gap-2 font-black leading-tight text-slate-950">
-                              <Wrench size={17} className="mt-0.5 shrink-0 text-blue-600" />
-                              <span>
-                              {fireExtinguisherEquipmentLabel(
-                                action,
-                                fireExtinguisherEquipment
-                              )}
-                              </span>
-                            </div>
-                            <div className="mt-1 text-sm font-bold text-slate-500">
-                              Техническо обслужване
-                            </div>
-                          </div>
-                          {fireExtinguisherEquipment?.stickerNumber ? (
-                            <div className="mt-3 text-sm font-black text-slate-700">
-                              Стикер №{fireExtinguisherEquipment.stickerNumber}
-                            </div>
-                          ) : null}
-                          {fireExtinguisherEquipment?.location ? (
-                            <div className="mt-1 text-sm font-bold text-slate-500">
-                              {fireExtinguisherEquipment.location}
-                            </div>
-                          ) : null}
-                          {action.sourceProtocolNumber ? (
-                            <div className="mt-3 text-sm font-bold text-slate-500">
-                              Протокол №{action.sourceProtocolNumber}
-                            </div>
-                          ) : sourceLabel ? (
-                            <div className="mt-3 text-sm font-bold text-slate-500">
-                              {sourceLabel}
-                            </div>
-                          ) : null}
                         </>
                       ) : (
                         <>
@@ -3757,6 +3869,10 @@ function TasksTab() {
               const isProblem = action.source === "defect";
               const isOverdue = isOverdueAction(action);
               const TaskIcon = actionTypeIcon(action);
+              const resolutionTechnician =
+                action.resolvedBy && action.resolvedBy !== "current-user"
+                  ? action.resolvedBy
+                  : action.assignee;
 
               return (
                 <div key={action.id}>
@@ -3878,6 +3994,33 @@ function TasksTab() {
                               {sourceLabel || "—"}
                             </div>
                           </div>
+                          {isProblem && isCompletedAction(action) ? (
+                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-3">
+                              <div className="text-xs font-black uppercase text-emerald-700">
+                                Решение
+                              </div>
+                              <div className="mt-2 grid gap-2 text-sm font-bold text-slate-700 sm:grid-cols-3">
+                                <div>
+                                  <span className="text-slate-400">Начин:</span>{" "}
+                                  {action.resolutionType || "Не е посочен"}
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">Дата:</span>{" "}
+                                  {formatDateValue(action.resolutionDate || action.resolvedAt || "") || "—"}
+                                </div>
+                                <div>
+                                  <span className="text-slate-400">Техник:</span>{" "}
+                                  {resolutionTechnician || "Не е посочен"}
+                                </div>
+                              </div>
+                              {action.resolutionNote ? (
+                                <div className="mt-2 text-sm font-medium leading-6 text-emerald-900">
+                                  <span className="font-black">Бележка:</span>{" "}
+                                  {action.resolutionNote}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
 
                         <div>
@@ -4468,11 +4611,25 @@ export default function LocationProfilePage() {
 
   async function resolveUpcomingAction(action: UpcomingObjectAction) {
     setConfirmationBusy(true);
+    const resolution = {
+      ...problemResolutionForm,
+      technician: problemResolutionForm.technician || action.assignee,
+    };
     try {
-      await resolveDefectTask(action.id, problemResolutionForm);
+      await resolveDefectTask(action.id, resolution);
       setUpcomingActions((current) =>
         current.map((item) =>
-          item.id === action.id ? { ...item, status: "RESOLVED" } : item
+          item.id === action.id
+            ? {
+                ...item,
+                status: "RESOLVED",
+                resolutionType: resolution.resolutionType,
+                resolutionNote: resolution.note,
+                resolutionDate: resolution.date,
+                resolvedBy: resolution.technician,
+                resolvedAt: new Date().toISOString(),
+              }
+            : item
         )
       );
       setToastMessage("Проблемът е маркиран като решен.");
@@ -4756,6 +4913,27 @@ export default function LocationProfilePage() {
           textValue(first, ["due_date"]).localeCompare(textValue(second, ["due_date"]))
         );
 
+        const problemIds = uniqueValues(
+          displayRows.map((row) => textValue(row, ["related_problem_id"]))
+        );
+        const problemsById = new Map<string, DataRecord>();
+
+        if (problemIds.length > 0) {
+          const { data: problemRows, error: problemError } = await supabase
+            .from("problems")
+            .select("id,resolution_type,resolution_note,resolution_date,resolved_at,resolved_by,assigned_to,status")
+            .in("id", problemIds);
+
+          if (!isMounted) return;
+
+          if (!problemError) {
+            for (const problem of (problemRows as DataRecord[]) ?? []) {
+              const id = textValue(problem, ["id"]);
+              if (id) problemsById.set(id, problem);
+            }
+          }
+        }
+
         const protocolRefs = uniqueValues(
           displayRows.flatMap((row) => taskProtocolRefs(row))
         );
@@ -4840,6 +5018,10 @@ export default function LocationProfilePage() {
             textValue(row, ["source_label"]) ||
             (sourceProtocolNumber ? `Протокол №${sourceProtocolNumber}` : "");
           const activities = taskActivities(row["activities"], title);
+          const relatedProblemId = textValue(row, ["related_problem_id"]);
+          const relatedProblem = relatedProblemId
+            ? problemsById.get(relatedProblemId)
+            : undefined;
           const taskType = textValue(row, ["task_type"]) || "Планирано посещение";
           const normalizedTaskType = taskType.trim().toLowerCase();
           const status = textValue(row, ["status"]) || "planned";
@@ -4881,6 +5063,23 @@ export default function LocationProfilePage() {
             sourceProtocolRow,
             sourceProtocolType,
             recurrenceMonths: Number(row["recurrence_months"] ?? 0) || undefined,
+            relatedProblemId,
+            resolutionType:
+              textValue(row, ["resolution_type"]) ||
+              textValue(relatedProblem, ["resolution_type"]),
+            resolutionNote:
+              textValue(row, ["resolution_note"]) ||
+              textValue(relatedProblem, ["resolution_note"]),
+            resolutionDate:
+              textValue(row, ["resolution_date"]) ||
+              textValue(relatedProblem, ["resolution_date"]),
+            resolvedBy:
+              textValue(row, ["resolved_by"]) ||
+              textValue(relatedProblem, ["resolved_by"]) ||
+              textValue(relatedProblem, ["assigned_to"]),
+            resolvedAt:
+              textValue(row, ["resolved_at"]) ||
+              textValue(relatedProblem, ["resolved_at"]),
             source: isDefect
               ? "defect"
               : isSubscriptionProtocol

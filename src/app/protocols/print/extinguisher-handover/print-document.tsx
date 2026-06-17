@@ -130,6 +130,7 @@ export function ExtinguisherPrintDocument({
 
   const pages = useMemo(() => chunkRows(rows), [rows]);
   const formattedDate = formatDate(date);
+  const ownerAddress = [address, region].filter(Boolean).join(", ");
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-black print:bg-white print:p-0">
@@ -278,8 +279,7 @@ export function ExtinguisherPrintDocument({
               <div>
                 Собственик на пожарогасителя/ите:{" "}
                 <span className="font-bold">{client || "____________________"}</span>{" "}
-                адрес: гр./с. <span className="font-bold">{address || "____________________"}</span>{" "}
-                Област: <span className="font-bold">{region || "________"}</span>{" "}
+                адрес: <span className="font-bold">{ownerAddress || "____________________"}</span>{" "}
                 тел.: <span className="font-bold">{phone || "________"}</span>
               </div>
               <div className="mt-1">
@@ -292,37 +292,35 @@ export function ExtinguisherPrintDocument({
               <div>
                 <div className="font-bold">ПРЕДАЛ:</div>
                 <div className="text-[7px]">(извършил обслужването)</div>
-                <div className="mt-2 h-9 border-b border-black">
+                <div className="mt-2 h-10 border-b border-black">
                   <PrintSignatureLine
                     previewId={previewId}
                     role="technician"
                     fallbackName={technician}
-                    className="inline-flex h-full w-full items-end justify-center"
-                    imageClassName="max-h-8 max-w-28 object-contain"
+                    className="inline-flex h-full w-full items-center justify-center"
+                    imageClassName="max-h-9 max-w-32 object-contain"
                     showFallbackName={false}
                   />
                 </div>
-                <div className="text-center text-[7px]">(подпис, печат)</div>
-                <div className="mt-1 border-b border-black text-center font-bold">{technician || "________"}</div>
-                <div className="text-center text-[7px]">(име, фамилия)</div>
+                <div className="mt-1 text-center font-bold">{technician || "________"}</div>
+                <div className="text-center text-[7px]">(име и подпис)</div>
               </div>
 
               <div>
                 <div className="font-bold">ПРИЕЛ:</div>
                 <div className="text-[7px]">(собственик/представител)</div>
-                <div className="mt-2 h-9 border-b border-black">
+                <div className="mt-2 h-10 border-b border-black">
                   <PrintSignatureLine
                     previewId={previewId}
                     role="client"
                     fallbackName={contact}
-                    className="inline-flex h-full w-full items-end justify-center"
-                    imageClassName="max-h-8 max-w-28 object-contain"
+                    className="inline-flex h-full w-full items-center justify-center"
+                    imageClassName="max-h-9 max-w-32 object-contain"
                     showFallbackName={false}
                   />
                 </div>
-                <div className="text-center text-[7px]">(подпис)</div>
-                <div className="mt-1 border-b border-black text-center font-bold">{contact || "________"}</div>
-                <div className="text-center text-[7px]">(име, фамилия, длъжност)</div>
+                <div className="mt-1 text-center font-bold">{contact || "________"}</div>
+                <div className="text-center text-[7px]">(име и подпис)</div>
               </div>
 
               <div className="flex items-end justify-end text-right text-[7px]">

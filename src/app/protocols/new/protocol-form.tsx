@@ -803,6 +803,10 @@ const extinguisherResultStatusOptions = [
 
 type DataRecord = Record<string, unknown>;
 
+function isRecord(value: unknown): value is DataRecord {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
 function textValue(record: DataRecord | null | undefined, keys: string[]) {
   if (!record) return "";
 
@@ -818,6 +822,36 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
   }
 
   return "";
+}
+
+function contractNumberFromSavedDocument(row: DataRecord) {
+  const payload = isRecord(row.payload) ? row.payload : {};
+  const contract = isRecord(payload.contract) ? payload.contract : {};
+
+  return textValue(row, ["number"]) || textValue(contract, ["number"]);
+}
+
+function savedContractMatchesObject(
+  row: DataRecord,
+  objectKeys: Set<string>,
+  convertedContractIds: Set<string>
+) {
+  const documentId = textValue(row, ["id"]);
+  if (documentId && convertedContractIds.has(documentId)) return true;
+
+  const payload = isRecord(row.payload) ? row.payload : {};
+  const contract = isRecord(payload.contract) ? payload.contract : {};
+  const keys = [
+    payload.locationId,
+    payload.locationQrCode,
+    payload.convertedObjectId,
+    contract.object,
+    row.object,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  return keys.some((key) => objectKeys.has(key));
 }
 
 function mapObjectOption(
@@ -1708,7 +1742,7 @@ function SubscriptionServiceSection({
         />
       </div>
 
-      <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
+      <div className="hidden">
         Функцията за печат се определя автоматично от избрания сервиз:
         <span className="ml-2 font-black text-orange-700">
           Функция {(serviceCode || "A").toUpperCase().slice(0, 1)}
@@ -3113,6 +3147,81 @@ export function ProtocolForm({
   useEffect(() => {
     let isMounted = true;
 
+    async function loadContractReferenceForObject() {
+      if (!selectedObjectDetails) {
+        setContractReference("");
+        return;
+      }
+
+      const objectKeys = new Set(
+        [
+          selectedObjectDetails.locationId,
+          selectedObjectDetails.code,
+          selectedObjectDetails.name,
+        ]
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+      );
+
+      if (!objectKeys.size) {
+        setContractReference("");
+        return;
+      }
+
+      try {
+        const supabase = createSupabaseBrowserClient();
+        const [documentsResult, opportunitiesResult] = await Promise.all([
+          supabase
+            .from("saved_documents")
+            .select("id, number, object, payload, updated_at")
+            .eq("kind", "contract")
+            .order("updated_at", { ascending: false }),
+          supabase
+            .from("sales_opportunities")
+            .select("id, converted_object_id"),
+        ]);
+
+        if (!isMounted) return;
+        if (documentsResult.error) throw new Error(documentsResult.error.message);
+
+        const convertedContractIds = new Set(
+          (((opportunitiesResult.data ?? []) as DataRecord[])
+            .filter((row) =>
+              objectKeys.has(String(row.converted_object_id || "").trim())
+            )
+            .map((row) => `contract-${String(row.id)}`))
+        );
+
+        const matchingContracts = ((documentsResult.data ?? []) as DataRecord[])
+          .filter((row) =>
+            savedContractMatchesObject(row, objectKeys, convertedContractIds)
+          )
+          .sort((a, b) => {
+            const aPayload = isRecord(a.payload) ? a.payload : {};
+            const bPayload = isRecord(b.payload) ? b.payload : {};
+            const aAccepted = aPayload.status === "accepted" ? 1 : 0;
+            const bAccepted = bPayload.status === "accepted" ? 1 : 0;
+            return bAccepted - aAccepted;
+          });
+
+        setContractReference(
+          contractNumberFromSavedDocument(matchingContracts[0] ?? {}) || ""
+        );
+      } catch {
+        if (isMounted) setContractReference("");
+      }
+    }
+
+    void loadContractReferenceForObject();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedObjectDetails]);
+
+  useEffect(() => {
+    let isMounted = true;
+
     async function loadProtocolNumberPreview() {
       if (!selectedServiceId || !protocolDate || protocolNumber.trim()) {
         setProtocolNumberPreview("");
@@ -3912,6 +4021,7 @@ export function ProtocolForm({
             objectId,
             objectName: printObjectName,
             client: printClient,
+            assignedTo: selectedTechnician,
             dueDate,
             sourceProtocolId: protocolId || finalNumber,
             sourceProtocolNumber: finalNumber,
@@ -3948,6 +4058,7 @@ export function ProtocolForm({
           objectId,
           objectName: printObjectName,
           client: printClient,
+          assignedTo: selectedTechnician,
           dueDate: nextVisitDate,
           sourceProtocolId: protocolId || finalNumber,
           sourceProtocolNumber: finalNumber,
@@ -4049,6 +4160,7 @@ export function ProtocolForm({
               objectId,
               objectName: printObjectName,
               client: printClient,
+              assignedTo: row.servicePersonName || selectedTechnician,
               dueDate: row.nextServiceDate,
               sourceProtocolId: protocolId || finalNumber,
               sourceProtocolNumber: finalNumber,
@@ -4110,6 +4222,7 @@ export function ProtocolForm({
         type: protocolType,
         object: printObjectName,
         date: protocolDate,
+        printHref: printPreviewHref,
       });
 
       router.push(`/protocols/success?${successParams.toString()}`);
@@ -4158,8 +4271,6 @@ export function ProtocolForm({
               </div>
             </div>
           </div>
-
-          <ProgressIndicator />
 
           {formLoadState === "loading" ? (
             <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm font-bold text-slate-500">

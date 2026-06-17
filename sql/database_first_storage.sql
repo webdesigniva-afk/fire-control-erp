@@ -21,12 +21,18 @@ CREATE TABLE IF NOT EXISTS service_tasks (
   object_code            TEXT NOT NULL DEFAULT '',
   object_name            TEXT NOT NULL DEFAULT '',
   client                 TEXT NOT NULL DEFAULT '',
+  assigned_to            TEXT,
   due_date               DATE,
   source_protocol_id     TEXT,
   source_protocol_number TEXT,
   source_protocol_row    TEXT,
   source_label           TEXT,
   recurrence_months      INTEGER,
+  resolution_type        TEXT,
+  resolution_note        TEXT,
+  resolution_date        DATE,
+  resolved_at            TIMESTAMPTZ,
+  resolved_by            TEXT,
   status                 TEXT NOT NULL DEFAULT 'planned',
   created_at_ms          BIGINT NOT NULL DEFAULT 0,
   completed_at           TIMESTAMPTZ,
@@ -37,10 +43,16 @@ ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS description            TEXT N
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS task_type              TEXT NOT NULL DEFAULT 'Планирано посещение';
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS activities             JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS object_id              TEXT;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS assigned_to            TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS source_protocol_id     TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS source_protocol_row    TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS source_label           TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS recurrence_months      INTEGER;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolution_type        TEXT;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolution_note        TEXT;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolution_date        DATE;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolved_at            TIMESTAMPTZ;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolved_by            TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS completed_at           TIMESTAMPTZ;
 
 UPDATE service_tasks

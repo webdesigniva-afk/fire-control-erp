@@ -76,7 +76,7 @@ async function readExistingLocationIdentifiers() {
   const supabase = createSupabaseBrowserClient();
   const { data, error } = await supabase
     .from("locations")
-    .select("id,qr_code,code,name,object_name,title");
+    .select("*");
 
   if (error) throw new Error(error.message);
 
@@ -92,6 +92,8 @@ async function readExistingLocationIdentifiers() {
 }
 
 function taskBelongsToExistingLocation(task: ServiceTask, locationIdentifiers: Set<string>) {
+  if (!locationIdentifiers.size) return true;
+
   const taskIdentifiers = uniqueValues([
     task.objectId ?? "",
     task.objectCode,
@@ -391,6 +393,8 @@ export default function TasksPage() {
         {plannedTasks.length ? (
           <div className="space-y-3">
             {plannedTasks.map((task) => {
+              const isCompleted = isCompletedTask(task);
+
               if (isSalesTask(task)) {
                 return (
                   <Card key={task.id} className="p-5" hover>
@@ -444,7 +448,6 @@ export default function TasksPage() {
                             <Badge variant={isProblemTask(task) ? "danger" : "neutral"}>
                               {taskTypeLabel(task)}
                             </Badge>
-                            <Badge variant="neutral">{String(task.status)}</Badge>
                           </div>
                           <p className="mt-1 text-sm font-black text-slate-600">
                             Дейности: {task.activities?.length || 1}
@@ -483,14 +486,16 @@ export default function TasksPage() {
                           Отвори обект
                         </Link>
                       ) : null}
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => completeTask(task.id)}
-                      >
-                        <CheckCircle2 size={17} />
-                        Завърши
-                      </Button>
+                      {!isCompleted ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => completeTask(task.id)}
+                        >
+                          <CheckCircle2 size={17} />
+                          Завърши
+                        </Button>
+                      ) : null}
                     </div>
                   </div>
                 </Card>

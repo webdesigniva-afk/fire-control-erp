@@ -52,6 +52,11 @@ export type ServiceTask = {
   sourceProtocolType?: string;
   sourceLabel?: string;
   recurrenceMonths?: number;
+  resolutionType?: string;
+  resolutionNote?: string;
+  resolutionDate?: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
   status: ServiceTaskStatus;
   createdAt: number;
   completedAt?: string;
@@ -193,6 +198,11 @@ function mapTaskRow(row: Record<string, unknown>): ServiceTask {
     sourceProtocolType: String(row["source_protocol_type"] ?? "") || undefined,
     sourceLabel: String(row["source_label"] ?? "") || undefined,
     recurrenceMonths: Number(row["recurrence_months"] ?? 0) || undefined,
+    resolutionType: String(row["resolution_type"] ?? "") || undefined,
+    resolutionNote: String(row["resolution_note"] ?? "") || undefined,
+    resolutionDate: String(row["resolution_date"] ?? "") || undefined,
+    resolvedBy: String(row["resolved_by"] ?? "") || undefined,
+    resolvedAt: String(row["resolved_at"] ?? "") || undefined,
     status: normalizeTaskStatus(row["status"]),
     createdAt: Number(row["created_at_ms"] ?? 0),
     completedAt: String(row["completed_at"] ?? "") || undefined,
@@ -227,6 +237,7 @@ function taskPayload(task: ServiceTask) {
     object_id: task.objectId || task.objectCode || null,
     object_name: task.objectName,
     client: task.client,
+    assigned_to: task.assignedTo || null,
     due_date: task.dueDate || null,
     source_protocol_id: task.sourceProtocolId || null,
     source_protocol_number: task.sourceProtocolNumber || null,
@@ -234,6 +245,11 @@ function taskPayload(task: ServiceTask) {
     source_protocol_type: task.sourceProtocolType || null,
     source_label: task.sourceLabel || null,
     recurrence_months: task.recurrenceMonths || null,
+    resolution_type: task.resolutionType || null,
+    resolution_note: task.resolutionNote || null,
+    resolution_date: task.resolutionDate || null,
+    resolved_by: task.resolvedBy || null,
+    resolved_at: task.resolvedAt || null,
     status: task.status,
     created_at_ms: task.createdAt,
     updated_at: new Date().toISOString(),
@@ -288,6 +304,11 @@ async function upsertTaskPayloadWithFallback(task: ServiceTask) {
     "source_protocol_type",
     "source_label",
     "recurrence_months",
+    "resolution_type",
+    "resolution_note",
+    "resolution_date",
+    "resolved_by",
+    "resolved_at",
     "completed_at",
   ];
 
@@ -540,6 +561,19 @@ export async function resolveProblem(
     .eq("id", problemId);
 
   if (error) throw new Error(error.message);
+  await supabase
+    .from("service_tasks")
+    .update({
+      status: "resolved",
+      resolution_type: resolution.resolutionType,
+      resolution_note: resolution.note,
+      resolution_date: resolution.date || resolvedAt.slice(0, 10),
+      resolved_at: resolvedAt,
+      resolved_by: resolvedBy,
+      completed_at: resolvedAt,
+      updated_at: resolvedAt,
+    })
+    .eq("related_problem_id", problemId);
   window.dispatchEvent(new Event(serviceTasksUpdatedEvent));
 }
 
@@ -555,6 +589,9 @@ async function resolveLegacyDefectTask(
     .from("service_tasks")
     .update({
       status: "resolved",
+      resolution_type: resolution.resolutionType,
+      resolution_note: resolution.note,
+      resolution_date: resolution.date || resolvedAt.slice(0, 10),
       resolved_at: resolvedAt,
       resolved_by: resolvedBy,
       completed_at: resolvedAt,

@@ -5,6 +5,7 @@ ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS object_id              TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS description            TEXT NOT NULL DEFAULT '';
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS task_type              TEXT NOT NULL DEFAULT 'Планирано посещение';
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS activities             JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS assigned_to            TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS source_protocol_id     TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS source_protocol_row    TEXT;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS source_protocol_type   TEXT;
@@ -13,6 +14,9 @@ ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS recurrence_months      INTEGE
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS completed_at           TIMESTAMPTZ;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolved_at            TIMESTAMPTZ;
 ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolved_by            TEXT;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolution_type        TEXT;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolution_note        TEXT;
+ALTER TABLE service_tasks ADD COLUMN IF NOT EXISTS resolution_date        DATE;
 
 ALTER TABLE IF EXISTS equipment ADD COLUMN IF NOT EXISTS extinguisher_category TEXT;
 ALTER TABLE IF EXISTS equipment ADD COLUMN IF NOT EXISTS extinguishing_agent_type TEXT;
@@ -68,6 +72,9 @@ CREATE TABLE IF NOT EXISTS fire_extinguisher_sticker_counter (
   next_no  INTEGER NOT NULL DEFAULT 40000
 );
 
+ALTER TABLE fire_extinguisher_sticker_counter DISABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE ON fire_extinguisher_sticker_counter TO anon, authenticated;
+
 INSERT INTO fire_extinguisher_sticker_counter (id, next_no)
 VALUES (1, 40000)
 ON CONFLICT (id) DO NOTHING;
@@ -82,6 +89,8 @@ WHERE id = 1;
 CREATE OR REPLACE FUNCTION claim_fire_extinguisher_sticker_number()
 RETURNS INTEGER
 LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
   claimed INTEGER;
@@ -101,6 +110,8 @@ BEGIN
   RETURN GREATEST(claimed, 40000);
 END;
 $$;
+
+GRANT EXECUTE ON FUNCTION claim_fire_extinguisher_sticker_number() TO anon, authenticated;
 
 CREATE TABLE IF NOT EXISTS protocol_fire_extinguisher_rows (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),

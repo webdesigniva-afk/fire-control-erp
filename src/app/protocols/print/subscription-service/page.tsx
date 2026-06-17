@@ -491,16 +491,10 @@ export default async function SubscriptionServicePrintPage({
             <FunctionBox checked={protocolData.personnelFunctions.C} />
             <br />
             на стандарта БДС EN 12845:2015+A1:2020
-            <br />
-            <span className="font-bold">{protocolData.technician}</span>
           </div>
           <div className="whitespace-normal break-words">
             Клиент: Всяка работа бе разрешена от мен и изпълнена според
             изискванията ми
-            <br />
-            <span className="font-bold">
-              {protocolData.clientName} - {protocolData.clientRepresentative}
-            </span>
           </div>
         </section>
 
@@ -540,7 +534,12 @@ export default async function SubscriptionServicePrintPage({
                   previewId={protocolData.previewId}
                   role="technician"
                   fallbackName={protocolData.technicianSignature}
+                  showFallbackName={false}
                 />
+              </div>
+              <div>
+                Име:{" "}
+                <span className="font-bold">{protocolData.technician}</span>
               </div>
               <div>
                 Дата:{" "}
@@ -557,7 +556,14 @@ export default async function SubscriptionServicePrintPage({
                   previewId={protocolData.previewId}
                   role="client"
                   fallbackName={protocolData.clientSignature}
+                  showFallbackName={false}
                 />
+              </div>
+              <div>
+                Име:{" "}
+                <span className="font-bold">
+                  {protocolData.clientName} - {protocolData.clientRepresentative}
+                </span>
               </div>
               <div>
                 Дата:{" "}

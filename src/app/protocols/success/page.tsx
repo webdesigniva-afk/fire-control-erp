@@ -51,6 +51,7 @@ export default async function ProtocolSuccessPage({
     date: formatDateForDisplay(
       valueFromQuery(query, "date", "2026-04-12")
     ),
+    printHref: valueFromQuery(query, "printHref", ""),
   };
 
   return (
@@ -115,10 +116,15 @@ export default async function ProtocolSuccessPage({
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Button variant="outline">
+            <Link
+              href={protocol.printHref || `/protocols/view/${encodeURIComponent(protocol.number)}`}
+              target={protocol.printHref ? "_blank" : undefined}
+              rel={protocol.printHref ? "noreferrer" : undefined}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+            >
               <Printer size={18} />
               Печат
-            </Button>
+            </Link>
             <Button variant="outline">
               <Mail size={18} />
               Изпрати по имейл
