@@ -50,7 +50,7 @@ import {
   type ProtocolSettings,
 } from "../../../lib/settings";
 import {
-  readActiveTechnicianSignaturesFromTeamMembers,
+  readActiveTechnicianNamesFromTeamMembers,
 } from "../../../lib/team-members";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
 import {
@@ -70,6 +70,13 @@ import {
 
 const PROTOCOLS_STORAGE_KEY = "firecontrol:protocols";
 const PROTOCOLS_UPDATED_EVENT = "firecontrol:protocols-updated";
+const TEAM_SESSION_STORAGE_KEY = "firecontrol:team-session";
+
+type TeamSession = {
+  id?: string;
+  name?: string;
+  signature_url?: string;
+};
 
 type StoredProtocolStatus = "draft" | "completed";
 
@@ -822,6 +829,17 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
   }
 
   return "";
+}
+
+function readTeamSession(): TeamSession | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(TEAM_SESSION_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as TeamSession) : null;
+  } catch {
+    return null;
+  }
 }
 
 function contractNumberFromSavedDocument(row: DataRecord) {
@@ -3025,19 +3043,33 @@ export function ProtocolForm({
   const [checks, setChecks] = useState<Record<string, CheckValue>>({});
 
   useEffect(() => {
+    const savedSignature = technicianSignatures[selectedTechnician];
+    if (savedSignature) {
+      setTechnicianSignatureDataUrl(savedSignature);
+    }
+  }, [selectedTechnician, technicianSignatures]);
+
+  useEffect(() => {
     let mounted = true;
 
     async function refreshTechnicianSettings() {
       let activeTechnicians: string[] = [];
       let activeSignatures: Record<string, string> = {};
       try {
-        const teamSignatures = await readActiveTechnicianSignaturesFromTeamMembers();
-        activeTechnicians = teamSignatures.map((technician) => technician.name);
-        activeSignatures = Object.fromEntries(
-          teamSignatures
-            .filter((technician) => technician.signature_url)
-            .map((technician) => [technician.name, technician.signature_url as string])
-        );
+        activeTechnicians = await readActiveTechnicianNamesFromTeamMembers();
+        const session = readTeamSession();
+        if (session?.id) {
+          const response = await fetch(`/api/team-profile?memberId=${encodeURIComponent(session.id)}`);
+          if (response.ok) {
+            const profile = await response.json();
+            const member = isRecord(profile?.member) ? profile.member : {};
+            const currentName = textValue(member, ["name"]) || session.name || "";
+            const currentSignature = textValue(member, ["signature_url"]) || session.signature_url || "";
+            if (currentName && currentSignature) {
+              activeSignatures = { [currentName]: currentSignature };
+            }
+          }
+        }
       } catch {
         activeTechnicians = [];
         activeSignatures = {};
@@ -4034,6 +4066,52 @@ export function ProtocolForm({
         }
       }
 
+      if (printTemplateSlug === "service-maintenance") {
+        const objectId =
+          selectedObjectDetails?.locationId ||
+          selectedObjectDetails?.code ||
+          selectedObjectCode;
+        const protocolId = await getProtocolDatabaseId(finalNumber);
+        const serviceProblems = [
+          {
+            key: "service-defects",
+            title: "Дефект",
+            description: serviceDefects.trim(),
+          },
+          {
+            key: "service-deviations",
+            title: "Отклонение",
+            description: serviceDeviations.trim(),
+          },
+        ].filter((item) => item.description);
+
+        for (const problem of serviceProblems) {
+          await upsertDefectTask({
+            title: problem.title,
+            description: problem.description,
+            activities: [
+              {
+                row: problem.key,
+                title: problem.title,
+                description: problem.description,
+                recurrenceMonths: 0,
+              },
+            ],
+            objectCode: objectId,
+            objectId,
+            objectName: printObjectName,
+            client: printClient,
+            assignedTo: selectedTechnician,
+            sourceProtocolId: protocolId || finalNumber,
+            sourceProtocolNumber: finalNumber,
+            sourceProtocolRow: problem.key,
+            sourceProtocolType: protocolType || undefined,
+            sourceLabel: `Протокол за поддръжка на ПИС №${finalNumber}`,
+            recurrenceMonths: undefined,
+          });
+        }
+      }
+
       if (printTemplateSlug === "service-maintenance" && nextVisitDate) {
         const objectId =
           selectedObjectDetails?.locationId ||
@@ -4243,7 +4321,9 @@ export function ProtocolForm({
     setSelectedTechnician(technician);
     const savedSignature = technicianSignatures[technician];
     if (savedSignature) {
-      setTechnicianSignatureDataUrl((current) => current || savedSignature);
+      setTechnicianSignatureDataUrl(savedSignature);
+    } else {
+      setTechnicianSignatureDataUrl("");
     }
   }
 
@@ -4371,29 +4451,6 @@ export function ProtocolForm({
               onChange={setProtocolDate}
             />
           </div>
-
-          {technicianSignatures[selectedTechnician] ? (
-            <div className="mt-3 flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
-              <span>Наличен е запазен подпис за избрания техник.</span>
-              <div className="flex items-center gap-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={technicianSignatures[selectedTechnician]}
-                  alt={`Подпис - ${selectedTechnician}`}
-                  className="h-12 max-w-40 rounded-lg border border-emerald-100 bg-white object-contain"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() =>
-                    setTechnicianSignatureDataUrl(technicianSignatures[selectedTechnician])
-                  }
-                >
-                  Използвай
-                </Button>
-              </div>
-            </div>
-          ) : null}
 
           {selectedObjectDetails ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm font-bold text-slate-500">

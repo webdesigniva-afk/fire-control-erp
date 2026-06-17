@@ -8,6 +8,7 @@ import {
   CalendarCheck,
   ChartNoAxesColumnIncreasing,
   ClipboardCheck,
+  FileText,
   Flame,
   Handshake,
   PanelLeft,
@@ -33,12 +34,13 @@ const sidebarStorageKey = "firecontrol-sidebar-mode";
 const menu: MenuItem[] = [
   { label: "Дашборд", href: "/dashboard", icon: LayoutDashboard },
   { label: "Продажби", href: "/sales", icon: ChartNoAxesColumnIncreasing },
-  { label: "Клиенти", href: "/clients", icon: Handshake },
-  { label: "Екип", href: "/team", icon: UserCog },
-  { label: "Обекти", href: "/locations", icon: Building2 },
-  { label: "Карта", href: "/map", icon: MapPinned },
   { label: "Задачи", href: "/tasks", icon: CalendarCheck },
   { label: "Протоколи", href: "/protocols", icon: ClipboardCheck },
+  { label: "Обекти", href: "/locations", icon: Building2 },
+  { label: "Клиенти", href: "/clients", icon: Handshake },
+  { label: "Карта", href: "/map", icon: MapPinned },
+  { label: "Екип", href: "/team", icon: UserCog },
+  { label: "Договори", href: "/contracts", icon: FileText },
   { label: "Настройки", href: "/settings", icon: Settings },
 ];
 

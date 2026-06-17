@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
@@ -42,6 +43,7 @@ type BadgeVariant = "success" | "warning" | "danger" | "neutral" | "orange" | "i
 type Opportunity = {
   id: string;
   company_name: string;
+  company_eik: string;
   contact_name: string;
   phone: string;
   email: string;
@@ -65,6 +67,7 @@ type Opportunity = {
 
 type NewLeadForm = {
   company_name: string;
+  company_eik: string;
   contact_name: string;
   phone: string;
   email: string;
@@ -170,6 +173,7 @@ const DEFAULT_SERVICE_CATALOG: LeadServiceCatalog = {
 
 const EMPTY_FORM: NewLeadForm = {
   company_name: "",
+  company_eik: "",
   contact_name: "",
   phone: "",
   email: "",
@@ -872,6 +876,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
         .from("sales_opportunities")
         .insert({
           company_name: form.company_name.trim(),
+          company_eik: form.company_eik.trim(),
           contact_name: form.contact_name.trim(),
           phone: form.phone.trim(),
           email: form.email.trim(),
@@ -931,9 +936,12 @@ function NewLeadModal({ open, onClose, onCreated }: {
         <form onSubmit={handleSubmit} className="space-y-6 p-6">
           <section>
             <SectionHeader icon={<UserRound size={17} />} title="Клиент" subtitle="Контактна информация" />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <FormField label="Фирма *">
                 <Input autoFocus required value={form.company_name} onChange={(e) => updateForm("company_name", e.target.value)} placeholder="Алфа Ритейл ООД" />
+              </FormField>
+              <FormField label="ЕИК">
+                <Input value={form.company_eik} onChange={(e) => updateForm("company_eik", e.target.value)} placeholder="123456789" />
               </FormField>
               <FormField label="Лице за контакт">
                 <Input value={form.contact_name} onChange={(e) => updateForm("contact_name", e.target.value)} placeholder="Иван Иванов" />
@@ -1138,6 +1146,7 @@ function ToastContainer({ toasts }: { toasts: Toast[] }) {
 
 // Main Page
 export default function SalesPage() {
+  const router = useRouter();
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [modalOpen, setModalOpen] = useState(false);
@@ -1185,6 +1194,7 @@ export default function SalesPage() {
       const mapped: Opportunity[] = (data ?? []).map((row) => ({
         id: String(row.id),
         company_name: String(row.company_name ?? ""),
+        company_eik: String(row.company_eik ?? ""),
         contact_name: String(row.contact_name ?? ""),
         phone: String(row.phone ?? ""),
         email: String(row.email ?? ""),
@@ -1290,7 +1300,7 @@ export default function SalesPage() {
             phone: serviceTarget.phone.trim(),
             email: serviceTarget.email.trim(),
             address: serviceTarget.object_address.trim(),
-            bulstat: "",
+            bulstat: serviceTarget.company_eik.trim(),
           })
           .select("id")
           .single();
@@ -1370,14 +1380,14 @@ export default function SalesPage() {
       showToast("Обслужването е стартирано.");
       setServiceTarget(null);
       setStartingServiceId("");
-      await loadOpportunities();
+      router.push(`/locations/${encodeURIComponent(String(newLocation.qr_code))}`);
     } catch {
       showToast("Неочаквана грешка. Моля опитайте отново.", "error");
       setStartingServiceId("");
     }
   }
 
-  const byStage = (stage: Stage) => opportunities.filter((o) => o.stage === stage);
+  const byStage = (stage: Stage) => opportunities.filter((o) => o.stage === stage && !o.converted_to_service);
   const archiveTarget = archiveTargetId ? opportunities.find((o) => o.id === archiveTargetId) : null;
 
   const newRecordButton = (

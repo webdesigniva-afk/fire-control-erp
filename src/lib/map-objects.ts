@@ -37,6 +37,7 @@ export type MapEquipmentItem = {
 export type MapServiceTaskItem = {
   id: string;
   title: string;
+  taskType: string;
   objectId?: string;
   objectCode: string;
   objectName: string;
@@ -210,6 +211,7 @@ function mapServiceTask(row: DataRecord): MapServiceTaskItem {
   return {
     id: textValue(row, ["id"]),
     title: textValue(row, ["title"]),
+    taskType: textValue(row, ["task_type"]),
     objectId: textValue(row, ["object_id"]) || undefined,
     objectCode: textValue(row, ["object_code"]),
     objectName: textValue(row, ["object_name"]),
@@ -221,6 +223,18 @@ function mapServiceTask(row: DataRecord): MapServiceTaskItem {
     sourceProtocolType: textValue(row, ["source_protocol_type"]) || undefined,
     sourceLabel: textValue(row, ["source_label"]) || undefined,
   };
+}
+
+function isSalesFlowTask(task: MapServiceTaskItem) {
+  const taskType = (task.taskType || "").trim().toLowerCase();
+  const sourceProtocolType = (task.sourceProtocolType || "").trim().toLowerCase();
+  const sourceLabel = (task.sourceLabel || "").trim().toLowerCase();
+
+  return (
+    taskType === "търговско проследяване" ||
+    sourceProtocolType === "sales_lead" ||
+    sourceLabel === "лийд"
+  );
 }
 
 function protocolReferenceValues(row: DataRecord) {
@@ -310,7 +324,7 @@ export function buildMapObjectsData(
   todayKey = toLocalDateKey(new Date())
 ): MapObjectsData {
   const plannedTasks = collapseReplacedEquipmentTasks(
-    tasks.filter((task) => task.status === "planned")
+    tasks.filter((task) => task.status === "planned" && !isSalesFlowTask(task))
   );
   let upcomingVisitCount = 0;
 

@@ -4,6 +4,9 @@
 ALTER TABLE IF EXISTS sales_opportunities
   ADD COLUMN IF NOT EXISTS object_type TEXT NOT NULL DEFAULT '';
 
+ALTER TABLE IF EXISTS sales_opportunities
+  ADD COLUMN IF NOT EXISTS company_eik TEXT NOT NULL DEFAULT '';
+
 ALTER TABLE IF EXISTS sales_opportunity_services
   ADD COLUMN IF NOT EXISTS service_category TEXT NOT NULL DEFAULT '';
 

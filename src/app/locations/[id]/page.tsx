@@ -177,6 +177,8 @@ type LocationContractDocument = {
   object: string;
   href: string;
   status: string;
+  createdAt: string;
+  expiresAt: string;
   updatedAt: string;
 };
 
@@ -363,6 +365,22 @@ function formatDateValue(value: string) {
 
   const [year, month, day] = value.slice(0, 10).split("-");
   return day && month && year ? `${day}.${month}.${year}` : value;
+}
+
+function addYearsToDateValue(value: string, years: number) {
+  if (!value || !value.includes("-")) return "";
+
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+  if (!year || !month || !day) return "";
+
+  const date = new Date(year, month - 1, day);
+  if (Number.isNaN(date.getTime())) return "";
+
+  date.setFullYear(date.getFullYear() + years);
+  const nextYear = date.getFullYear();
+  const nextMonth = String(date.getMonth() + 1).padStart(2, "0");
+  const nextDay = String(date.getDate()).padStart(2, "0");
+  return `${nextYear}-${nextMonth}-${nextDay}`;
 }
 
 function inputDateValue(value: string) {
@@ -1105,6 +1123,18 @@ function isSalesFlowTaskRow(row: DataRecord) {
   );
 }
 
+function isSalesFlowAction(action: UpcomingObjectAction) {
+  const taskType = action.taskType.trim().toLowerCase();
+  const sourceProtocolType = action.sourceProtocolType.trim().toLowerCase();
+  const sourceLabel = action.sourceLabel.trim().toLowerCase();
+
+  return (
+    taskType === "търговско проследяване" ||
+    sourceProtocolType === "sales_lead" ||
+    sourceLabel === "лийд"
+  );
+}
+
 function equipmentReplacementKey(row: DataRecord, locationProfile: LocationProfile) {
   const objectId =
     textValue(row, ["object_id", "object_code"]) ||
@@ -1787,7 +1817,10 @@ function OverviewTab() {
     (action) => action.source === "defect" && !isCompletedAction(action)
   );
   const upcomingVisitActions = upcomingActions.filter(
-    (action) => action.source !== "defect" && !isCompletedAction(action)
+    (action) =>
+      action.source !== "defect" &&
+      !isCompletedAction(action) &&
+      !isSalesFlowAction(action)
   );
   const upcomingVisitRenderItems = useMemo(
     () => buildUpcomingVisitRenderItems(upcomingVisitActions, equipment),
@@ -1858,62 +1891,68 @@ function OverviewTab() {
                 return (
                   <div
                     key={problem.id}
-                    className="grid gap-3 rounded-xl border border-red-100 bg-white/85 p-3 shadow-sm md:grid-cols-[minmax(0,1fr)_auto]"
+                    className="rounded-xl border border-red-100 bg-white/90 p-4 shadow-sm"
                   >
-                    <div className="min-w-0">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full border border-red-100 bg-red-50 px-2.5 py-1 text-[11px] font-black uppercase text-red-700">
-                          Проблем
-                        </span>
-                        <span className="text-xs font-bold text-slate-500">
+                        <Badge variant="danger">Проблем</Badge>
+                        <span className="text-xs font-black text-slate-500">
                           {formatTaskCreatedDate(problem.createdAt)}
                         </span>
                       </div>
-                      <div className="mt-2 whitespace-pre-line text-sm font-black leading-5 text-slate-950">
-                        {problem.title}
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold leading-5">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full sm:w-auto"
+                        onClick={() => completeUpcomingAction(problem)}
+                      >
+                        <CheckCircle2 size={15} />
+                        Маркирай като решен
+                      </Button>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.45fr)]">
+                      <div className="min-w-0">
+                        <div className="whitespace-pre-line text-base font-black leading-6 text-slate-950">
+                          {problem.title}
+                        </div>
                         {hasComment ? (
-                          <span className="min-w-0 text-red-800">
+                          <div className="mt-2 rounded-xl bg-red-50/70 px-3 py-2 text-sm font-bold leading-5 text-red-900">
                             <span className="text-red-600">Коментар:</span>{" "}
-                            <span className="font-semibold">
-                              {problem.description}
-                            </span>
-                          </span>
+                            <span>{problem.description}</span>
+                          </div>
                         ) : null}
                         {sourceLabel ? (
-                          <span className="inline-flex min-w-0 flex-wrap items-center gap-2 text-slate-600">
-                            <span>
-                              <span className="text-slate-400">Източник:</span>{" "}
-                              {sourceLabel}
-                            </span>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold leading-5 text-slate-600">
+                            <span className="text-slate-400">Източник:</span>
+                            <span>{sourceLabel}</span>
                             <ProtocolSourceLink action={problem} />
-                          </span>
+                          </div>
                         ) : null}
-                        <span className="text-slate-600">
-                          <span className="text-slate-400">Статус:</span>{" "}
-                          {taskStatusLabel(problem.status)}
-                        </span>
-                        <span className="text-slate-600">
-                          <span className="text-slate-400">Отговорник:</span>{" "}
-                          {problem.assignee || "Не е зададен"}
-                        </span>
-                        <span className="text-slate-600">
-                          <span className="text-slate-400">Свързана задача:</span>{" "}
-                          {problem.id ? "Да" : "Не"}
-                        </span>
+                      </div>
+
+                      <div className="grid gap-2 border-t border-slate-100 pt-3 text-xs font-bold leading-5 text-slate-600 sm:grid-cols-3 lg:block lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+                        <div>
+                          <div className="text-slate-400">Статус</div>
+                          <div className="text-slate-800">
+                            {taskStatusLabel(problem.status)}
+                          </div>
+                        </div>
+                        <div className="lg:mt-3">
+                          <div className="text-slate-400">Отговорник</div>
+                          <div className="text-slate-800">
+                            {problem.assignee || "Не е зададен"}
+                          </div>
+                        </div>
+                        <div className="lg:mt-3">
+                          <div className="text-slate-400">Свързана задача</div>
+                          <div className="text-slate-800">
+                            {problem.id ? "Да" : "Не"}
+                          </div>
+                        </div>
                       </div>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="self-start md:self-center"
-                      onClick={() => completeUpcomingAction(problem)}
-                    >
-                      <CheckCircle2 size={15} />
-                      Маркирай като решен
-                    </Button>
                   </div>
                 );
               })}
@@ -4132,6 +4171,7 @@ function ContractsTab() {
             const contract = isRecord(payload.contract) ? payload.contract : {};
             const status = payload.status === "accepted" ? "Договор приет" : "Чернова";
             const href = String(row.href || `/sales/contract/${String(row.id).replace(/^contract-/, "")}`);
+            const createdAt = textValue(contract, ["date", "createdAt", "created_at"]) || String(row.updated_at || "").slice(0, 10);
 
             return {
               id: String(row.id),
@@ -4141,6 +4181,8 @@ function ContractsTab() {
               object: String(row.object || contract.object || location.name || "Без обект"),
               href: `${href}${href.includes("?") ? "&" : "?"}mode=view`,
               status,
+              createdAt,
+              expiresAt: addYearsToDateValue(createdAt, 1),
               updatedAt: String(row.updated_at || ""),
             };
           });
@@ -4192,7 +4234,7 @@ function ContractsTab() {
       {contracts.length ? (
         <div className="mt-5 grid gap-3">
           {contracts.map((contract) => (
-            <div key={contract.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div key={contract.id} className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[minmax(240px,1.2fr)_minmax(260px,0.9fr)_auto] md:items-center">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="font-black text-slate-950">{contract.number}</div>
@@ -4201,9 +4243,19 @@ function ContractsTab() {
                 <div className="mt-1 text-sm font-semibold text-slate-600">{contract.client}</div>
                 <div className="mt-0.5 text-xs font-medium text-slate-400">{contract.object}</div>
               </div>
+              <div className="grid gap-3 border-t border-slate-200 pt-3 text-xs font-bold text-slate-500 sm:grid-cols-2 md:border-l md:border-t-0 md:py-1 md:pl-5">
+                <div>
+                  <div className="uppercase text-slate-400">Създаден на</div>
+                  <div className="mt-1 text-sm text-slate-800">{formatDateValue(contract.createdAt) || "—"}</div>
+                </div>
+                <div>
+                  <div className="uppercase text-slate-400">Изтича на</div>
+                  <div className="mt-1 text-sm text-slate-800">{formatDateValue(contract.expiresAt) || "—"}</div>
+                </div>
+              </div>
               <Link
                 href={contract.href}
-                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700 md:justify-self-end"
               >
                 <ExternalLink size={16} />
                 Отвори договор
@@ -4904,10 +4956,7 @@ export default function LocationProfilePage() {
           mergeRows((data as DataRecord[]) ?? []);
         }
 
-        const displayRows = collapseReplacedEquipmentRows(
-          rows.filter((row) => !isSalesFlowTaskRow(row)),
-          locationProfile
-        );
+        const displayRows = collapseReplacedEquipmentRows(rows, locationProfile);
 
         displayRows.sort((first, second) =>
           textValue(first, ["due_date"]).localeCompare(textValue(second, ["due_date"]))
@@ -5419,6 +5468,7 @@ export default function LocationProfilePage() {
       <AppShell
         title="Обекти"
         description="Профил на обект, проверки, протоколи и сервизни дейности"
+        showSearch={false}
       >
         <Card className="p-8 text-center text-sm font-bold text-slate-500">
           Loading...
@@ -5432,6 +5482,7 @@ export default function LocationProfilePage() {
       <AppShell
         title="Обекти"
         description="Профил на обект, проверки, протоколи и сервизни дейности"
+        showSearch={false}
       >
         <Card className="p-8 text-center text-sm font-bold text-slate-500">
           Грешка при зареждане
@@ -5445,6 +5496,7 @@ export default function LocationProfilePage() {
       <AppShell
         title="Обекти"
         description="Профил на обект, проверки, протоколи и сервизни дейности"
+        showSearch={false}
       >
         <Card className="p-8 text-center text-sm font-bold text-slate-500">
           Обектът не е намерен
@@ -5481,6 +5533,7 @@ export default function LocationProfilePage() {
       <AppShell
         title="Обекти"
         description="Профил на обект, проверки, протоколи и сервизни дейности"
+        showSearch={false}
       >
       <PageHeader
         title={locationProfile.name}

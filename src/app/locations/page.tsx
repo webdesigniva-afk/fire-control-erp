@@ -140,6 +140,18 @@ function taskMatchesLocation(task: DataRecord, keys: Set<string>) {
   );
 }
 
+function isSalesFlowTaskRow(row: DataRecord) {
+  const taskType = textValue(row, ["task_type"]).trim().toLowerCase();
+  const sourceProtocolType = textValue(row, ["source_protocol_type"]).trim().toLowerCase();
+  const sourceLabel = textValue(row, ["source_label"]).trim().toLowerCase();
+
+  return (
+    taskType === "търговско проследяване" ||
+    sourceProtocolType === "sales_lead" ||
+    sourceLabel === "лийд"
+  );
+}
+
 function StatTile({
   icon: Icon,
   label,
@@ -293,6 +305,10 @@ export default function LocationsPage() {
         return taskRows.filter((task) => taskMatchesLocation(task, keys));
       }
 
+      function matchingVisitTasks(locationKeys: string[]) {
+        return matchingTasks(locationKeys).filter((task) => !isSalesFlowTaskRow(task));
+      }
+
       function countOpenDefects(locationKeys: string[]) {
         const keys = new Set(locationKeys.filter(Boolean));
         return defectRows.filter((defect) => taskMatchesLocation(defect, keys))
@@ -309,7 +325,8 @@ export default function LocationsPage() {
           const qrCode = textValue(location, ["qr_code", "code"]) || locationId;
           const locationName = textValue(location, ["name", "object_name", "title"]);
           const locationTasks = matchingTasks([locationId, qrCode, locationName]);
-          const taskDates = locationTasks
+          const visitTasks = matchingVisitTasks([locationId, qrCode, locationName]);
+          const taskDates = visitTasks
             .map((task) => textValue(task, ["due_date"]))
             .filter(Boolean)
             .sort();

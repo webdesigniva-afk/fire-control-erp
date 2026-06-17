@@ -105,6 +105,16 @@ type ProtocolItem = {
   signed: boolean;
 };
 
+type ContractItem = {
+  id: string;
+  number: string;
+  client: string;
+  objectName: string;
+  createdAt: string;
+  expiresAt: string;
+  status: string;
+};
+
 type TechnicianItem = {
   id: string;
   name: string;
@@ -119,6 +129,7 @@ type DashboardData = {
   tasks: ServiceTaskItem[];
   problems: ProblemItem[];
   protocols: ProtocolItem[];
+  contracts: ContractItem[];
   technicians: TechnicianItem[];
 };
 
@@ -155,6 +166,7 @@ type Activity = {
   action: string;
   details: string;
   time: string;
+  occurredAt: string;
   icon: LucideIcon;
 };
 
@@ -181,6 +193,7 @@ const emptyDashboardData: DashboardData = {
   tasks: [],
   problems: [],
   protocols: [],
+  contracts: [],
   technicians: [],
 };
 
@@ -207,6 +220,9 @@ const badgeVariantByTone = {
   neutral: "neutral",
 } as const;
 
+const ACTIVITY_LOOKBACK_DAYS = 30;
+const ACTIVITY_LIMIT = 8;
+
 function textValue(record: DataRecord | null | undefined, keys: string[]) {
   if (!record) return "";
 
@@ -217,6 +233,10 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
   }
 
   return "";
+}
+
+function isRecord(value: unknown): value is DataRecord {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function numberValue(record: DataRecord | null | undefined, keys: string[]) {
@@ -244,6 +264,14 @@ function toLocalDateKey(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function addYearsToDateKey(value: string, years: number) {
+  const date = dateFromIso(value.slice(0, 10));
+  if (!date) return "";
+
+  date.setFullYear(date.getFullYear() + years);
+  return toLocalDateKey(date);
 }
 
 function daysBetween(fromKey: string, toKey: string) {
@@ -275,6 +303,14 @@ function relativeTime(value: string) {
   const hours = Math.round(diffMinutes / 60);
   if (hours < 24) return `преди ${hours} ч`;
   return formatDate(toLocalDateKey(date));
+}
+
+function isRecentActivityDate(value: string, todayKey: string) {
+  const key = value ? value.slice(0, 10) : "";
+  if (!key) return false;
+
+  const ageDays = daysBetween(key, todayKey);
+  return ageDays >= 0 && ageDays <= ACTIVITY_LOOKBACK_DAYS;
 }
 
 function normalizeLocationStatus(value: string): LocationStatus {
@@ -368,6 +404,18 @@ function mapSalesFollowUpTask(row: DataRecord): ServiceTaskItem | null {
   };
 }
 
+function isSalesFlowTask(task: ServiceTaskItem) {
+  const taskType = task.taskType.trim().toLowerCase();
+  const sourceProtocolType = (task.sourceProtocolType || "").trim().toLowerCase();
+  const sourceLabel = (task.sourceLabel || "").trim().toLowerCase();
+
+  return (
+    taskType === "търговско проследяване" ||
+    sourceProtocolType === "sales_lead" ||
+    sourceLabel === "лийд"
+  );
+}
+
 async function selectSalesFollowUpRows() {
   const supabase = createSupabaseBrowserClient();
   const primaryResult = await supabase
@@ -447,6 +495,24 @@ function mapProtocol(row: DataRecord): ProtocolItem {
   };
 }
 
+function mapContract(row: DataRecord): ContractItem {
+  const payload = isRecord(row.payload) ? row.payload : {};
+  const contract = isRecord(payload.contract) ? payload.contract : {};
+  const createdAt =
+    textValue(contract, ["date", "createdAt", "created_at"]) ||
+    textValue(row, ["updated_at", "created_at"]).slice(0, 10);
+
+  return {
+    id: textValue(row, ["id"]),
+    number: textValue(row, ["number"]) || textValue(contract, ["number"]) || "Без номер",
+    client: textValue(row, ["client"]) || textValue(contract, ["client"]),
+    objectName: textValue(row, ["object"]) || textValue(contract, ["object"]),
+    createdAt,
+    expiresAt: addYearsToDateKey(createdAt, 1),
+    status: textValue(payload, ["status"]),
+  };
+}
+
 function mapTechnicianMember(row: DataRecord, index: number): TechnicianItem {
   return {
     id: textValue(row, ["id"]) || `technician-${index + 1}`,
@@ -496,6 +562,7 @@ async function loadDashboardData(): Promise<DashboardData> {
     salesFollowUpRows,
     problemRows,
     protocolRows,
+    contractRows,
     technicianRows,
   ] = await Promise.all([
     selectRows("locations"),
@@ -504,6 +571,17 @@ async function loadDashboardData(): Promise<DashboardData> {
     selectSalesFollowUpRows(),
     selectRows("problems"),
     selectRows("protocols"),
+    supabase
+      .from("saved_documents")
+      .select("id,number,client,object,payload,updated_at")
+      .eq("kind", "contract")
+      .then(({ data, error }) => {
+        if (error) {
+          console.warn("[dashboard] contracts load failed", error.message);
+          return [];
+        }
+        return ((data as DataRecord[]) ?? []);
+      }),
     supabase
       .from("team_members")
       .select("id,name,photo_url,is_active,role")
@@ -535,6 +613,7 @@ async function loadDashboardData(): Promise<DashboardData> {
     ],
     problems: problemRows.map(mapProblem),
     protocols: protocolRows.map(mapProtocol),
+    contracts: contractRows.map(mapContract),
     technicians: technicianRows.map(mapTechnicianMember).filter((item) => item.name && item.active),
   };
 }
@@ -745,7 +824,7 @@ function TodayTasksCard({ tasks }: { tasks: DayTask[] }) {
 function ActivityCard({ activities }: { activities: Activity[] }) {
   return (
     <Card className="p-5">
-      <SectionHeader title="Последна активност" eyebrow="история" />
+      <SectionHeader title="Последна активност" eyebrow="30 дни" />
       <div className="mt-5 max-h-[420px] space-y-4 overflow-y-auto pr-1">
         {activities.length ? (
           activities.map((activity) => {
@@ -892,7 +971,6 @@ export default function DashboardPage() {
 
   const derived = useMemo(() => {
     const todayKey = toLocalDateKey(new Date());
-    const monthKey = todayKey.slice(0, 7);
     const locationsByLookup = new Map<string, LocationItem>();
     for (const location of data.locations) {
       for (const key of [location.id, location.qrCode, location.name]) {
@@ -947,7 +1025,10 @@ export default function DashboardPage() {
 
     const plannedTasks = collapseReplacedEquipmentTasks(
       data.tasks.filter(
-        (task) => task.status === "planned" && taskHasActiveDashboardContext(task)
+        (task) =>
+          task.status === "planned" &&
+          taskHasActiveDashboardContext(task) &&
+          !isSalesFlowTask(task)
       )
     );
     const openDefectTasks = data.tasks.filter(
@@ -972,11 +1053,10 @@ export default function DashboardPage() {
       return days >= 0 && days <= 7;
     });
 
-    const protocolsThisMonth = data.protocols.filter((protocol) =>
-      (protocol.date || protocol.updatedAt).startsWith(monthKey)
-    );
-    const unsignedProtocols = data.protocols.filter(
-      (protocol) => protocol.status === "draft" || !protocol.signed
+    const expiringContracts = data.contracts.filter((contract) =>
+      contract.expiresAt &&
+      daysBetween(todayKey, contract.expiresAt) >= 0 &&
+      daysBetween(todayKey, contract.expiresAt) <= 30
     );
 
     function objectHrefFromTask(task: ServiceTaskItem) {
@@ -1090,6 +1170,7 @@ export default function DashboardPage() {
           protocol.status === "completed" ? "Завършен протокол" : "Обновен протокол",
         details: `${protocol.objectName || "Обект"} - ${protocol.number}`,
         time: relativeTime(protocol.updatedAt || protocol.date),
+        occurredAt: protocol.updatedAt || protocol.date,
         icon: protocol.status === "completed" ? CheckCircle2 : FileText,
       }));
     const recentEquipmentActivities: Activity[] = data.equipment
@@ -1100,6 +1181,7 @@ export default function DashboardPage() {
         action: "Обновено оборудване",
         details: `${item.type} - ${item.name}`,
         time: relativeTime(item.updatedAt),
+        occurredAt: item.updatedAt,
         icon: Wrench,
       }));
     const recentProblemActivities: Activity[] = openDefectTasks
@@ -1112,6 +1194,7 @@ export default function DashboardPage() {
         action: "Създаден проблем",
         details: `${task.objectName} - ${task.title}`,
         time: relativeTime(task.updatedAt || task.dueDate),
+        occurredAt: task.updatedAt || task.dueDate,
         icon: AlertTriangle,
       }));
     const completedTaskActivities: Activity[] = data.tasks
@@ -1131,6 +1214,7 @@ export default function DashboardPage() {
         action: "Приключена задача",
         details: `${task.objectName} - ${task.title}`,
         time: relativeTime(task.updatedAt || task.dueDate),
+        occurredAt: task.updatedAt || task.dueDate,
         icon: CheckCircle2,
       }));
     const activities = [
@@ -1139,8 +1223,9 @@ export default function DashboardPage() {
       ...recentProblemActivities,
       ...completedTaskActivities,
     ]
-      .sort((first, second) => second.time.localeCompare(first.time))
-      .slice(0, 5);
+      .filter((activity) => isRecentActivityDate(activity.occurredAt, todayKey))
+      .sort((first, second) => second.occurredAt.localeCompare(first.occurredAt))
+      .slice(0, ACTIVITY_LIMIT);
 
     const technicianSummaries: TechnicianSummary[] = data.technicians.map((technician) => {
       const assignedTodayTasks = todayTasks.filter(
@@ -1200,12 +1285,10 @@ export default function DashboardPage() {
         icon: ShieldAlert,
       },
       {
-        label: "Протоколи този месец",
-        value: String(protocolsThisMonth.length),
-        note: unsignedProtocols.length
-          ? `${unsignedProtocols.length} чакат завършване`
-          : "този месец",
-        tone: unsignedProtocols.length ? "warning" : "neutral",
+        label: "Договори изтичат до 30 дни",
+        value: String(expiringContracts.length),
+        note: expiringContracts.length ? "следващи 30 дни" : "Няма изтичащи",
+        tone: expiringContracts.length ? "warning" : "neutral",
         icon: FileText,
       },
     ];

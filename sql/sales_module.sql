@@ -9,6 +9,7 @@
 CREATE TABLE IF NOT EXISTS sales_opportunities (
   id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_name        TEXT NOT NULL DEFAULT '',
+  company_eik         TEXT NOT NULL DEFAULT '',
   contact_name        TEXT NOT NULL DEFAULT '',
   phone               TEXT NOT NULL DEFAULT '',
   email               TEXT NOT NULL DEFAULT '',
@@ -32,6 +33,9 @@ ALTER TABLE sales_opportunities DISABLE ROW LEVEL SECURITY;
 
 ALTER TABLE sales_opportunities
   ADD COLUMN IF NOT EXISTS object_type TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE sales_opportunities
+  ADD COLUMN IF NOT EXISTS company_eik TEXT NOT NULL DEFAULT '';
 
 -- ----------------------------------------------------------------
 -- 2. sales_opportunity_services

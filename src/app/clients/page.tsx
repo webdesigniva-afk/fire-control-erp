@@ -12,7 +12,6 @@ import {
   Search,
   Trash2,
   UserRound,
-  Wrench,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
 import { Badge } from "../../components/ui/badge";
@@ -708,18 +707,6 @@ export default function ClientsPage() {
                                 {location.address || "Няма адрес"}
                               </div>
                             </Link>
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {location.services.length ? (
-                                location.services.map((service) => (
-                                  <Badge key={service.id} variant="neutral">
-                                    <Wrench size={12} />
-                                    {service.name}
-                                  </Badge>
-                                ))
-                              ) : (
-                                <Badge variant="warning">Без сервиз</Badge>
-                              )}
-                            </div>
                           </div>
                         ))
                       ) : (
