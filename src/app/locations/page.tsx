@@ -539,10 +539,6 @@ export default function LocationsPage() {
       description="Профили на обекти, проверки, протоколи и сервизни дейности"
     >
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" onClick={loadLocations}>
-            <RefreshCw size={17} />
-            Обнови
-          </Button>
           <Link
             href="/locations/new"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md"
@@ -550,6 +546,10 @@ export default function LocationsPage() {
             <Plus size={18} />
             Нов обект
           </Link>
+          <Button type="button" variant="outline" onClick={loadLocations}>
+            <RefreshCw size={17} />
+            Обнови
+          </Button>
       </div>
 
       <Card className="mt-4 overflow-hidden">

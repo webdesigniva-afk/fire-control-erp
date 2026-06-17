@@ -832,16 +832,34 @@ export default function DashboardPage() {
         [protocol.id, protocol.number].filter(Boolean)
       )
     );
+
+    function locationFromTask(task: ServiceTaskItem) {
+      return (
+        (task.objectId ? locationsByLookup.get(task.objectId) : undefined) ||
+        (task.objectCode ? locationsByLookup.get(task.objectCode) : undefined) ||
+        (task.objectName ? locationsByLookup.get(task.objectName) : undefined)
+      );
+    }
+
+    function taskHasActiveDashboardContext(task: ServiceTaskItem) {
+      const hasProtocolSource = Boolean(
+        task.sourceProtocolId || task.sourceProtocolNumber || task.sourceLabel
+      );
+
+      return Boolean(locationFromTask(task)) ||
+        (hasProtocolSource && taskSourceIsActive(task, protocolRefs));
+    }
+
     const plannedTasks = collapseReplacedEquipmentTasks(
       data.tasks.filter(
-        (task) => task.status === "planned" && taskSourceIsActive(task, protocolRefs)
+        (task) => task.status === "planned" && taskHasActiveDashboardContext(task)
       )
     );
     const openDefectTasks = data.tasks.filter(
       (task) =>
         task.taskType === "defect" &&
         task.status === "open" &&
-        taskSourceIsActive(task, protocolRefs)
+        taskHasActiveDashboardContext(task)
     );
     const todayTasks = plannedTasks
       .filter((task) => task.dueDate === todayKey)
@@ -867,10 +885,7 @@ export default function DashboardPage() {
     );
 
     function objectHrefFromTask(task: ServiceTaskItem) {
-      const location =
-        (task.objectId ? locationsByLookup.get(task.objectId) : undefined) ||
-        (task.objectCode ? locationsByLookup.get(task.objectCode) : undefined) ||
-        (task.objectName ? locationsByLookup.get(task.objectName) : undefined);
+      const location = locationFromTask(task);
       const objectRef = location?.qrCode || task.objectCode || task.objectId;
 
       return objectRef
@@ -1007,6 +1022,7 @@ export default function DashboardPage() {
           (task.status === "done" ||
             task.status === "resolved" ||
             task.status === "completed") &&
+          taskHasActiveDashboardContext(task) &&
           (task.updatedAt || task.dueDate)
       )
       .sort((first, second) =>
@@ -1111,6 +1127,7 @@ export default function DashboardPage() {
     <AppShell
       title="Оперативен център"
       description="Оперативен преглед на проверки, проблеми, задачи и екипи"
+      showSearch={false}
       headerAction={
         <Button type="button" variant="outline" onClick={refreshDashboard}>
           <RefreshCw className="h-4 w-4" />

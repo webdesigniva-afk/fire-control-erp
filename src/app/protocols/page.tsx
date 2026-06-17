@@ -11,6 +11,7 @@ import {
   Mail,
   PenLine,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   UserRound,
@@ -314,6 +315,19 @@ export default function ProtocolsPage() {
   const [deleteDialog, setDeleteDialog] =
     useState<DeleteConfirmDialogState | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  async function refreshProtocols() {
+    setIsRefreshing(true);
+    setStoredProtocols(readStoredProtocols());
+    setDeletedDemoProtocolNumbers(readDeletedDemoProtocolNumbers());
+
+    try {
+      setDbProtocols(await readDbProtocols());
+    } finally {
+      setIsRefreshing(false);
+    }
+  }
 
   // Sync any localStorage-only protocols to Supabase once on mount.
   // This is idempotent — only records missing from the DB are pushed.
@@ -328,13 +342,7 @@ export default function ProtocolsPage() {
   }, []);
 
   useEffect(() => {
-    function refreshStoredProtocols() {
-      setStoredProtocols(readStoredProtocols());
-      setDeletedDemoProtocolNumbers(readDeletedDemoProtocolNumbers());
-      readDbProtocols().then(setDbProtocols);
-    }
-
-    refreshStoredProtocols();
+    void refreshProtocols();
 
     const params = new URLSearchParams(window.location.search);
     if (params.get("filter") === "drafts") {
@@ -343,14 +351,14 @@ export default function ProtocolsPage() {
 
     function onStorage(event: StorageEvent) {
       if (event.key && event.key !== PROTOCOLS_STORAGE_KEY) return;
-      refreshStoredProtocols();
+      void refreshProtocols();
     }
 
     window.addEventListener("storage", onStorage);
-    window.addEventListener(PROTOCOLS_UPDATED_EVENT, refreshStoredProtocols);
+    window.addEventListener(PROTOCOLS_UPDATED_EVENT, refreshProtocols);
 
     function onFocus() {
-      refreshStoredProtocols();
+      void refreshProtocols();
     }
 
     window.addEventListener("focus", onFocus);
@@ -359,7 +367,7 @@ export default function ProtocolsPage() {
       window.removeEventListener("storage", onStorage);
       window.removeEventListener(
         PROTOCOLS_UPDATED_EVENT,
-        refreshStoredProtocols
+        refreshProtocols
       );
       window.removeEventListener("focus", onFocus);
     };
@@ -431,8 +439,7 @@ export default function ProtocolsPage() {
     }
 
     setDeleteDialog(null);
-    setStoredProtocols(readStoredProtocols());
-    setDeletedDemoProtocolNumbers(readDeletedDemoProtocolNumbers());
+    await refreshProtocols();
   }
 
   function handleDeleteProtocol(protocol: ProtocolListItem) {
@@ -462,13 +469,27 @@ export default function ProtocolsPage() {
           />
         </div>
 
-        <Link
-          href="/protocols/new"
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md"
-        >
-          <Plus size={18} />
-          Нов протокол
-        </Link>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Link
+            href="/protocols/new"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md"
+          >
+            <Plus size={18} />
+            Нов протокол
+          </Link>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={refreshProtocols}
+            disabled={isRefreshing}
+          >
+            <RefreshCw
+              size={17}
+              className={isRefreshing ? "animate-spin" : ""}
+            />
+            Обнови
+          </Button>
+        </div>
       </div>
 
       <Tabs className="mt-6">

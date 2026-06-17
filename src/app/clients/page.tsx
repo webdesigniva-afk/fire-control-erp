@@ -402,12 +402,6 @@ export default function ClientsPage() {
     <AppShell
       title="Клиенти"
       description="Управление на клиенти и свързаните им обекти"
-      headerAction={
-        <Button type="button" onClick={openCreateForm}>
-          <Plus size={18} />
-          Добави клиент
-        </Button>
-      }
     >
       <div className="space-y-5">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -432,6 +426,10 @@ export default function ClientsPage() {
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row">
+              <Button type="button" onClick={openCreateForm}>
+                <Plus size={18} />
+                Добави клиент
+              </Button>
               <Button type="button" variant="outline" onClick={loadClients}>
                 <RefreshCw size={17} />
                 Обнови

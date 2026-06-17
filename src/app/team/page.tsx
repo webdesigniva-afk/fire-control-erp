@@ -20,6 +20,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
+import { PinInput } from "../../components/ui/pin-input";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import {
   getTeamMemberInitials,
@@ -843,12 +844,13 @@ export default function TeamPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {loadState === "error" ? <span className="text-sm font-bold text-red-600">Грешка при зареждане</span> : null}
-              <Button type="button" variant="outline" size="icon" onClick={loadMembers} title="Обнови">
-                <RefreshCw size={16} className={loadState === "loading" ? "animate-spin" : ""} />
-              </Button>
               <Button type="button" onClick={openCreate}>
                 <Plus size={16} />
                 Добави човек
+              </Button>
+              <Button type="button" variant="outline" onClick={loadMembers} title="Обнови">
+                <RefreshCw size={16} className={loadState === "loading" ? "animate-spin" : ""} />
+                Обнови
               </Button>
             </div>
           </div>
@@ -1117,20 +1119,14 @@ export default function TeamPage() {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Нов ПИН" required>
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
+                <PinInput
                   value={pinForm.pin}
                   onChange={(event) => setPinForm((current) => ({ ...current, pin: event.target.value.replace(/\D/g, "").slice(0, 4) }))}
                   required
                 />
               </Field>
               <Field label="Повтори ПИН" required>
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
+                <PinInput
                   value={pinForm.repeatPin}
                   onChange={(event) => setPinForm((current) => ({ ...current, repeatPin: event.target.value.replace(/\D/g, "").slice(0, 4) }))}
                   required

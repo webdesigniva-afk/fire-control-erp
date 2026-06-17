@@ -123,10 +123,6 @@ export default function MapPage() {
       description=""
       headerAction={
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Button type="button" variant="outline" onClick={refreshLocations}>
-            <RefreshCw className="h-4 w-4" />
-            Обнови
-          </Button>
           <Link
             href="/locations/new"
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 via-red-500 to-orange-400 px-5 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
@@ -134,6 +130,10 @@ export default function MapPage() {
             <Plus className="h-4 w-4" />
             Нов обект
           </Link>
+          <Button type="button" variant="outline" onClick={refreshLocations}>
+            <RefreshCw className="h-4 w-4" />
+            Обнови
+          </Button>
         </div>
       }
     >

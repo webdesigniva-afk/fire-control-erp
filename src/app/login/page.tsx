@@ -4,7 +4,7 @@ import { useState, type FormEvent } from "react";
 import { CheckCircle2, KeyRound, Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
-import { Input } from "../../components/ui/input";
+import { PinInput } from "../../components/ui/pin-input";
 import { isValidPin, type TeamMember } from "../../lib/team-members";
 
 const sessionKey = "firecontrol:team-session";
@@ -107,10 +107,7 @@ export default function LoginPage() {
               </div>
               <label className="block space-y-2">
                 <span className="text-xs font-black uppercase text-slate-400">Нов ПИН</span>
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
+                <PinInput
                   value={newPin}
                   onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
                   required
@@ -118,10 +115,7 @@ export default function LoginPage() {
               </label>
               <label className="block space-y-2">
                 <span className="text-xs font-black uppercase text-slate-400">Повтори ПИН</span>
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
+                <PinInput
                   value={repeatPin}
                   onChange={(event) => setRepeatPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
                   required
@@ -136,10 +130,7 @@ export default function LoginPage() {
             <form className="space-y-4" onSubmit={handleLogin}>
               <label className="block space-y-2">
                 <span className="text-xs font-black uppercase text-slate-400">ПИН</span>
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
+                <PinInput
                   value={pin}
                   onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
                   autoFocus

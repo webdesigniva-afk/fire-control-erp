@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS team_members (
   role                  TEXT NOT NULL DEFAULT 'Техник',
   photo_url             TEXT,
   photo_storage_path    TEXT,
+  signature_url         TEXT,
+  signature_storage_path TEXT,
+  signature_updated_at  TIMESTAMPTZ,
   pin_hash              TEXT NOT NULL,
   must_change_pin       BOOLEAN NOT NULL DEFAULT TRUE,
   is_active             BOOLEAN NOT NULL DEFAULT TRUE,
@@ -35,6 +38,9 @@ ALTER TABLE team_members ADD COLUMN IF NOT EXISTS email                 TEXT;
 ALTER TABLE team_members ADD COLUMN IF NOT EXISTS role                  TEXT NOT NULL DEFAULT 'Техник';
 ALTER TABLE team_members ADD COLUMN IF NOT EXISTS photo_url             TEXT;
 ALTER TABLE team_members ADD COLUMN IF NOT EXISTS photo_storage_path    TEXT;
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS signature_url         TEXT;
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS signature_storage_path TEXT;
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS signature_updated_at  TIMESTAMPTZ;
 ALTER TABLE team_members ADD COLUMN IF NOT EXISTS pin_hash              TEXT NOT NULL DEFAULT '';
 ALTER TABLE team_members ADD COLUMN IF NOT EXISTS must_change_pin       BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE team_members ADD COLUMN IF NOT EXISTS is_active             BOOLEAN NOT NULL DEFAULT TRUE;
@@ -100,6 +106,10 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('team-avatars', 'team-avatars', TRUE)
 ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
 
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('team-signatures', 'team-signatures', TRUE)
+ON CONFLICT (id) DO UPDATE SET public = EXCLUDED.public;
+
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -134,5 +144,39 @@ BEGIN
       ON storage.objects FOR UPDATE
       USING (bucket_id = 'team-avatars')
       WITH CHECK (bucket_id = 'team-avatars');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'team_signatures_public_read'
+  ) THEN
+    CREATE POLICY team_signatures_public_read
+      ON storage.objects FOR SELECT
+      USING (bucket_id = 'team-signatures');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'team_signatures_public_insert'
+  ) THEN
+    CREATE POLICY team_signatures_public_insert
+      ON storage.objects FOR INSERT
+      WITH CHECK (bucket_id = 'team-signatures');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE schemaname = 'storage'
+      AND tablename = 'objects'
+      AND policyname = 'team_signatures_public_update'
+  ) THEN
+    CREATE POLICY team_signatures_public_update
+      ON storage.objects FOR UPDATE
+      USING (bucket_id = 'team-signatures')
+      WITH CHECK (bucket_id = 'team-signatures');
   END IF;
 END $$;

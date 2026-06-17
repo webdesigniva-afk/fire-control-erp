@@ -18,6 +18,9 @@ export type TeamMember = {
   role: TeamRole;
   photo_url: string | null;
   photo_storage_path: string | null;
+  signature_url?: string | null;
+  signature_storage_path?: string | null;
+  signature_updated_at?: string | null;
   must_change_pin: boolean;
   is_active: boolean;
   last_login_at: string | null;
@@ -35,6 +38,9 @@ export const roleDescriptions: Record<TeamRole, string> = {
 
 export const teamMemberSelect =
   "id,name,employee_code,phone,email,role,photo_url,photo_storage_path,must_change_pin,is_active,last_login_at,notes,created_at,updated_at";
+
+export const teamMemberProfileSelect =
+  `${teamMemberSelect},signature_url,signature_storage_path,signature_updated_at`;
 
 export function isTeamRole(value: unknown): value is TeamRole {
   return typeof value === "string" && teamRoles.includes(value as TeamRole);
@@ -77,4 +83,28 @@ export async function readActiveTechnicianNamesFromTeamMembers() {
   return ((data ?? []) as Array<{ name?: string | null }>)
     .map((member) => String(member.name ?? "").trim())
     .filter(Boolean);
+}
+
+export type TechnicianSignature = {
+  name: string;
+  signature_url: string | null;
+};
+
+export async function readActiveTechnicianSignaturesFromTeamMembers() {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("team_members")
+    .select("name,signature_url")
+    .eq("role", "Ð¢ÐµÑ…Ð½Ð¸Ðº")
+    .eq("is_active", true)
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  return ((data ?? []) as TechnicianSignature[])
+    .map((member) => ({
+      name: String(member.name ?? "").trim(),
+      signature_url: member.signature_url || null,
+    }))
+    .filter((member) => member.name);
 }

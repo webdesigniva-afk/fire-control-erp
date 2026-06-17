@@ -50,7 +50,10 @@ import {
   type CompanySettings,
   type ProtocolSettings,
 } from "../../../lib/settings";
-import { readActiveTechnicianNamesFromTeamMembers } from "../../../lib/team-members";
+import {
+  readActiveTechnicianNamesFromTeamMembers,
+  readActiveTechnicianSignaturesFromTeamMembers,
+} from "../../../lib/team-members";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
 import {
   mapProtocolPhoto,
@@ -2934,6 +2937,7 @@ export function ProtocolForm({
   const [technicianOptions, setTechnicianOptions] = useState(
     legacyTechnicianOptions
   );
+  const [technicianSignatures, setTechnicianSignatures] = useState<Record<string, string>>({});
   const [companySettings, setCompanySettings] = useState(defaultCompanySettings);
   const [selectedTechnician, setSelectedTechnician] = useState("");
   const [extinguisherDropdowns, setExtinguisherDropdowns] =
@@ -2989,16 +2993,25 @@ export function ProtocolForm({
   );
   const activeChecklist = protocolType ? checklistByType[protocolType] : [];
   const [checks, setChecks] = useState<Record<string, CheckValue>>({});
+
   useEffect(() => {
     let mounted = true;
 
     async function refreshTechnicianSettings() {
       let activeTechnicians = readActiveTechnicianNames();
+      let activeSignatures: Record<string, string> = {};
       try {
         const teamTechnicians = await readActiveTechnicianNamesFromTeamMembers();
         if (teamTechnicians.length) activeTechnicians = teamTechnicians;
+        const teamSignatures = await readActiveTechnicianSignaturesFromTeamMembers();
+        activeSignatures = Object.fromEntries(
+          teamSignatures
+            .filter((technician) => technician.signature_url)
+            .map((technician) => [technician.name, technician.signature_url as string])
+        );
       } catch {
         activeTechnicians = readActiveTechnicianNames();
+        activeSignatures = {};
       }
 
       if (!mounted) return;
@@ -3019,6 +3032,7 @@ export function ProtocolForm({
       });
 
       setTechnicianOptions(activeTechnicians);
+      setTechnicianSignatures(activeSignatures);
       setExtinguisherDropdowns({
         extinguisherBrands:
           protocolSettings.extinguisherBrands.length > 0
@@ -4114,6 +4128,14 @@ export function ProtocolForm({
   const isSavingDraft = isSaving && saveState.mode === "draft";
   const isCompleting = isSaving && saveState.mode === "complete";
 
+  function handleTechnicianChange(technician: string) {
+    setSelectedTechnician(technician);
+    const savedSignature = technicianSignatures[technician];
+    if (savedSignature) {
+      setTechnicianSignatureDataUrl((current) => current || savedSignature);
+    }
+  }
+
   return (
     <AppShell
       title="Нов протокол"
@@ -4199,7 +4221,7 @@ export function ProtocolForm({
             <SelectField
               label="Техник"
               value={selectedTechnician}
-              onChange={setSelectedTechnician}
+              onChange={handleTechnicianChange}
             >
               <option value="">Избери</option>
               {technicianOptions.map((technician) => (
@@ -4240,6 +4262,29 @@ export function ProtocolForm({
               onChange={setProtocolDate}
             />
           </div>
+
+          {technicianSignatures[selectedTechnician] ? (
+            <div className="mt-3 flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 sm:flex-row sm:items-center sm:justify-between">
+              <span>Наличен е запазен подпис за избрания техник.</span>
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={technicianSignatures[selectedTechnician]}
+                  alt={`Подпис - ${selectedTechnician}`}
+                  className="h-12 max-w-40 rounded-lg border border-emerald-100 bg-white object-contain"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setTechnicianSignatureDataUrl(technicianSignatures[selectedTechnician])
+                  }
+                >
+                  Използвай
+                </Button>
+              </div>
+            </div>
+          ) : null}
 
           {selectedObjectDetails ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm font-bold text-slate-500">

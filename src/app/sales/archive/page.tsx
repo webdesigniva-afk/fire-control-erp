@@ -330,7 +330,7 @@ export default function SalesArchivePage() {
         {/* Header card */}
         <Card className="p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-500">
                 <Archive size={20} />
               </div>
@@ -344,8 +344,9 @@ export default function SalesArchivePage() {
             <div className="flex items-center gap-3">
               {loadState === "error" && <span className="text-sm font-bold text-red-600">Грешка при зареждане</span>}
               <button type="button" onClick={loadArchived} disabled={loadState === "loading"}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700 disabled:opacity-50" title="Обнови">
+                className="flex h-9 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-500 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700 disabled:opacity-50" title="Обнови">
                 <RefreshCw size={16} className={loadState === "loading" ? "animate-spin" : ""} />
+                Обнови
               </button>
               <Link
                 href="/sales"

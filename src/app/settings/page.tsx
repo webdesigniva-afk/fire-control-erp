@@ -62,6 +62,13 @@ type ServiceSetting = {
   archivedAt: string;
 };
 
+type TeamMemberOption = {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+};
+
 const sections: Array<{ id: SectionId; label: string; icon: typeof UserRound }> = [
   { id: "service-centers", label: "Сервизи", icon: UserRound },
   { id: "services", label: "Услуги", icon: Wrench },
@@ -185,6 +192,7 @@ export default function SettingsPage() {
   const [serviceCenters, setServiceCenters] = useState<ServiceCenterSetting[]>(defaultServiceCenters);
   const [newServiceCenter, setNewServiceCenter] = useState<ServiceCenterSetting>(emptyServiceCenter);
   const [editingServiceCenterId, setEditingServiceCenterId] = useState("");
+  const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
 
   const [services, setServices] = useState<ServiceSetting[]>([]);
   const [newServiceName, setNewServiceName] = useState("");
@@ -231,11 +239,12 @@ export default function SettingsPage() {
       setCompany(readCompanySettings());
 
       try {
-        const [dbServiceCenters, dbProtocols, dbCompany] =
+        const [dbServiceCenters, dbProtocols, dbCompany, dbTeamMembers] =
           await Promise.all([
             readServiceCentersFromSupabase(),
             readProtocolSettingsFromSupabase(),
             readCompanySettingsFromSupabase(),
+            readTeamMemberOptions(),
           ]);
 
         if (!mounted) return;
@@ -243,11 +252,13 @@ export default function SettingsPage() {
         setServiceCenters(dbServiceCenters);
         setProtocols(dbProtocols);
         setCompany(dbCompany);
+        setTeamMembers(dbTeamMembers);
         await loadServices();
         setLoadState("ready");
       } catch (error) {
         if (!mounted) return;
         await loadServices();
+        setTeamMembers(await readTeamMemberOptions().catch(() => []));
         setLoadState("error");
         setErrorMessage(
           error instanceof Error
@@ -307,6 +318,43 @@ export default function SettingsPage() {
     );
   }
 
+  async function readTeamMemberOptions() {
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase
+      .from("team_members")
+      .select("id,name,phone,email")
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+
+    if (error) throw new Error(error.message);
+
+    return ((data as DataRecord[] | null) ?? [])
+      .map((row) => ({
+        id: textValue(row, ["id"]),
+        name: textValue(row, ["name"]),
+        phone: textValue(row, ["phone"]),
+        email: textValue(row, ["email"]),
+      }))
+      .filter((member) => member.id && member.name);
+  }
+
+  function applyServiceCenterManager(
+    serviceCenter: ServiceCenterSetting,
+    memberId: string
+  ): ServiceCenterSetting {
+    const member = teamMembers.find((item) => item.id === memberId);
+    if (!member) {
+      return { ...serviceCenter, manager: "", phone: "", email: "" };
+    }
+
+    return {
+      ...serviceCenter,
+      manager: member.name,
+      phone: member.phone,
+      email: member.email,
+    };
+  }
+
   async function persistServiceCenters(next: ServiceCenterSetting[], message: string) {
     setSaving(true);
     try {
@@ -334,6 +382,7 @@ export default function SettingsPage() {
           name,
           manager: newServiceCenter.manager.trim(),
           phone: newServiceCenter.phone.trim(),
+          email: newServiceCenter.email.trim(),
         },
       ],
       "Сервизът е добавен."
@@ -350,6 +399,7 @@ export default function SettingsPage() {
               name: serviceCenter.name.trim(),
               manager: serviceCenter.manager.trim(),
               phone: serviceCenter.phone.trim(),
+              email: serviceCenter.email.trim(),
             }
           : item
       ),
@@ -681,14 +731,25 @@ export default function SettingsPage() {
                         title={serviceCenter.name}
                         subtitle={serviceCenter.manager || "Без отговорник"}
                         phone={serviceCenter.phone}
+                        email={serviceCenter.email}
                         editing={editing}
                         onEdit={() => setEditingServiceCenterId(serviceCenter.id)}
                         onDelete={() => deleteServiceCenter(serviceCenter.id)}
                       >
                         <EditableServiceCenter
                           serviceCenter={serviceCenter}
+                          teamMembers={teamMembers}
                           onChange={(next) =>
                             setServiceCenters((items) => items.map((item) => item.id === next.id ? next : item))
+                          }
+                          onSelectManager={(memberId) =>
+                            setServiceCenters((items) =>
+                              items.map((item) =>
+                                item.id === serviceCenter.id
+                                  ? applyServiceCenterManager(item, memberId)
+                                  : item
+                              )
+                            )
                           }
                           onSave={() => saveServiceCenter(serviceCenter)}
                         />
@@ -700,17 +761,34 @@ export default function SettingsPage() {
                 )}
               </div>
               <form onSubmit={addServiceCenter} className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   <Field label="Име">
-                    <Input value={newServiceCenter.name} onChange={(event) => setNewServiceCenter((item) => ({ ...item, name: event.target.value }))} placeholder="A" />
+                    <Input value={newServiceCenter.name} onChange={(event) => setNewServiceCenter((item) => ({ ...item, name: event.target.value }))} placeholder="Сервиз A" />
                   </Field>
                   <Field label="Отговорник">
-                    <Input value={newServiceCenter.manager} onChange={(event) => setNewServiceCenter((item) => ({ ...item, manager: event.target.value }))} placeholder="Иван Петров" />
-                  </Field>
-                  <Field label="Телефон">
-                    <Input value={newServiceCenter.phone} onChange={(event) => setNewServiceCenter((item) => ({ ...item, phone: event.target.value }))} placeholder="+359..." />
+                    <select
+                      value={teamMembers.find((member) => member.name === newServiceCenter.manager)?.id ?? ""}
+                      onChange={(event) =>
+                        setNewServiceCenter((item) =>
+                          applyServiceCenterManager(item, event.target.value)
+                        )
+                      }
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    >
+                      <option value="">Избери от екипа</option>
+                      {teamMembers.map((member) => (
+                        <option key={member.id} value={member.id}>
+                          {member.name}
+                        </option>
+                      ))}
+                    </select>
                   </Field>
                 </div>
+                {newServiceCenter.manager ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600">
+                    {newServiceCenter.phone || "Без телефон"} · {newServiceCenter.email || "Без email"}
+                  </div>
+                ) : null}
                 <div className="mt-4 flex justify-end">
                   <Button type="submit" disabled={saving}><Plus size={16} />Добави сервиз</Button>
                 </div>
@@ -903,6 +981,7 @@ function PersonCard({
   title,
   subtitle,
   phone,
+  email,
   editing,
   children,
   onEdit,
@@ -911,6 +990,7 @@ function PersonCard({
   title: string;
   subtitle: string;
   phone: string;
+  email: string;
   editing: boolean;
   children: React.ReactNode;
   onEdit: () => void;
@@ -927,6 +1007,7 @@ function PersonCard({
           <div className="font-black text-slate-900">{title}</div>
           <div className="mt-1 text-sm font-bold text-slate-500">{subtitle}</div>
           <div className="mt-2 text-sm font-bold text-slate-700">{phone || "Без телефон"}</div>
+          <div className="mt-1 text-sm font-bold text-slate-500">{email || "Без email"}</div>
         </div>
       </div>
       <div className="mt-4 flex gap-2">
@@ -939,18 +1020,42 @@ function PersonCard({
 
 function EditableServiceCenter({
   serviceCenter,
+  teamMembers,
   onChange,
+  onSelectManager,
   onSave,
 }: {
   serviceCenter: ServiceCenterSetting;
+  teamMembers: TeamMemberOption[];
   onChange: (serviceCenter: ServiceCenterSetting) => void;
+  onSelectManager: (memberId: string) => void;
   onSave: () => void;
 }) {
+  const selectedManagerId =
+    teamMembers.find((member) => member.name === serviceCenter.manager)?.id ?? "";
+
   return (
     <div className="grid grid-cols-1 gap-3">
       <Field label="Име"><Input value={serviceCenter.name} onChange={(event) => onChange({ ...serviceCenter, name: event.target.value })} /></Field>
-      <Field label="Отговорник"><Input value={serviceCenter.manager} onChange={(event) => onChange({ ...serviceCenter, manager: event.target.value })} /></Field>
-      <Field label="Телефон"><Input value={serviceCenter.phone} onChange={(event) => onChange({ ...serviceCenter, phone: event.target.value })} /></Field>
+      <Field label="Отговорник">
+        <select
+          value={selectedManagerId}
+          onChange={(event) => onSelectManager(event.target.value)}
+          className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+        >
+          <option value="">Избери от екипа</option>
+          {teamMembers.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {serviceCenter.manager ? (
+        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600">
+          {serviceCenter.phone || "Без телефон"} · {serviceCenter.email || "Без email"}
+        </div>
+      ) : null}
       <div className="flex justify-end"><Button type="button" onClick={onSave}><Save size={15} />Запази</Button></div>
     </div>
   );

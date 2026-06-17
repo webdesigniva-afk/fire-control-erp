@@ -1,28 +1,49 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Bell, LogOut, Search } from "lucide-react";
+import Link from "next/link";
+import { Bell, LogOut, Search, UserRound } from "lucide-react";
 import { getTeamMemberInitials, type TeamMember } from "../lib/team-members";
 
 type TopbarProps = {
   title: string;
   description: string;
   headerAction?: ReactNode;
+  showSearch?: boolean;
 };
 
-export function Topbar({ title, description, headerAction }: TopbarProps) {
+export function Topbar({
+  title,
+  description,
+  headerAction,
+  showSearch = true,
+}: TopbarProps) {
   const [profile, setProfile] = useState<TeamMember | null>(null);
 
   useEffect(() => {
-    const rawProfile = localStorage.getItem("firecontrol:team-session");
-    if (!rawProfile) return;
+    function refreshProfile() {
+      const rawProfile = localStorage.getItem("firecontrol:team-session");
+      if (!rawProfile) {
+        setProfile(null);
+        return;
+      }
 
-    try {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setProfile(JSON.parse(rawProfile) as TeamMember);
-    } catch {
-      localStorage.removeItem("firecontrol:team-session");
+      try {
+        setProfile(JSON.parse(rawProfile) as TeamMember);
+      } catch {
+        localStorage.removeItem("firecontrol:team-session");
+        setProfile(null);
+      }
     }
+
+    refreshProfile();
+    window.addEventListener("firecontrol:team-session-updated", refreshProfile);
+    window.addEventListener("storage", refreshProfile);
+
+    return () => {
+      window.removeEventListener("firecontrol:team-session-updated", refreshProfile);
+      window.removeEventListener("storage", refreshProfile);
+    };
   }, []);
 
   function handleLogout() {
@@ -45,10 +66,12 @@ export function Topbar({ title, description, headerAction }: TopbarProps) {
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {headerAction}
 
-          <div className="hidden h-11 min-w-64 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 text-slate-400 shadow-inner md:flex">
-            <Search size={18} />
-            <span className="text-sm font-medium">Търсене...</span>
-          </div>
+          {showSearch ? (
+            <div className="hidden h-11 min-w-64 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 text-slate-400 shadow-inner md:flex">
+              <Search size={18} />
+              <span className="text-sm font-medium">Търсене...</span>
+            </div>
+          ) : null}
 
           <button
             type="button"
@@ -69,17 +92,21 @@ export function Topbar({ title, description, headerAction }: TopbarProps) {
             <LogOut size={18} />
           </button>
 
-          <div
-            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-orange-50 text-sm font-black text-orange-700 shadow-sm"
+          <Link
+            href="/profile"
+            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-orange-50 text-sm font-black text-orange-700 shadow-sm hover:border-orange-300 hover:bg-orange-100"
             title={profile ? `${profile.name} (${profile.employee_code})` : "Профил"}
+            aria-label="Моят профил"
           >
             {profile?.photo_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={profile.photo_url} alt={profile.name} className="h-full w-full object-cover" />
+            ) : profile ? (
+              getTeamMemberInitials(profile.name)
             ) : (
-              getTeamMemberInitials(profile?.name ?? "")
+              <UserRound size={18} />
             )}
-          </div>
+          </Link>
         </div>
       </div>
     </header>

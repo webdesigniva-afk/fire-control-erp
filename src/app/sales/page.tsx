@@ -1095,9 +1095,14 @@ export default function SalesPage() {
                 Проследяване на всички възможности: лийд → оферта → поръчка → договор.
               </p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               {loadState === "error" && <span className="text-sm font-bold text-red-600">Грешка при зареждане</span>}
               {newRecordButton}
+              <button type="button" onClick={loadOpportunities} disabled={loadState === "loading"}
+                className="flex h-9 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-500 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700 disabled:opacity-50" title="Обнови">
+                <RefreshCw size={16} className={loadState === "loading" ? "animate-spin" : ""} />
+                Обнови
+              </button>
               <Link
                 href="/sales/archive"
                 className="flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-500 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
@@ -1105,10 +1110,6 @@ export default function SalesPage() {
                 <Archive size={15} />
                 Архив
               </Link>
-              <button type="button" onClick={loadOpportunities} disabled={loadState === "loading"}
-                className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700 disabled:opacity-50" title="Обнови">
-                <RefreshCw size={16} className={loadState === "loading" ? "animate-spin" : ""} />
-              </button>
             </div>
           </div>
         </Card>
