@@ -98,7 +98,7 @@ const STAGE_DESCRIPTIONS: Record<Stage, string> = {
   lead:     "Запитвания и потенциални клиенти",
   offer:    "Изготвени и изпратени оферти",
   order:    "Приети оферти за изпълнение",
-  contract: "Активни ангажименти",
+  contract: "В готовност за обслужване",
 };
 
 const NEXT_STAGE: Record<Stage, Stage | null> = {
@@ -332,10 +332,13 @@ async function writeLeadServiceCatalogToSupabase(catalog: LeadServiceCatalog) {
 }
 
 // Sub-components
-function EmptyState() {
+function EmptyState({ stage }: { stage: Stage }) {
+  const label =
+    stage === "contract" ? "Няма записи в готовност" : "Няма активни записи";
+
   return (
     <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-6 text-center text-sm font-bold text-slate-400">
-      Няма активни записи
+      {label}
     </div>
   );
 }
@@ -1464,7 +1467,7 @@ export default function SalesPage() {
                               onArchive={(id) => setArchiveTargetId(id)}
                             />
                           ))
-                        : <EmptyState />}
+                        : <EmptyState stage={stage.key} />}
                     </div>
                   </section>
                 );
