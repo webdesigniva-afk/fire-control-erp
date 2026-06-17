@@ -1,4 +1,5 @@
 import { createSupabaseBrowserClient } from "./supabase/client";
+import { geocodeAddress } from "./geocoding";
 
 type DataRecord = Record<string, unknown>;
 
@@ -22,6 +23,7 @@ export type MapLocationItem = {
   qrCode: string;
   name: string;
   address?: string;
+  geocodedAddress?: string;
   status: string;
   latitude?: number;
   longitude?: number;
@@ -128,10 +130,73 @@ function mapLocation(row: DataRecord, index: number): MapLocationItem {
       textValue(row, ["name", "object_name", "title"]) ||
       "\u0411\u0435\u0437 \u0438\u043c\u0435",
     address: textValue(row, ["address", "full_address"]),
+    geocodedAddress: textValue(row, ["geocoded_address"]),
     status: normalizeStatus(textValue(row, ["status"])),
     latitude: numberValue(row, ["latitude", "lat"]),
     longitude: numberValue(row, ["longitude", "lng", "lon"]),
   };
+}
+
+function hasUsableBulgariaCoordinates(location: MapLocationItem) {
+  if (
+    typeof location.latitude !== "number" ||
+    typeof location.longitude !== "number"
+  ) {
+    return false;
+  }
+
+  if (!location.geocodedAddress) return false;
+
+  return (
+    location.latitude >= 41.0 &&
+    location.latitude <= 44.5 &&
+    location.longitude >= 22.0 &&
+    location.longitude <= 29.0
+  );
+}
+
+export async function geocodeMissingLocationCoordinates<T extends MapLocationItem>(
+  locations: T[],
+  options: { limit?: number; refreshExisting?: boolean } = {}
+): Promise<T[]> {
+  const supabase = createSupabaseBrowserClient();
+  const limit = options.limit ?? 8;
+  const refreshExisting = options.refreshExisting ?? false;
+  let geocodedCount = 0;
+  const nextLocations = [...locations];
+
+  for (let index = 0; index < nextLocations.length; index += 1) {
+    const location = nextLocations[index];
+    const hasCoordinates = hasUsableBulgariaCoordinates(location);
+
+    if ((!refreshExisting && hasCoordinates) || !location.address || geocodedCount >= limit) continue;
+
+    try {
+      const geocoded = await geocodeAddress(location.address);
+      if (!geocoded) continue;
+
+      nextLocations[index] = {
+        ...location,
+        latitude: geocoded.latitude,
+        longitude: geocoded.longitude,
+      };
+      geocodedCount += 1;
+
+      await supabase
+        .from("locations")
+        .update({
+          latitude: geocoded.latitude,
+          longitude: geocoded.longitude,
+          geocoded_address: geocoded.displayName,
+          geocoded_at: new Date().toISOString(),
+        })
+        .eq("id", location.id);
+    } catch {
+      // Keep the map usable even when a single address cannot be resolved.
+    }
+  }
+
+  return nextLocations;
 }
 
 function mapEquipment(row: DataRecord): MapEquipmentItem {
@@ -324,8 +389,13 @@ export async function loadMapObjectsData(): Promise<MapObjectsData> {
     .map(mapServiceTask)
     .filter((task) => taskSourceIsActive(task, activeProtocolRefs));
 
-  return buildMapObjectsData(
+  const locations = await geocodeMissingLocationCoordinates(
     ((locationsResult.data as DataRecord[]) ?? []).map(mapLocation),
+    { refreshExisting: true, limit: 8 }
+  );
+
+  return buildMapObjectsData(
+    locations,
     ((equipmentResult.data as DataRecord[]) ?? [])
       .filter((row) => row["archived"] !== true)
       .map(mapEquipment),

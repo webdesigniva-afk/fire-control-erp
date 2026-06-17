@@ -28,6 +28,7 @@ import { Card } from "../../components/ui/card";
 import {
   buildMapObjectsData,
   collapseReplacedEquipmentTasks,
+  geocodeMissingLocationCoordinates,
 } from "../../lib/map-objects";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import { getTeamMemberInitials } from "../../lib/team-members";
@@ -44,6 +45,8 @@ type LocationItem = {
   id: string;
   qrCode: string;
   name: string;
+  address?: string;
+  geocodedAddress?: string;
   status: LocationStatus;
   latitude?: number;
   longitude?: number;
@@ -297,6 +300,8 @@ function mapLocation(row: DataRecord, index: number): LocationItem {
     id: id || String(index + 1),
     qrCode,
     name: textValue(row, ["name", "object_name", "title"]) || "Без име",
+    address: textValue(row, ["address", "full_address"]),
+    geocodedAddress: textValue(row, ["geocoded_address"]),
     status: normalizeLocationStatus(textValue(row, ["status"])),
     latitude: numberValue(row, ["latitude", "lat"]),
     longitude: numberValue(row, ["longitude", "lng", "lon"]),
@@ -514,8 +519,13 @@ async function loadDashboardData(): Promise<DashboardData> {
       }),
   ]);
 
+  const locations = await geocodeMissingLocationCoordinates(
+    locationRows.map(mapLocation),
+    { limit: 5, refreshExisting: true }
+  );
+
   return {
-    locations: locationRows.map(mapLocation),
+    locations,
     equipment: equipmentRows
       .filter((row) => row["archived"] !== true)
       .map(mapEquipment),

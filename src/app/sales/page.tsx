@@ -32,6 +32,7 @@ import {
   type ProtocolSettings,
 } from "../../lib/settings";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
+import { geocodeAddress } from "../../lib/geocoding";
 import { serviceTasksUpdatedEvent } from "../../lib/tasks";
 
 // Types
@@ -1007,7 +1008,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
               </FormField>
               <div className="sm:col-span-2">
                 <FormField label="Адрес">
-                  <Input value={form.object_address} onChange={(e) => updateForm("object_address", e.target.value)} placeholder="гр. Шумен, ул. ..." />
+                  <Input value={form.object_address} onChange={(e) => updateForm("object_address", e.target.value)} placeholder="град, улица, номер..." />
                 </FormField>
               </div>
             </div>
@@ -1302,6 +1303,8 @@ export default function SalesPage() {
       }
 
       const qrCode = `SALE-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+      const address = serviceTarget.object_address.trim();
+      const geocoded = address ? await geocodeAddress(address) : null;
       const { data: newLocation, error: locationError } = await supabase
         .from("locations")
         .insert({
@@ -1309,10 +1312,14 @@ export default function SalesPage() {
           object_type: serviceTarget.object_type.trim(),
           qr_code: qrCode,
           name: serviceTarget.object_name.trim() || serviceTarget.company_name.trim(),
-          address: serviceTarget.object_address.trim(),
+          address,
           region: "",
           status: "изряден",
           service: serviceTarget.services.map(serviceDisplayName).join(", "),
+          latitude: geocoded?.latitude ?? null,
+          longitude: geocoded?.longitude ?? null,
+          geocoded_address: geocoded?.displayName ?? null,
+          geocoded_at: geocoded ? new Date().toISOString() : null,
         })
         .select("id, qr_code")
         .single();
@@ -1324,6 +1331,28 @@ export default function SalesPage() {
       }
 
       const now = new Date().toISOString();
+      const contractDocumentId = `contract-${serviceTarget.id}`;
+      const { data: contractDocument } = await supabase
+        .from("saved_documents")
+        .select("payload")
+        .eq("id", contractDocumentId)
+        .eq("kind", "contract")
+        .maybeSingle();
+      const contractPayload = isRecord(contractDocument?.payload) ? contractDocument.payload : {};
+      await supabase
+        .from("saved_documents")
+        .update({
+          object: serviceTarget.object_name || serviceTarget.company_name,
+          payload: {
+            ...contractPayload,
+            locationId: String(newLocation.id),
+            locationQrCode: String(newLocation.qr_code),
+            convertedObjectId: String(newLocation.id),
+          },
+          updated_at: now,
+        })
+        .eq("id", contractDocumentId)
+        .eq("kind", "contract");
       await supabase.from("sales_opportunities").update({
         converted_to_service: true,
         converted_client_id: clientId,

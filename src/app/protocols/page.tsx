@@ -316,6 +316,7 @@ export default function ProtocolsPage() {
     useState<DeleteConfirmDialogState | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   async function refreshProtocols() {
     setIsRefreshing(true);
@@ -427,10 +428,11 @@ export default function ProtocolsPage() {
 
   async function deleteProtocol(protocol: ProtocolListItem) {
     setIsDeleting(true);
+    setActionError("");
     try {
       await deleteProtocolEverywhere(protocol.number);
     } catch (error) {
-      window.alert(
+      setActionError(
         error instanceof Error ? error.message : "Неуспешно изтриване от базата."
       );
       return;
@@ -455,6 +457,11 @@ export default function ProtocolsPage() {
       title="Протоколи"
       description="Сервизни протоколи, проверки и история на обслужване"
     >
+      {actionError ? (
+        <Card className="mb-4 border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+          {actionError}
+        </Card>
+      ) : null}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="relative w-full lg:max-w-xl">
           <Search

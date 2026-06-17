@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, CheckCircle2, Loader2, Mail, Plus, Printer, Save, Trash2 } from "lucide-react";
 import { Button } from "../../../../components/ui/button";
@@ -245,7 +245,9 @@ const defaultTerms = [
 
 export default function ContractEditorPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const opportunityId = params.id;
+  const isReadOnly = searchParams.get("mode") === "view";
   const [contract, setContract] = useState<ContractData | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -466,18 +468,22 @@ export default function ContractEditorPage() {
           Назад
         </Link>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={saveDraft} disabled={saveState === "saving"}>
-            {saveState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
-            {saveState === "saved" ? "Чернова запазена" : "Запази като чернова"}
-          </Button>
-          <Button type="button" onClick={markAccepted} disabled={acceptState === "saving"}>
-            {acceptState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <CheckCircle2 size={17} />}
-            {acceptState === "accepted" ? "Приет" : "Маркирай като приет"}
-          </Button>
-          <Button type="button" variant="outline" disabled>
-            <Mail size={17} />
-            Изпрати по имейл
-          </Button>
+          {!isReadOnly ? (
+            <>
+              <Button type="button" variant="outline" onClick={saveDraft} disabled={saveState === "saving"}>
+                {saveState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
+                {saveState === "saved" ? "Чернова запазена" : "Запази като чернова"}
+              </Button>
+              <Button type="button" onClick={markAccepted} disabled={acceptState === "saving"}>
+                {acceptState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <CheckCircle2 size={17} />}
+                {acceptState === "accepted" ? "Приет" : "Маркирай като приет"}
+              </Button>
+              <Button type="button" variant="outline" disabled>
+                <Mail size={17} />
+                Изпрати по имейл
+              </Button>
+            </>
+          ) : null}
           <Button type="button" onClick={() => window.print()}>
             <Printer size={17} />
             Печат
@@ -502,7 +508,7 @@ export default function ContractEditorPage() {
         </div>
       ) : null}
 
-      <article className="mx-auto w-full max-w-5xl bg-white p-8 shadow-sm print:max-w-none print:p-0 print:shadow-none">
+      <article className={`mx-auto w-full max-w-5xl bg-white p-8 shadow-sm print:max-w-none print:p-0 print:shadow-none ${isReadOnly ? "pointer-events-none" : ""}`}>
         <header className="grid gap-6 border-b-2 border-slate-900 pb-6 md:grid-cols-[1fr_auto]">
           <div>
             <div className="text-3xl font-black tracking-tight">FIRE<span className="text-orange-600 print:text-black">Control</span></div>
@@ -590,12 +596,14 @@ export default function ContractEditorPage() {
         </section>
 
         <section className="mt-6">
+          {!isReadOnly ? (
           <div className="no-print mb-3 flex justify-end">
             <Button type="button" variant="outline" onClick={addLine}>
               <Plus size={17} />
               Добави ред
             </Button>
           </div>
+          ) : null}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead>
@@ -605,7 +613,7 @@ export default function ContractEditorPage() {
                   <th className="w-36 border border-slate-300 px-2 py-2">Периодичност</th>
                   <th className="border border-slate-300 px-2 py-2 text-left">Обект</th>
                   <th className="w-28 border border-slate-300 px-2 py-2 text-right">Цена</th>
-                  <th className="no-print w-10 border border-slate-300 px-2 py-2" />
+                  {!isReadOnly ? <th className="no-print w-10 border border-slate-300 px-2 py-2" /> : null}
                 </tr>
               </thead>
               <tbody>
@@ -616,7 +624,7 @@ export default function ContractEditorPage() {
                     <td className="border border-slate-300 px-2 py-2"><input value={line.periodicity} onChange={(event) => updateLine(line.id, { periodicity: event.target.value })} className="w-full bg-transparent text-center outline-none" /></td>
                     <td className="border border-slate-300 px-2 py-2"><input value={line.object} onChange={(event) => updateLine(line.id, { object: event.target.value })} className="w-full bg-transparent outline-none" /></td>
                     <td className="border border-slate-300 px-2 py-2"><input type="number" value={line.price} onChange={(event) => updateLine(line.id, { price: Number(event.target.value) || 0 })} className="w-full bg-transparent text-right outline-none" /></td>
-                    <td className="no-print border border-slate-300 px-2 py-2 text-center"><button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={15} /></button></td>
+                    {!isReadOnly ? <td className="no-print border border-slate-300 px-2 py-2 text-center"><button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={15} /></button></td> : null}
                   </tr>
                 ))}
               </tbody>

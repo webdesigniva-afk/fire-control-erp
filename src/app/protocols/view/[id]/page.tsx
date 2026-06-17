@@ -377,6 +377,7 @@ export default function ProtocolViewPage() {
   const [deleteDialog, setDeleteDialog] =
     useState<DeleteConfirmDialogState | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [previewId] = useState(() => {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
       return crypto.randomUUID();
@@ -487,12 +488,13 @@ export default function ProtocolViewPage() {
     if (!protocol) return;
 
     setIsDeleting(true);
+    setActionError("");
     try {
       await deleteProtocolByNumber(protocol.number);
       setDeleteDialog(null);
       router.push("/protocols");
     } catch (error) {
-      window.alert(error instanceof Error ? error.message : "Неуспешно изтриване от базата.");
+      setActionError(error instanceof Error ? error.message : "Неуспешно изтриване от базата.");
     } finally {
       setIsDeleting(false);
     }
@@ -632,6 +634,11 @@ export default function ProtocolViewPage() {
   return (
     <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-900">
       <div className="mx-auto max-w-5xl">
+        {actionError ? (
+          <Card className="mb-4 border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+            {actionError}
+          </Card>
+        ) : null}
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link
             href="/protocols"

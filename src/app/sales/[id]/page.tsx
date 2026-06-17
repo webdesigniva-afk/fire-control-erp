@@ -35,6 +35,7 @@ import {
 } from "../../../lib/services";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
 import { serviceTasksUpdatedEvent } from "../../../lib/tasks";
+import { geocodeAddress } from "../../../lib/geocoding";
 
 // Types
 type Stage = "lead" | "offer" | "order" | "contract";
@@ -768,6 +769,8 @@ export default function SalesDealPage() {
         clientId = String(newClient.id);
       }
       const qrCode = `SALE-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+      const address = opportunity.object_address.trim();
+      const geocoded = address ? await geocodeAddress(address) : null;
       const { data: newLocation, error: locationError } = await supabase
         .from("locations")
         .insert({
@@ -775,13 +778,39 @@ export default function SalesDealPage() {
           object_type: opportunity.object_type.trim(),
           qr_code: qrCode,
           name: opportunity.object_name.trim() || opportunity.company_name.trim(),
-          address: opportunity.object_address.trim(),
+          address,
           region: "",
           status: "изряден",
           service: opportunity.services.map(serviceDisplayName).join(", "),
+          latitude: geocoded?.latitude ?? null,
+          longitude: geocoded?.longitude ?? null,
+          geocoded_address: geocoded?.displayName ?? null,
+          geocoded_at: geocoded ? new Date().toISOString() : null,
         })
         .select("id, qr_code").single();
       if (locationError || !newLocation) { showToast("Грешка при създаване на обект.", "error"); return; }
+      const contractDocumentId = `contract-${opportunity.id}`;
+      const { data: contractDocument } = await supabase
+        .from("saved_documents")
+        .select("payload")
+        .eq("id", contractDocumentId)
+        .eq("kind", "contract")
+        .maybeSingle();
+      const contractPayload = isRecord(contractDocument?.payload) ? contractDocument.payload : {};
+      await supabase
+        .from("saved_documents")
+        .update({
+          object: opportunity.object_name || opportunity.company_name,
+          payload: {
+            ...contractPayload,
+            locationId: String(newLocation.id),
+            locationQrCode: String(newLocation.qr_code),
+            convertedObjectId: String(newLocation.id),
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", contractDocumentId)
+        .eq("kind", "contract");
       await supabase.from("sales_opportunities").update({
         converted_to_service: true,
         converted_client_id: clientId,

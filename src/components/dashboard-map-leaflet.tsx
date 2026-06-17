@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import L from "leaflet";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import {
@@ -60,6 +60,15 @@ function markerIcon(status: ObjectStatus) {
 
 export function DashboardMapLeaflet({ objects }: DashboardMapLeafletProps) {
   const center = objects[0]?.position ?? [42.7339, 25.4858];
+  const [tileProvider, setTileProvider] = useState<"osm" | "carto">("osm");
+  const tileUrl =
+    tileProvider === "osm"
+      ? "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      : "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png";
+  const attribution =
+    tileProvider === "osm"
+      ? '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
   return (
     <MapContainer
@@ -70,8 +79,14 @@ export function DashboardMapLeaflet({ objects }: DashboardMapLeafletProps) {
       attributionControl={false}
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        key={tileProvider}
+        attribution={attribution}
+        url={tileUrl}
+        eventHandlers={{
+          tileerror: () => {
+            if (tileProvider === "osm") setTileProvider("carto");
+          },
+        }}
       />
       <FitMapBounds objects={objects} />
 

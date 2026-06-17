@@ -25,6 +25,7 @@ import {
   CircleAlert,
   ClipboardPlus,
   Edit3,
+  Eye,
   ExternalLink,
   FileText,
   ImagePlus,
@@ -52,6 +53,7 @@ import { PageHeader } from "../../../components/ui/page-header";
 import { QrScannerButton } from "../../../components/qr-scanner";
 import { TabButton, Tabs } from "../../../components/ui/tabs";
 import { generateQRCode } from "../../../lib/qr";
+import { geocodeAddress } from "../../../lib/geocoding";
 import {
   deleteProtocolPhoto,
   protocolPhotosBucket,
@@ -97,6 +99,12 @@ type EquipmentItem = {
   brand: string;
   model: string;
   serialNumber: string;
+  installationDate: string;
+  systemAddress: string;
+  systemType: string;
+  totalDevices: string;
+  pumpGroup: string;
+  pumpStationLocation: string;
   capacity: string;
   description: string;
   location: string;
@@ -159,6 +167,21 @@ type DbProtocol = {
   technician: string;
   createdAt: string;
 };
+
+type LocationContractDocument = {
+  id: string;
+  number: string;
+  title: string;
+  client: string;
+  object: string;
+  href: string;
+  status: string;
+  updatedAt: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
 
 type UpcomingObjectActionSource =
   | "subscription_protocol"
@@ -1113,6 +1136,12 @@ function mapEquipment(rows: DataRecord[]): EquipmentItem[] {
   brand: textValue(row, ["brand"]),
     model: textValue(row, ["model"]),
     serialNumber: textValue(row, ["serial_number", "serial", "identifier", "code"]),
+    installationDate: inputDateValue(textValue(row, ["installation_date", "installed_at", "mount_date"])),
+    systemAddress: textValue(row, ["system_address", "address_in_system"]),
+    systemType: textValue(row, ["system_type"]),
+    totalDevices: textValue(row, ["total_devices"]),
+    pumpGroup: textValue(row, ["pump_group"]),
+    pumpStationLocation: textValue(row, ["pump_station_location"]),
     capacity: textValue(row, ["capacity", "mass", "charge_mass"]),
     description: textValue(row, ["description"]),
     location: textValue(row, ["location", "object_location", "place"]),
@@ -1141,6 +1170,12 @@ type EquipmentFormState = {
   brand: string;
   model: string;
   serialNumber: string;
+  installationDate: string;
+  systemAddress: string;
+  systemType: string;
+  totalDevices: string;
+  pumpGroup: string;
+  pumpStationLocation: string;
   capacity: string;
   description: string;
   location: string;
@@ -1165,6 +1200,12 @@ const emptyEquipmentForm: EquipmentFormState = {
   brand: "",
   model: "",
   serialNumber: "",
+  installationDate: "",
+  systemAddress: "",
+  systemType: "",
+  totalDevices: "",
+  pumpGroup: "",
+  pumpStationLocation: "",
   capacity: "",
   description: "",
   location: "",
@@ -1220,6 +1261,62 @@ function extinguisherDisplayType(item: EquipmentItem) {
     .trim();
 }
 
+function equipmentDetailRows(item: EquipmentItem) {
+  const isExtinguisher = isFireExtinguisherEquipment(item);
+  const rows: { label: string; value: string }[] = [
+    { label: "Име", value: item.name },
+    { label: "Тип оборудване", value: item.type },
+  ];
+
+  if (item.subtype) {
+    rows.push({
+      label: item.type === "Аварийно осветление" ? "Тип" : "Вид / подтип",
+      value: item.subtype,
+    });
+  }
+
+  rows.push({ label: "Локация", value: item.location });
+
+  if (item.serialNumber) rows.push({ label: "Сериен номер", value: item.serialNumber });
+
+  if (item.type === "Пожароизвестител") {
+    if (item.systemAddress) rows.push({ label: "Адрес в системата", value: item.systemAddress });
+    if (item.installationDate) rows.push({ label: "Дата на монтаж", value: formatDateValue(item.installationDate) });
+  }
+
+  if (isExtinguisher) {
+    if (item.extinguisherCategory || item.category) {
+      rows.push({ label: "Категория", value: item.extinguisherCategory || item.category });
+    }
+    if (item.capacity) rows.push({ label: "Маса / вместимост", value: item.capacity });
+    if (item.extinguishingAgentType) rows.push({ label: "Вид пожарогасително вещество", value: item.extinguishingAgentType });
+    if (item.extinguishingAgentTradeName) rows.push({ label: "Търговско наименование", value: item.extinguishingAgentTradeName });
+  } else if (item.type === "Пожароизвестителна централа" && item.capacity) {
+    rows.push({ label: "Брой линии", value: item.capacity });
+  }
+
+  if (item.type === "Пожароизвестителна централа") {
+    if (item.systemType) rows.push({ label: "Тип система", value: item.systemType });
+    if (item.totalDevices) rows.push({ label: "Общо устройства", value: item.totalDevices });
+  }
+
+  if (item.type === "Спринклерна система") {
+    if (item.systemType) rows.push({ label: "Тип система", value: item.systemType });
+    if (item.totalDevices) rows.push({ label: "Брой спринклери", value: item.totalDevices });
+    if (item.pumpGroup) rows.push({ label: "Помпена група", value: item.pumpGroup });
+    if (item.pumpStationLocation) rows.push({ label: "Локация на помпената станция", value: item.pumpStationLocation });
+  }
+
+  if (item.brand) rows.push({ label: "Марка", value: item.brand });
+  if (item.model) rows.push({ label: "Модел", value: item.model });
+  if (item.lastCheckDate) rows.push({ label: "Последна проверка", value: formatDateValue(item.lastCheckDate) });
+  if (item.nextCheckDate) rows.push({ label: "Следваща проверка", value: formatDateValue(item.nextCheckDate) });
+  if (item.createdAt) rows.push({ label: "Създадено", value: formatDateTimeValue(item.createdAt) });
+  if (item.updatedAt) rows.push({ label: "Обновено", value: formatDateTimeValue(item.updatedAt) });
+
+  return rows.filter((row) => row.value && row.value !== "—");
+}
+
 function mapFireExtinguisherServiceHistory(
   rows: DataRecord[]
 ): FireExtinguisherServiceHistoryItem[] {
@@ -1256,6 +1353,12 @@ function equipmentFormWithType(current: EquipmentFormState, type: string): Equip
     brand: "",
     model: "",
     serialNumber: "",
+    installationDate: "",
+    systemAddress: "",
+    systemType: "",
+    totalDevices: "",
+    pumpGroup: "",
+    pumpStationLocation: "",
     capacity: "",
     description: "",
     location: current.location,
@@ -1269,12 +1372,14 @@ function EquipmentField({
   onChange,
   type = "text",
   required = false,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   required?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div className="space-y-2">
@@ -1285,6 +1390,7 @@ function EquipmentField({
         type={type}
         required={required}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
       />
@@ -1977,6 +2083,65 @@ function OverviewTab() {
   );
 }
 
+function AddCatalogValueDialog({
+  label,
+  value,
+  saving,
+  onChange,
+  onCancel,
+  onConfirm,
+}: {
+  label: string;
+  value: string;
+  saving: boolean;
+  onChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm"
+      onClick={(event) => {
+        if (event.target === event.currentTarget && !saving) onCancel();
+      }}
+    >
+      <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-black text-slate-950">Добави нова стойност</h2>
+            <p className="mt-0.5 text-xs font-semibold text-slate-500">{label}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="space-y-4 p-6">
+          <Input
+            autoFocus
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder="Въведете стойност..."
+          />
+          <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+              Отказ
+            </Button>
+            <Button type="button" onClick={onConfirm} disabled={saving || !value.trim()}>
+              {saving ? <Loader2 size={17} className="animate-spin" /> : <Plus size={17} />}
+              Добави
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EquipmentTab() {
   const location = useLocationProfile();
   const equipment = useLocationEquipment();
@@ -1998,6 +2163,13 @@ function EquipmentTab() {
   const [protocolCatalogs, setProtocolCatalogs] = useState<ProtocolSettings>(
     () => readProtocolSettings()
   );
+  const [pendingCatalogAdd, setPendingCatalogAdd] = useState<{
+    key: EquipmentCatalogKey;
+    formKey: keyof EquipmentFormState;
+    label: string;
+  } | null>(null);
+  const [pendingCatalogValue, setPendingCatalogValue] = useState("");
+  const [catalogAddState, setCatalogAddState] = useState<"idle" | "saving">("idle");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">(
     "idle"
   );
@@ -2094,29 +2266,49 @@ function EquipmentTab() {
     );
   }
 
-  async function addCatalogValueFromEquipment(
+  function openCatalogValueDialog(
     key: EquipmentCatalogKey,
-    formKey: keyof EquipmentFormState
+    formKey: keyof EquipmentFormState,
+    label: string
   ) {
-    const value = window.prompt("+ Добави ново");
-    const normalized = value?.trim();
+    setPendingCatalogAdd({ key, formKey, label });
+    setPendingCatalogValue("");
+  }
+
+  function closeCatalogValueDialog() {
+    if (catalogAddState === "saving") return;
+    setPendingCatalogAdd(null);
+    setPendingCatalogValue("");
+  }
+
+  async function confirmCatalogValueAdd() {
+    if (!pendingCatalogAdd) return;
+    const normalized = pendingCatalogValue.trim();
     if (!normalized) return;
 
     const nextCatalogs = {
       ...protocolCatalogs,
-      [key]: addUniqueCatalogValue(protocolCatalogs[key] ?? [], normalized),
+      [pendingCatalogAdd.key]: addUniqueCatalogValue(
+        protocolCatalogs[pendingCatalogAdd.key] ?? [],
+        normalized
+      ),
     };
 
+    setCatalogAddState("saving");
     try {
       await writeProtocolSettingsToSupabase(nextCatalogs);
       setProtocolCatalogs(nextCatalogs);
-      updateForm(formKey, normalized);
+      updateForm(pendingCatalogAdd.formKey, normalized);
+      setPendingCatalogAdd(null);
+      setPendingCatalogValue("");
       setToastMessage("Стойността е добавена");
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Стойността не беше записана"
       );
       setSaveState("error");
+    } finally {
+      setCatalogAddState("idle");
     }
   }
 
@@ -2343,6 +2535,12 @@ function EquipmentTab() {
       brand: item.brand,
       model: item.model,
       serialNumber: item.serialNumber,
+      installationDate: item.installationDate,
+      systemAddress: item.systemAddress,
+      systemType: item.systemType,
+      totalDevices: item.totalDevices,
+      pumpGroup: item.pumpGroup,
+      pumpStationLocation: item.pumpStationLocation,
       capacity: item.capacity,
       description: item.description,
       location: item.location,
@@ -2488,6 +2686,30 @@ function EquipmentTab() {
         brand: form.brand.trim() || null,
         model: form.model.trim() || null,
         serial_number: form.serialNumber.trim() || null,
+        installation_date:
+          form.type === "Пожароизвестител" && form.installationDate
+            ? form.installationDate
+            : null,
+        system_address:
+          form.type === "Пожароизвестител"
+            ? form.systemAddress.trim() || null
+            : null,
+        system_type:
+          (form.type === "Пожароизвестителна централа" || form.type === "Спринклерна система")
+            ? form.systemType.trim() || null
+            : null,
+        total_devices:
+          (form.type === "Пожароизвестителна централа" || form.type === "Спринклерна система") && form.totalDevices
+            ? Number(form.totalDevices)
+            : null,
+        pump_group:
+          form.type === "Спринклерна система"
+            ? form.pumpGroup.trim() || null
+            : null,
+        pump_station_location:
+          form.type === "Спринклерна система"
+            ? form.pumpStationLocation.trim() || null
+            : null,
         capacity: form.capacity.trim() || null,
         description: form.description.trim() || null,
         location: form.location.trim(),
@@ -2681,9 +2903,10 @@ function EquipmentTab() {
                   options={protocolCatalogs.extinguisherCategories}
                   onChange={(value) => updateForm("extinguisherCategory", value)}
                   onAddNew={() =>
-                    addCatalogValueFromEquipment(
+                    openCatalogValueDialog(
                       "extinguisherCategories",
-                      "extinguisherCategory"
+                      "extinguisherCategory",
+                      "Категория"
                     )
                   }
                 />
@@ -2718,20 +2941,64 @@ function EquipmentTab() {
                   options={protocolCatalogs.extinguisherChargeMasses}
                   onChange={(value) => updateForm("capacity", value)}
                   onAddNew={() =>
-                    addCatalogValueFromEquipment(
+                    openCatalogValueDialog(
                       "extinguisherChargeMasses",
-                      "capacity"
+                      "capacity",
+                      capacityLabel
                     )
                   }
                 />
               ) : null}
 
               {form.type === "Пожароизвестителна централа" ? (
-                <EquipmentField
-                  label={capacityLabel}
-                  value={form.capacity}
-                  onChange={(value) => updateForm("capacity", value)}
-                />
+                <>
+                  <EquipmentSelectField
+                    label="Тип система"
+                    value={form.systemType}
+                    options={["Конвенционална", "Адресируема"]}
+                    onChange={(value) => updateForm("systemType", value)}
+                  />
+                  <EquipmentField
+                    label={capacityLabel}
+                    value={form.capacity}
+                    onChange={(value) => updateForm("capacity", value)}
+                  />
+                  <EquipmentField
+                    label="Общо устройства"
+                    value={form.totalDevices}
+                    type="number"
+                    onChange={(value) => updateForm("totalDevices", value)}
+                  />
+                </>
+              ) : null}
+
+              {form.type === "Спринклерна система" ? (
+                <>
+                  <EquipmentSelectField
+                    label="Тип система"
+                    value={form.systemType}
+                    options={["Мокра", "Суха", "Предварително действие", "Делужна"]}
+                    onChange={(value) => updateForm("systemType", value)}
+                  />
+                  <EquipmentField
+                    label="Брой спринклери"
+                    value={form.totalDevices}
+                    type="number"
+                    onChange={(value) => updateForm("totalDevices", value)}
+                  />
+                  <EquipmentSelectField
+                    label="Помпена група"
+                    value={form.pumpGroup}
+                    options={["Да", "Не"]}
+                    onChange={(value) => updateForm("pumpGroup", value)}
+                  />
+                  <EquipmentField
+                    label="Локация на помпената станция"
+                    value={form.pumpStationLocation}
+                    placeholder="Техническо помещение"
+                    onChange={(value) => updateForm("pumpStationLocation", value)}
+                  />
+                </>
               ) : null}
 
               {showBrandModelSerial ? (
@@ -2744,7 +3011,7 @@ function EquipmentTab() {
                       options={protocolCatalogs.extinguisherBrands}
                       onChange={(value) => updateForm("brand", value)}
                       onAddNew={() =>
-                        addCatalogValueFromEquipment("extinguisherBrands", "brand")
+                        openCatalogValueDialog("extinguisherBrands", "brand", "Марка")
                       }
                     />
                     <EquipmentSelectField
@@ -2753,21 +3020,29 @@ function EquipmentTab() {
                       options={protocolCatalogs.extinguisherModels}
                       onChange={(value) => updateForm("model", value)}
                       onAddNew={() =>
-                        addCatalogValueFromEquipment("extinguisherModels", "model")
+                        openCatalogValueDialog("extinguisherModels", "model", "Модел")
                       }
                     />
                   </>
                 ) : (
                   <>
-                    <EquipmentField
+                    <EquipmentSelectField
                       label="Марка"
                       value={form.brand}
+                      options={protocolCatalogs.extinguisherBrands}
                       onChange={(value) => updateForm("brand", value)}
+                      onAddNew={() =>
+                        openCatalogValueDialog("extinguisherBrands", "brand", "Марка")
+                      }
                     />
-                    <EquipmentField
+                    <EquipmentSelectField
                       label="Модел"
                       value={form.model}
+                      options={protocolCatalogs.extinguisherModels}
                       onChange={(value) => updateForm("model", value)}
+                      onAddNew={() =>
+                        openCatalogValueDialog("extinguisherModels", "model", "Модел")
+                      }
                     />
                   </>
                 )}
@@ -2779,6 +3054,27 @@ function EquipmentTab() {
                 </>
               ) : null}
 
+              {form.type === "Пожароизвестител" ? (
+                <>
+                  <EquipmentField
+                    label="Адрес в системата"
+                    value={form.systemAddress}
+                    onChange={(value) => updateForm("systemAddress", value)}
+                  />
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase text-slate-400">
+                      Дата на монтаж
+                    </label>
+                    <input
+                      type="date"
+                      value={form.installationDate}
+                      onChange={(event) => updateForm("installationDate", event.target.value)}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                  </div>
+                </>
+              ) : null}
+
               {form.type === "Пожарогасител" ? (
                 <>
                   <EquipmentSelectField
@@ -2787,9 +3083,10 @@ function EquipmentTab() {
                     options={protocolCatalogs.extinguishingAgentTypes}
                     onChange={(value) => updateForm("extinguishingAgentType", value)}
                     onAddNew={() =>
-                      addCatalogValueFromEquipment(
+                      openCatalogValueDialog(
                         "extinguishingAgentTypes",
-                        "extinguishingAgentType"
+                        "extinguishingAgentType",
+                        "Вид пожарогасително вещество"
                       )
                     }
                   />
@@ -2801,9 +3098,10 @@ function EquipmentTab() {
                       updateForm("extinguishingAgentTradeName", value)
                     }
                     onAddNew={() =>
-                      addCatalogValueFromEquipment(
+                      openCatalogValueDialog(
                         "extinguishingAgentTradeNames",
-                        "extinguishingAgentTradeName"
+                        "extinguishingAgentTradeName",
+                        "Търговско наименование"
                       )
                     }
                   />
@@ -2860,6 +3158,17 @@ function EquipmentTab() {
         </div>
       ) : null}
 
+      {pendingCatalogAdd ? (
+        <AddCatalogValueDialog
+          label={pendingCatalogAdd.label}
+          value={pendingCatalogValue}
+          saving={catalogAddState === "saving"}
+          onChange={setPendingCatalogValue}
+          onCancel={closeCatalogValueDialog}
+          onConfirm={confirmCatalogValueAdd}
+        />
+      ) : null}
+
       {viewingEquipment ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
           <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
@@ -2876,37 +3185,29 @@ function EquipmentTab() {
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-              <EquipmentDetailRow label="Име" value={viewingEquipment.name} />
-              <EquipmentDetailRow label="Тип оборудване" value={viewingEquipment.type} />
-              <EquipmentDetailRow label="Вид / подтип" value={viewingEquipment.subtype} />
-              <EquipmentDetailRow label="Локация" value={viewingEquipment.location} />
-              <EquipmentDetailRow label="Сериен номер" value={viewingEquipment.serialNumber} />
-              <EquipmentDetailRow label="Категория" value={viewingEquipment.extinguisherCategory || viewingEquipment.category} />
-              <EquipmentDetailRow label="Марка" value={viewingEquipment.brand} />
-              <EquipmentDetailRow label="Модел" value={viewingEquipment.model} />
-              <EquipmentDetailRow label="Вместимост / маса" value={viewingEquipment.capacity} />
-              <EquipmentDetailRow label="Вид пожарогасително вещество" value={viewingEquipment.extinguishingAgentType} />
-              <EquipmentDetailRow label="Търговско наименование" value={viewingEquipment.extinguishingAgentTradeName} />
-              <EquipmentDetailRow label="Последна проверка" value={formatDateValue(viewingEquipment.lastCheckDate)} />
-              <EquipmentDetailRow label="Следваща проверка" value={formatDateValue(viewingEquipment.nextCheckDate)} />
-              <EquipmentDetailRow label="Създадено" value={formatDateTimeValue(viewingEquipment.createdAt)} />
-              <EquipmentDetailRow label="Обновено" value={formatDateTimeValue(viewingEquipment.updatedAt)} />
+              {equipmentDetailRows(viewingEquipment).map((row) => (
+                <EquipmentDetailRow key={row.label} label={row.label} value={row.value} />
+              ))}
+              {viewingEquipment.description ? (
               <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2 lg:col-span-3">
                 <div className="text-xs font-black uppercase text-slate-400">
                   Описание
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-sm font-bold text-slate-800">
-                  {viewingEquipment.description || "—"}
+                  {viewingEquipment.description}
                 </div>
               </div>
+              ) : null}
+              {viewingEquipment.notes ? (
               <div className="rounded-2xl bg-slate-50 p-4 md:col-span-2 lg:col-span-3">
                 <div className="text-xs font-black uppercase text-slate-400">
                   Бележки
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-sm font-bold text-slate-800">
-                  {viewingEquipment.notes || "—"}
+                  {viewingEquipment.notes}
                 </div>
               </div>
+              ) : null}
             </div>
 
             {isFireExtinguisherEquipment(viewingEquipment) ? (
@@ -3169,22 +3470,39 @@ function EquipmentTab() {
                     </td>
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={() => setViewingEquipment(item)}>
-                          Преглед
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          title="Преглед"
+                          aria-label="Преглед"
+                          onClick={() => setViewingEquipment(item)}
+                          className="h-10 w-10 px-0"
+                        >
+                          <Eye size={17} />
                         </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={() => openEditForm(item)}>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          title="Редактирай"
+                          aria-label="Редактирай"
+                          onClick={() => openEditForm(item)}
+                          className="h-10 w-10 px-0"
+                        >
                           <Edit3 size={15} />
-                          Редактирай
                         </Button>
                         <Button
                           type="button"
                           variant="danger"
                           size="sm"
+                          title="Изтрий"
+                          aria-label="Изтрий"
                           onClick={() => setDeleteTarget(item)}
                           disabled={deletingEquipmentId === item.id}
+                          className="h-10 w-10 px-0"
                         >
                           <Trash2 size={15} />
-                          Изтрий
                         </Button>
                       </div>
                     </td>
@@ -3603,6 +3921,158 @@ function TasksTab() {
           </div>
         ) : null}
       </div>
+    </Card>
+  );
+}
+
+function ContractsTab() {
+  const location = useLocationProfile();
+  const [contracts, setContracts] = useState<LocationContractDocument[]>([]);
+  const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadContracts() {
+      setLoadState("loading");
+      try {
+        const supabase = createSupabaseBrowserClient();
+        const [documentsResult, opportunitiesResult] = await Promise.all([
+          supabase
+            .from("saved_documents")
+            .select("id, number, title, client, object, href, payload, updated_at")
+            .eq("kind", "contract")
+            .order("updated_at", { ascending: false }),
+          supabase
+            .from("sales_opportunities")
+            .select("id, converted_object_id"),
+        ]);
+
+        if (documentsResult.error) throw new Error(documentsResult.error.message);
+
+        const locationKeys = new Set(
+          [location.databaseId, location.id, location.qrCode, location.name]
+            .map((value) => String(value || "").trim())
+            .filter(Boolean)
+        );
+        const convertedOpportunityIds = new Set(
+          (((opportunitiesResult.data ?? []) as { id?: string | null; converted_object_id?: string | null }[])
+            .filter((row) => locationKeys.has(String(row.converted_object_id || "").trim()))
+            .map((row) => `contract-${String(row.id)}`))
+        );
+
+        const mapped = ((documentsResult.data ?? []) as {
+          id: string;
+          number?: string | null;
+          title?: string | null;
+          client?: string | null;
+          object?: string | null;
+          href?: string | null;
+          payload?: unknown;
+          updated_at?: string | null;
+        }[])
+          .filter((row) => {
+            const payload = isRecord(row.payload) ? row.payload : {};
+            const contract = isRecord(payload.contract) ? payload.contract : {};
+            const keys = [
+              payload.locationId,
+              payload.locationQrCode,
+              payload.convertedObjectId,
+              contract.object,
+              row.object,
+            ].map((value) => String(value || "").trim());
+
+            return convertedOpportunityIds.has(String(row.id)) || keys.some((key) => key && locationKeys.has(key));
+          })
+          .map((row) => {
+            const payload = isRecord(row.payload) ? row.payload : {};
+            const contract = isRecord(payload.contract) ? payload.contract : {};
+            const status = payload.status === "accepted" ? "Договор приет" : "Чернова";
+            const href = String(row.href || `/sales/contract/${String(row.id).replace(/^contract-/, "")}`);
+
+            return {
+              id: String(row.id),
+              number: String(row.number || contract.number || "Без номер"),
+              title: String(row.title || `Договор ${row.number || ""}`.trim()),
+              client: String(row.client || contract.client || location.client || "Без клиент"),
+              object: String(row.object || contract.object || location.name || "Без обект"),
+              href: `${href}${href.includes("?") ? "&" : "?"}mode=view`,
+              status,
+              updatedAt: String(row.updated_at || ""),
+            };
+          });
+
+        if (!cancelled) {
+          setContracts(mapped);
+          setLoadState("ready");
+        }
+      } catch {
+        if (!cancelled) setLoadState("error");
+      }
+    }
+
+    loadContracts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [location.client, location.databaseId, location.id, location.name, location.qrCode]);
+
+  if (loadState === "loading") {
+    return (
+      <Card className="flex min-h-40 items-center justify-center p-8">
+        <Loader2 className="animate-spin text-orange-500" size={26} />
+      </Card>
+    );
+  }
+
+  if (loadState === "error") {
+    return (
+      <Card className="p-8">
+        <div className="text-sm font-bold text-red-600">Договорите не могат да се заредят.</div>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-lg font-black text-slate-950">Договори</h3>
+          <p className="mt-1 text-sm font-medium text-slate-500">
+            Договори, свързани с този обект.
+          </p>
+        </div>
+        <Badge variant="neutral">{contracts.length}</Badge>
+      </div>
+
+      {contracts.length ? (
+        <div className="mt-5 grid gap-3">
+          {contracts.map((contract) => (
+            <div key={contract.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="font-black text-slate-950">{contract.number}</div>
+                  <Badge variant={contract.status === "Договор приет" ? "success" : "neutral"}>{contract.status}</Badge>
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-600">{contract.client}</div>
+                <div className="mt-0.5 text-xs font-medium text-slate-400">{contract.object}</div>
+              </div>
+              <Link
+                href={contract.href}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+              >
+                <ExternalLink size={16} />
+                Отвори договор
+              </Link>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm font-bold text-slate-400">
+          Няма свързани договори.
+        </div>
+      )}
     </Card>
   );
 }
@@ -4634,16 +5104,25 @@ export default function LocationProfilePage() {
         editForm.qrCode.trim() ||
         locationProfile.qrCode ||
         locationProfile.databaseId;
+      const nextAddress = editForm.address.trim();
+      const geocoded = nextAddress ? await geocodeAddress(nextAddress) : null;
+      const updates: Record<string, unknown> = {
+        client_id: editForm.clientId,
+        object_type: editForm.objectType.trim(),
+        name: editForm.name.trim(),
+        address: nextAddress,
+        region: "",
+        qr_code: nextQrCode,
+      };
+      if (geocoded) {
+        updates.latitude = geocoded.latitude;
+        updates.longitude = geocoded.longitude;
+        updates.geocoded_address = geocoded.displayName;
+        updates.geocoded_at = new Date().toISOString();
+      }
       const { data, error } = await supabase
         .from("locations")
-        .update({
-          client_id: editForm.clientId,
-          object_type: editForm.objectType.trim(),
-          name: editForm.name.trim(),
-          address: editForm.address.trim(),
-          region: editForm.region.trim(),
-          qr_code: nextQrCode,
-        })
+        .update(updates)
         .eq("id", locationProfile.databaseId)
         .select("*")
         .single();
@@ -4979,18 +5458,7 @@ export default function LocationProfilePage() {
                   onChange={(event) =>
                     updateEditForm("address", event.target.value)
                   }
-                  className="w-full"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-black uppercase text-slate-500">
-                  Област / регион
-                </label>
-                <Input
-                  value={editForm.region}
-                  onChange={(event) =>
-                    updateEditForm("region", event.target.value)
-                  }
+                  placeholder="град, улица, номер..."
                   className="w-full"
                 />
               </div>
@@ -5035,8 +5503,9 @@ export default function LocationProfilePage() {
         {activeTab === "Оборудване" && <EquipmentTab />}
         {activeTab === "Протоколи" && <ProtocolsTab />}
         {activeTab === "Задачи" && <TasksTab />}
+        {activeTab === "Договори" && <ContractsTab />}
         {activeTab === "Медия" && <MediaTab />}
-        {!["Общо", "Оборудване", "Протоколи", "Задачи", "Медия"].includes(activeTab) && (
+        {!["Общо", "Оборудване", "Протоколи", "Задачи", "Договори", "Медия"].includes(activeTab) && (
           <Card className="p-8">
             <h3 className="text-lg font-black">{activeTab}</h3>
             <p className="mt-2 text-sm text-slate-500">

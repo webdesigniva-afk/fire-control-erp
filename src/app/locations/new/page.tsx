@@ -278,7 +278,7 @@ function NewLocationContent() {
           qr_code: qrCode,
           name: form.name.trim(),
           address,
-          region: form.region.trim(),
+          region: "",
           status: "изряден",
           latitude: geocoded?.latitude ?? null,
           longitude: geocoded?.longitude ?? null,
@@ -433,20 +433,11 @@ function NewLocationContent() {
                     onChange={(event) =>
                       updateForm("address", event.target.value)
                     }
-                    placeholder="Град, улица, номер"
+                    placeholder="град, улица, номер..."
                     className="w-full"
                   />
                 </FormField>
               </div>
-
-              <FormField label="Област / регион">
-                <Input
-                  value={form.region}
-                  onChange={(event) => updateForm("region", event.target.value)}
-                  placeholder="Напр. Шумен"
-                  className="w-full"
-                />
-              </FormField>
 
               <FormField
                 label="QR код"
