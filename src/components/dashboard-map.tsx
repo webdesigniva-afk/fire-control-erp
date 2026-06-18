@@ -4,6 +4,21 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import type { DashboardMapObject } from "./dashboard-map-leaflet";
 
+const mapLegendItems = [
+  {
+    label: "Над 30 дни",
+    className: "bg-green-500 ring-green-100",
+  },
+  {
+    label: "8-30 дни",
+    className: "bg-orange-400 ring-orange-100",
+  },
+  {
+    label: "До 7 дни",
+    className: "bg-red-500 ring-red-100",
+  },
+];
+
 type DashboardMapProps = {
   objects: DashboardMapObject[];
   showOpenMapLink?: boolean;
@@ -50,8 +65,22 @@ export function DashboardMap({
         ) : null}
       </div>
 
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs font-black text-slate-600">
+        {mapLegendItems.map((item) => (
+          <div
+            key={item.label}
+            className="inline-flex h-7 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 shadow-sm"
+          >
+            <span
+              className={`h-3 w-3 rounded-full border-2 border-white shadow-sm ring-2 ${item.className}`}
+            />
+            {item.label}
+          </div>
+        ))}
+      </div>
+
       <div
-        className={`relative overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-inner ${
+        className={`relative isolate overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-inner ${
           prominent ? "h-[420px] sm:h-[560px]" : "h-[360px] sm:h-[430px]"
         }`}
       >

@@ -10,7 +10,65 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-ALTER TABLE app_settings DISABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.app_settings TO anon, authenticated;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'app_settings'
+      AND policyname = 'app_settings_rls_ready_read'
+  ) THEN
+    CREATE POLICY app_settings_rls_ready_read
+      ON public.app_settings FOR SELECT
+      TO anon, authenticated
+      USING (TRUE);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'app_settings'
+      AND policyname = 'app_settings_rls_ready_insert'
+  ) THEN
+    CREATE POLICY app_settings_rls_ready_insert
+      ON public.app_settings FOR INSERT
+      TO anon, authenticated
+      WITH CHECK (TRUE);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'app_settings'
+      AND policyname = 'app_settings_rls_ready_update'
+  ) THEN
+    CREATE POLICY app_settings_rls_ready_update
+      ON public.app_settings FOR UPDATE
+      TO anon, authenticated
+      USING (TRUE)
+      WITH CHECK (TRUE);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'app_settings'
+      AND policyname = 'app_settings_rls_ready_delete'
+  ) THEN
+    CREATE POLICY app_settings_rls_ready_delete
+      ON public.app_settings FOR DELETE
+      TO anon, authenticated
+      USING (TRUE);
+  END IF;
+END $$;
+
+ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE services
   ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;

@@ -1289,6 +1289,12 @@ type EquipmentFormState = {
   notes: string;
 };
 
+type BulkExtinguisherRow = {
+  id: string;
+  serialNumber: string;
+  location: string;
+};
+
 type EquipmentCatalogKey =
   | "extinguisherBrands"
   | "extinguisherModels"
@@ -1318,6 +1324,28 @@ const emptyEquipmentForm: EquipmentFormState = {
   location: "",
   notes: "",
 };
+
+function emptyBulkExtinguisherTemplate(): EquipmentFormState {
+  return {
+    ...emptyEquipmentForm,
+    type: "Пожарогасител",
+    category: equipmentCategoryByType["Пожарогасител"],
+  };
+}
+
+function createBulkExtinguisherRow(
+  values: Partial<Omit<BulkExtinguisherRow, "id">> = {}
+): BulkExtinguisherRow {
+  return {
+    id: `bulk-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    serialNumber: values.serialNumber ?? "",
+    location: values.location ?? "",
+  };
+}
+
+function createBulkExtinguisherRows(count: number) {
+  return Array.from({ length: count }, () => createBulkExtinguisherRow());
+}
 
 function normalizeDisplayPart(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -1352,6 +1380,75 @@ function generatedEquipmentName(form: EquipmentFormState) {
   }
 
   return type;
+}
+
+function buildEquipmentPayload(
+  form: EquipmentFormState,
+  locationId: string,
+  displayName: string
+) {
+  return {
+    location_id: locationId,
+    object_id: locationId,
+    site_id: locationId,
+    name: displayName,
+    display_name: displayName,
+    type: form.type.trim(),
+    equipment_type: form.type.trim(),
+    subtype:
+      form.type === "Пожарогасител"
+        ? form.extinguisherCategory.trim() || null
+        : form.subtype.trim() || null,
+    category: form.category.trim() || equipmentCategoryByType[form.type] || null,
+    extinguisher_category:
+      form.type === "Пожарогасител"
+        ? form.extinguisherCategory.trim() || null
+        : null,
+    extinguishing_agent_type:
+      form.type === "Пожарогасител"
+        ? form.extinguishingAgentType.trim() || null
+        : null,
+    extinguishing_agent_trade_name:
+      form.type === "Пожарогасител"
+        ? form.extinguishingAgentTradeName.trim() || null
+        : null,
+    brand: form.brand.trim() || null,
+    model: form.model.trim() || null,
+    serial_number: form.serialNumber.trim() || null,
+    installation_date:
+      form.type === "Пожароизвестител" && form.installationDate
+        ? form.installationDate
+        : null,
+    system_address:
+      form.type === "Пожароизвестител"
+        ? form.systemAddress.trim() || null
+        : null,
+    system_type:
+      (form.type === "Пожароизвестителна централа" ||
+        form.type === "Спринклерна система" ||
+        form.type === "Димоотвеждане")
+        ? form.systemType.trim() || null
+        : null,
+    total_devices:
+      (form.type === "Пожароизвестителна централа" ||
+        form.type === "Спринклерна система" ||
+        form.type === "Димоотвеждане") && form.totalDevices
+        ? Number(form.totalDevices)
+        : null,
+    pump_group:
+      form.type === "Спринклерна система"
+        ? form.pumpGroup.trim() || null
+        : null,
+    pump_station_location:
+      form.type === "Спринклерна система"
+        ? form.pumpStationLocation.trim() || null
+        : null,
+    capacity: form.capacity.trim() || null,
+    description: form.description.trim() || null,
+    location: form.location.trim(),
+    notes: form.notes.trim() || null,
+    updated_at: new Date().toISOString(),
+  };
 }
 
 function isFireExtinguisherEquipment(item: EquipmentItem) {
@@ -2351,6 +2448,17 @@ function EquipmentTab() {
   >("idle");
   const [deleteTarget, setDeleteTarget] = useState<EquipmentItem | null>(null);
   const [form, setForm] = useState<EquipmentFormState>(emptyEquipmentForm);
+  const [bulkFormOpen, setBulkFormOpen] = useState(false);
+  const [bulkTemplate, setBulkTemplate] = useState<EquipmentFormState>(
+    emptyBulkExtinguisherTemplate
+  );
+  const [bulkRows, setBulkRows] = useState<BulkExtinguisherRow[]>(() =>
+    createBulkExtinguisherRows(5)
+  );
+  const [bulkPasteText, setBulkPasteText] = useState("");
+  const [bulkSaveState, setBulkSaveState] = useState<
+    "idle" | "saving" | "error"
+  >("idle");
   const [protocolCatalogs, setProtocolCatalogs] = useState<ProtocolSettings>(
     () => readProtocolSettings()
   );
@@ -2455,6 +2563,62 @@ function EquipmentTab() {
     setForm((current) =>
       key === "type" ? equipmentFormWithType(current, value) : { ...current, [key]: value }
     );
+  }
+
+  function updateBulkTemplate(key: keyof EquipmentFormState, value: string) {
+    setBulkTemplate((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateBulkRow(
+    rowId: string,
+    key: keyof Omit<BulkExtinguisherRow, "id">,
+    value: string
+  ) {
+    setBulkRows((current) =>
+      current.map((row) => (row.id === rowId ? { ...row, [key]: value } : row))
+    );
+  }
+
+  function addBulkRows(count: number) {
+    setBulkRows((current) => [...current, ...createBulkExtinguisherRows(count)]);
+  }
+
+  function removeBulkRow(rowId: string) {
+    setBulkRows((current) =>
+      current.length > 1 ? current.filter((row) => row.id !== rowId) : current
+    );
+  }
+
+  function duplicateLastBulkRow() {
+    setBulkRows((current) => {
+      const last = current[current.length - 1];
+      return [
+        ...current,
+        createBulkExtinguisherRow({
+          serialNumber: "",
+          location: last?.location ?? "",
+        }),
+      ];
+    });
+  }
+
+  function applyBulkPaste() {
+    const pastedRows = bulkPasteText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [serialNumber = "", location = ""] = line.split(/\t|;|,/);
+        return createBulkExtinguisherRow({
+          serialNumber: serialNumber.trim(),
+          location: location.trim(),
+        });
+      });
+
+    if (!pastedRows.length) return;
+
+    setBulkRows(pastedRows);
+    setBulkPasteText("");
   }
 
   function openCatalogValueDialog(
@@ -2713,6 +2877,15 @@ function EquipmentTab() {
     setFormOpen(true);
   }
 
+  function openBulkExtinguisherForm() {
+    setBulkTemplate(emptyBulkExtinguisherTemplate());
+    setBulkRows(createBulkExtinguisherRows(5));
+    setBulkPasteText("");
+    setBulkSaveState("idle");
+    setErrorMessage("");
+    setBulkFormOpen(true);
+  }
+
   function openEditForm(item: EquipmentItem) {
     const type = equipmentTypeFromItem(item);
     setEditingEquipmentId(item.id);
@@ -2742,12 +2915,51 @@ function EquipmentTab() {
     setFormOpen(true);
   }
 
+  function openCloneEquipmentForm(item: EquipmentItem) {
+    const type = equipmentTypeFromItem(item);
+    setEditingEquipmentId(null);
+    setForm({
+      type,
+      subtype: item.subtype,
+      category: item.category || equipmentCategoryByType[type] || "",
+      extinguisherCategory: item.extinguisherCategory,
+      extinguishingAgentType: item.extinguishingAgentType,
+      extinguishingAgentTradeName: item.extinguishingAgentTradeName,
+      brand: item.brand,
+      model: item.model,
+      serialNumber: "",
+      installationDate: item.installationDate,
+      systemAddress: item.systemAddress,
+      systemType: item.systemType,
+      totalDevices: item.totalDevices,
+      pumpGroup: item.pumpGroup,
+      pumpStationLocation: item.pumpStationLocation,
+      capacity: item.capacity,
+      description: item.description,
+      location: "",
+      notes: item.notes,
+    });
+    setSaveState("idle");
+    setErrorMessage("");
+    setFormOpen(true);
+  }
+
   function closeEquipmentForm() {
     setForm(emptyEquipmentForm);
     setEditingEquipmentId(null);
     setFormOpen(false);
     setSaveState("idle");
     setErrorMessage("");
+  }
+
+  function closeBulkExtinguisherForm() {
+    if (bulkSaveState === "saving") return;
+    setBulkTemplate(emptyBulkExtinguisherTemplate());
+    setBulkRows(createBulkExtinguisherRows(5));
+    setBulkPasteText("");
+    setBulkSaveState("idle");
+    setErrorMessage("");
+    setBulkFormOpen(false);
   }
 
   function protocolPayloadUsesEquipment(value: unknown, equipmentId: string): boolean {
@@ -2849,68 +3061,11 @@ function EquipmentTab() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const payload = {
-        location_id: location.databaseId,
-        object_id: location.databaseId,
-        site_id: location.databaseId,
-        name: displayName,
-        display_name: displayName,
-        type: form.type.trim(),
-        equipment_type: form.type.trim(),
-        subtype:
-          form.type === "Пожарогасител"
-            ? form.extinguisherCategory.trim() || null
-            : form.subtype.trim() || null,
-        category: form.category.trim() || equipmentCategoryByType[form.type] || null,
-        extinguisher_category:
-          form.type === "Пожарогасител"
-            ? form.extinguisherCategory.trim() || null
-            : null,
-        extinguishing_agent_type:
-          form.type === "Пожарогасител"
-            ? form.extinguishingAgentType.trim() || null
-            : null,
-        extinguishing_agent_trade_name:
-          form.type === "Пожарогасител"
-            ? form.extinguishingAgentTradeName.trim() || null
-            : null,
-        brand: form.brand.trim() || null,
-        model: form.model.trim() || null,
-        serial_number: form.serialNumber.trim() || null,
-        installation_date:
-          form.type === "Пожароизвестител" && form.installationDate
-            ? form.installationDate
-            : null,
-        system_address:
-          form.type === "Пожароизвестител"
-            ? form.systemAddress.trim() || null
-            : null,
-        system_type:
-          (form.type === "Пожароизвестителна централа" ||
-            form.type === "Спринклерна система" ||
-            form.type === "Димоотвеждане")
-            ? form.systemType.trim() || null
-            : null,
-        total_devices:
-          (form.type === "Пожароизвестителна централа" ||
-            form.type === "Спринклерна система" ||
-            form.type === "Димоотвеждане") && form.totalDevices
-            ? Number(form.totalDevices)
-            : null,
-        pump_group:
-          form.type === "Спринклерна система"
-            ? form.pumpGroup.trim() || null
-            : null,
-        pump_station_location:
-          form.type === "Спринклерна система"
-            ? form.pumpStationLocation.trim() || null
-            : null,
-        capacity: form.capacity.trim() || null,
-        description: form.description.trim() || null,
-        location: form.location.trim(),
-        notes: form.notes.trim() || null,
-        updated_at: new Date().toISOString(),
-      };
+      const payload = buildEquipmentPayload(
+        form,
+        location.databaseId,
+        displayName
+      );
       const legacyPayload = {
         location_id: location.databaseId,
         name: displayName,
@@ -2962,6 +3117,58 @@ function EquipmentTab() {
     } catch {
       setErrorMessage("Грешка при връзка със Supabase");
       setSaveState("error");
+    }
+  }
+
+  async function handleSaveBulkExtinguishers(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const displayName = generatedEquipmentName(bulkTemplate);
+    const rowsToSave = bulkRows.filter(
+      (row) => row.serialNumber.trim() || row.location.trim()
+    );
+    const missingLocationRows = rowsToSave.filter((row) => !row.location.trim());
+
+    if (!displayName || !rowsToSave.length || missingLocationRows.length) {
+      setErrorMessage(
+        missingLocationRows.length
+          ? "Всеки попълнен ред трябва да има локация."
+          : "Добавете поне един пожарогасител."
+      );
+      setBulkSaveState("error");
+      return;
+    }
+
+    setBulkSaveState("saving");
+    setErrorMessage("");
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const payloads = rowsToSave.map((row) =>
+        buildEquipmentPayload(
+          {
+            ...bulkTemplate,
+            serialNumber: row.serialNumber,
+            location: row.location,
+          },
+          location.databaseId,
+          displayName
+        )
+      );
+
+      const { error } = await supabase.from("equipment").insert(payloads);
+
+      if (error) {
+        setErrorMessage(error.message || "Пожарогасителите не бяха записани");
+        setBulkSaveState("error");
+        return;
+      }
+
+      await refreshEquipmentList();
+      closeBulkExtinguisherForm();
+      setToastMessage(`Добавени са ${rowsToSave.length} пожарогасителя`);
+    } catch {
+      setErrorMessage("Грешка при връзка със Supabase");
+      setBulkSaveState("error");
     }
   }
 
@@ -3039,6 +3246,10 @@ function EquipmentTab() {
   const showHydrantFields = form.type === "Пожарен кран";
   const showSmokeControlFields = form.type === "Димоотвеждане";
   const showCommonFields = Boolean(form.type);
+  const bulkGeneratedName = generatedEquipmentName(bulkTemplate);
+  const bulkFilledRows = bulkRows.filter(
+    (row) => row.serialNumber.trim() || row.location.trim()
+  ).length;
 
   return (
     <Card className="p-5">
@@ -3049,11 +3260,225 @@ function EquipmentTab() {
             Пожарогасители, системи и контролни точки за този обект
           </p>
         </div>
-        <Button type="button" onClick={openAddForm}>
-          <Plus size={18} />
-          Добави оборудване
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" onClick={openBulkExtinguisherForm}>
+            <ClipboardPlus size={18} />
+            Много пожарогасители
+          </Button>
+          <Button type="button" onClick={openAddForm}>
+            <Plus size={18} />
+            Добави оборудване
+          </Button>
+        </div>
       </div>
+
+      {bulkFormOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
+          <form
+            onSubmit={handleSaveBulkExtinguishers}
+            className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black">
+                  Масово добавяне на пожарогасители
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Попълнете общите данни веднъж, после въведете само сериен номер и локация за всеки пожарогасител.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={closeBulkExtinguisherForm}
+                aria-label="Затвори"
+              >
+                <X size={18} />
+              </Button>
+            </div>
+
+            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              <EquipmentSelectField
+                label="Категория"
+                value={bulkTemplate.extinguisherCategory}
+                options={protocolCatalogs.extinguisherCategories}
+                onChange={(value) => updateBulkTemplate("extinguisherCategory", value)}
+              />
+              <EquipmentSelectField
+                label="Маса / вместимост"
+                value={bulkTemplate.capacity}
+                options={protocolCatalogs.extinguisherChargeMasses}
+                onChange={(value) => updateBulkTemplate("capacity", value)}
+              />
+              <EquipmentSelectField
+                label="Марка"
+                value={bulkTemplate.brand}
+                options={protocolCatalogs.extinguisherBrands}
+                onChange={(value) => updateBulkTemplate("brand", value)}
+              />
+              <EquipmentSelectField
+                label="Модел"
+                value={bulkTemplate.model}
+                options={protocolCatalogs.extinguisherModels}
+                onChange={(value) => updateBulkTemplate("model", value)}
+              />
+              <EquipmentSelectField
+                label="Вид пожарогасително вещество"
+                value={bulkTemplate.extinguishingAgentType}
+                options={protocolCatalogs.extinguishingAgentTypes}
+                onChange={(value) =>
+                  updateBulkTemplate("extinguishingAgentType", value)
+                }
+              />
+              <EquipmentSelectField
+                label="Търговско наименование"
+                value={bulkTemplate.extinguishingAgentTradeName}
+                options={protocolCatalogs.extinguishingAgentTradeNames}
+                onChange={(value) =>
+                  updateBulkTemplate("extinguishingAgentTradeName", value)
+                }
+              />
+              <div className="space-y-2 md:col-span-2 lg:col-span-3">
+                <label className="text-xs font-black uppercase text-slate-400">
+                  Общи бележки
+                </label>
+                <textarea
+                  value={bulkTemplate.notes}
+                  onChange={(event) =>
+                    updateBulkTemplate("notes", event.target.value)
+                  }
+                  rows={2}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h4 className="text-sm font-black uppercase text-slate-500">
+                    Редове за създаване
+                  </h4>
+                  <p className="mt-1 text-xs font-bold text-slate-500">
+                    При paste от Excel първата колона е сериен номер, втората е локация.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => addBulkRows(1)}>
+                    <Plus size={15} />
+                    Ред
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={() => addBulkRows(10)}>
+                    <Plus size={15} />
+                    10 реда
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" onClick={duplicateLastBulkRow}>
+                    <ClipboardPlus size={15} />
+                    Дублирай
+                  </Button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-2">
+                {bulkRows.map((row, index) => (
+                  <div
+                    key={row.id}
+                    className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 md:grid-cols-[48px_1fr_1.4fr_40px]"
+                  >
+                    <div className="flex h-10 items-center justify-center rounded-lg bg-slate-50 text-xs font-black text-slate-400">
+                      {index + 1}
+                    </div>
+                    <input
+                      value={row.serialNumber}
+                      placeholder="Сериен номер"
+                      onChange={(event) =>
+                        updateBulkRow(row.id, "serialNumber", event.target.value)
+                      }
+                      className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                    <input
+                      value={row.location}
+                      placeholder="Локация в обекта"
+                      onChange={(event) =>
+                        updateBulkRow(row.id, "location", event.target.value)
+                      }
+                      className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeBulkRow(row.id)}
+                      aria-label="Премахни ред"
+                    >
+                      <X size={16} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 p-4">
+              <label className="text-xs font-black uppercase text-slate-400">
+                Постави от Excel
+              </label>
+              <textarea
+                value={bulkPasteText}
+                onChange={(event) => setBulkPasteText(event.target.value)}
+                placeholder={"SN001\tКоридор ет. 1\nSN002\tДо ел. табло"}
+                rows={3}
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+              />
+              <div className="mt-3 flex justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={applyBulkPaste}
+                  disabled={!bulkPasteText.trim()}
+                >
+                  <ClipboardPlus size={15} />
+                  Зареди редовете
+                </Button>
+              </div>
+            </div>
+
+            {bulkSaveState === "error" ? (
+              <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
+                {errorMessage || "Пожарогасителите не бяха записани"}
+              </div>
+            ) : null}
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm font-bold text-slate-500">
+                Ще се създадат {bulkFilledRows} записа като{" "}
+                <span className="font-black text-slate-900">
+                  {bulkGeneratedName || "Пожарогасител"}
+                </span>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={closeBulkExtinguisherForm}
+                >
+                  Отказ
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={bulkSaveState === "saving" || !bulkFilledRows}
+                >
+                  <Save size={17} />
+                  {bulkSaveState === "saving"
+                    ? "Записване..."
+                    : `Запиши ${bulkFilledRows || ""}`}
+                </Button>
+              </div>
+            </div>
+          </form>
+        </div>
+      ) : null}
 
       {formOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
@@ -3745,6 +4170,19 @@ function EquipmentTab() {
                         >
                           <Edit3 size={15} />
                         </Button>
+                        {isFireExtinguisherEquipment(item) ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            title="Клонирай"
+                            aria-label="Клонирай"
+                            onClick={() => openCloneEquipmentForm(item)}
+                            className="h-10 w-10 px-0"
+                          >
+                            <ClipboardPlus size={15} />
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           variant="danger"

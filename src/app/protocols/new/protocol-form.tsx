@@ -71,6 +71,7 @@ import {
 const PROTOCOLS_STORAGE_KEY = "firecontrol:protocols";
 const PROTOCOLS_UPDATED_EVENT = "firecontrol:protocols-updated";
 const TEAM_SESSION_STORAGE_KEY = "firecontrol:team-session";
+const STICKER_PRINT_QUEUE_STORAGE_KEY = "firecontrol:sticker-print-queue";
 
 type TeamSession = {
   id?: string;
@@ -2223,10 +2224,45 @@ function ExtinguisherProtocolSection({
 }) {
   const [generatingStickerRowId, setGeneratingStickerRowId] = useState("");
   const [stickerError, setStickerError] = useState("");
+  const [selectedRowIds, setSelectedRowIds] = useState<string[]>([]);
+  const [bulkServiceType, setBulkServiceType] = useState(
+    dropdowns.extinguisherServiceTypes[0] || ""
+  );
+  const [bulkResultStatus, setBulkResultStatus] = useState(
+    extinguisherResultStatusOptions[0] || ""
+  );
+  const [bulkAppliedAction, setBulkAppliedAction] = useState<
+    "serviceType" | "resultStatus" | ""
+  >("");
   const availableExtinguishers = equipment.filter(
     (item) =>
       item.category === "extinguisher" && !selectedEquipmentIds.includes(item.id)
   );
+  const selectedRowIdSet = useMemo(
+    () => new Set(selectedRowIds),
+    [selectedRowIds]
+  );
+  const selectedRows = rows.filter((row) => selectedRowIdSet.has(row.id));
+  const selectedRowsNeedingStickers = selectedRows.filter(
+    (row) => row.equipmentId && !row.stickerNumber
+  );
+  const rowsWithStickers = rows.filter((row) => row.stickerNumber);
+  const selectableRowsCount = rows.length;
+  const allRowsSelected =
+    selectableRowsCount > 0 && selectedRows.length === selectableRowsCount;
+
+  useEffect(() => {
+    setSelectedRowIds((current) =>
+      current.filter((rowId) => rows.some((row) => row.id === rowId))
+    );
+  }, [rows]);
+
+  useEffect(() => {
+    if (!bulkAppliedAction) return;
+
+    const timer = window.setTimeout(() => setBulkAppliedAction(""), 1400);
+    return () => window.clearTimeout(timer);
+  }, [bulkAppliedAction]);
 
   function selectAllExtinguishers() {
     const extinguisherIds = equipment
@@ -2235,6 +2271,84 @@ function ExtinguisherProtocolSection({
 
     setSelectedEquipmentIds((current) =>
       Array.from(new Set([...current, ...extinguisherIds]))
+    );
+  }
+
+  function toggleRowSelection(rowId: string) {
+    setSelectedRowIds((current) =>
+      current.includes(rowId)
+        ? current.filter((id) => id !== rowId)
+        : [...current, rowId]
+    );
+  }
+
+  function toggleAllRowsSelection() {
+    setSelectedRowIds(allRowsSelected ? [] : rows.map((row) => row.id));
+  }
+
+  function rowWithBulkValue(
+    row: ExtinguisherProtocolRow,
+    key: "serviceType" | "resultStatus",
+    value: string
+  ) {
+    const previousAutoNextServiceDate = nextServiceDateForTechnicalService(
+      row.serviceType,
+      row.serviceDate
+    );
+    const nextRow = { ...row, [key]: value };
+
+    if (key === "serviceType") {
+      const nextAutoServiceDate = nextServiceDateForTechnicalService(
+        nextRow.serviceType,
+        nextRow.serviceDate
+      );
+
+      if (nextAutoServiceDate) {
+        if (
+          !row.nextServiceDate ||
+          row.nextServiceDate === previousAutoNextServiceDate
+        ) {
+          nextRow.nextServiceDate = nextAutoServiceDate;
+        }
+      } else if (
+        row.nextServiceDate &&
+        row.nextServiceDate === previousAutoNextServiceDate
+      ) {
+        nextRow.nextServiceDate = "";
+      }
+    }
+
+    return nextRow;
+  }
+
+  function applyBulkValue(
+    key: "serviceType" | "resultStatus",
+    value: string
+  ) {
+    if (!selectedRowIds.length || !value) return;
+
+    setRows((current) =>
+      current.map((row) =>
+        selectedRowIdSet.has(row.id) ? rowWithBulkValue(row, key, value) : row
+      )
+    );
+    setBulkAppliedAction(key);
+  }
+
+  function removeProtocolRow(row: ExtinguisherProtocolRow) {
+    setSelectedRowIds((current) => current.filter((rowId) => rowId !== row.id));
+
+    if (row.equipmentId) {
+      setSelectedEquipmentIds((current) =>
+        current.filter((equipmentId) => equipmentId !== row.equipmentId)
+      );
+      return;
+    }
+
+    setRows((current) =>
+      current
+        .filter((item) => item.id !== row.id)
+        .map((item, index) => ({ ...item, rowNumber: String(index + 1) }))
     );
   }
 
@@ -2287,6 +2401,35 @@ function ExtinguisherProtocolSection({
     );
   }
 
+  function openStickerPrintQueue(stickerNumbers: string[]) {
+    const uniqueStickerNumbers = Array.from(
+      new Set(stickerNumbers.map((number) => number.trim()).filter(Boolean))
+    );
+    if (!uniqueStickerNumbers.length) return;
+
+    try {
+      window.localStorage.setItem(
+        STICKER_PRINT_QUEUE_STORAGE_KEY,
+        JSON.stringify({
+          createdAt: new Date().toISOString(),
+          protocolNumber,
+          stickers: uniqueStickerNumbers,
+          status: "queued",
+        })
+      );
+    } catch {
+      // The URL still carries the queue for the print handoff page.
+    }
+
+    window.open(
+      `/stickers/fire-extinguishers/queue?ids=${encodeURIComponent(
+        uniqueStickerNumbers.join(",")
+      )}`,
+      "_blank",
+      "noopener,noreferrer"
+    );
+  }
+
   async function handlePrintSticker(row: ExtinguisherProtocolRow) {
     if (!row.stickerNumber) return;
 
@@ -2309,6 +2452,73 @@ function ExtinguisherProtocolSection({
     }
   }
 
+  async function handlePrintAllStickers() {
+    const printableRows = rows.filter((row) => row.stickerNumber);
+    if (!printableRows.length) return;
+
+    setStickerError("");
+
+    try {
+      const protocolId = protocolNumber ? await getProtocolDatabaseId(protocolNumber) : "";
+
+      for (const row of printableRows) {
+        await saveFireExtinguisherStickerRow({
+          row,
+          stickerNumber: row.stickerNumber,
+          protocolNumber,
+          protocolId,
+          objectId,
+          objectName,
+          companySettings,
+        });
+      }
+
+      openStickerPrintQueue(printableRows.map((row) => row.stickerNumber));
+    } catch (error) {
+      setStickerError(stickerDatabaseErrorMessage(error));
+    }
+  }
+
+  async function createStickerForRow(
+    row: ExtinguisherProtocolRow,
+    protocolId: string
+  ) {
+    const supabase = createSupabaseBrowserClient();
+    const { data, error } = await supabase.rpc(
+      "claim_fire_extinguisher_sticker_number"
+    );
+
+    if (error || data === null) {
+      throw new Error(error?.message || "Sticker number was not returned.");
+    }
+
+    const stickerNumber = String(data);
+    const nextRow = {
+      ...row,
+      serviceDate: row.serviceDate || protocolDate,
+      nextServiceDate:
+        row.nextServiceDate ||
+        nextServiceDateForTechnicalService(
+          row.serviceType,
+          row.serviceDate || protocolDate
+        ),
+      servicePersonName: row.servicePersonName || technician,
+      stickerNumber,
+    };
+
+    await saveFireExtinguisherStickerRow({
+      row: nextRow,
+      stickerNumber,
+      protocolNumber,
+      protocolId,
+      objectId,
+      objectName,
+      companySettings,
+    });
+
+    return nextRow;
+  }
+
   async function generateSticker(row: ExtinguisherProtocolRow) {
     if (row.stickerNumber) {
       printSticker(row.stickerNumber);
@@ -2319,42 +2529,40 @@ function ExtinguisherProtocolSection({
     setGeneratingStickerRowId(row.id);
 
     try {
-      const supabase = createSupabaseBrowserClient();
-      const { data, error } = await supabase.rpc(
-        "claim_fire_extinguisher_sticker_number"
-      );
-
-      if (error || data === null) {
-        throw new Error(error?.message || "Sticker number was not returned.");
-      }
-
-      const stickerNumber = String(data);
-      const nextRow = {
-        ...row,
-        serviceDate: row.serviceDate || protocolDate,
-        nextServiceDate:
-          row.nextServiceDate ||
-          nextServiceDateForTechnicalService(
-            row.serviceType,
-            row.serviceDate || protocolDate
-          ),
-        servicePersonName: row.servicePersonName || technician,
-        stickerNumber,
-      };
       const protocolId = protocolNumber ? await getProtocolDatabaseId(protocolNumber) : "";
-
-      await saveFireExtinguisherStickerRow({
-        row: nextRow,
-        stickerNumber,
-        protocolNumber,
-        protocolId,
-        objectId,
-        objectName,
-        companySettings,
-      });
+      const nextRow = await createStickerForRow(row, protocolId);
 
       setRows((current) =>
         current.map((item) => (item.id === row.id ? nextRow : item))
+      );
+    } catch (error) {
+      setStickerError(stickerDatabaseErrorMessage(error));
+    } finally {
+      setGeneratingStickerRowId("");
+    }
+  }
+
+  async function generateStickersForSelectedRows() {
+    const rowsToGenerate = selectedRows.filter(
+      (row) => row.equipmentId && !row.stickerNumber
+    );
+
+    if (!rowsToGenerate.length) return;
+
+    setStickerError("");
+    setGeneratingStickerRowId("bulk");
+
+    try {
+      const protocolId = protocolNumber ? await getProtocolDatabaseId(protocolNumber) : "";
+      const updatedRows = new Map<string, ExtinguisherProtocolRow>();
+
+      for (const row of rowsToGenerate) {
+        const nextRow = await createStickerForRow(row, protocolId);
+        updatedRows.set(row.id, nextRow);
+      }
+
+      setRows((current) =>
+        current.map((row) => updatedRows.get(row.id) ?? row)
       );
     } catch (error) {
       setStickerError(stickerDatabaseErrorMessage(error));
@@ -2434,7 +2642,204 @@ function ExtinguisherProtocolSection({
         </div>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2">
+      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
+          <div className="flex-1">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-black text-slate-900">
+                  Добавяне от оборудване
+                </div>
+                <div className="mt-1 text-xs font-bold text-slate-500">
+                  Изберете един пожарогасител или добавете всички от обекта.
+                </div>
+              </div>
+              <Badge variant="orange">{rows.length} в протокола</Badge>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-[1fr_auto_auto]">
+              <select
+                value=""
+                onChange={(event) => {
+                  const value = event.target.value;
+                  if (!value) return;
+                  setSelectedEquipmentIds((current) =>
+                    current.includes(value) ? current : [...current, value]
+                  );
+                }}
+                className="h-11 min-w-0 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+              >
+                <option value="">
+                  {equipment.length
+                    ? "Избери пожарогасител"
+                    : "Няма пожарогасители в оборудването"}
+                </option>
+                {availableExtinguishers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {extinguisherLabel(item)}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={selectAllExtinguishers}
+                disabled={availableExtinguishers.length === 0}
+              >
+                <CheckCheck size={17} />
+                Добави всички
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setSelectedEquipmentIds([])}
+                disabled={selectedEquipmentIds.length === 0}
+              >
+                <X size={17} />
+                Изчисти
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {rows.length ? (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+          <div>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-sm font-black text-slate-900">
+                  Масови действия за маркираните
+                </div>
+                <div className="mt-1 text-xs font-bold text-slate-500">
+                  Маркирайте редове от списъка и приложете еднакви стойности.
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={toggleAllRowsSelection}
+                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-orange-200 bg-white px-3 text-xs font-black text-slate-700 shadow-sm transition hover:bg-orange-50 hover:text-orange-700"
+                >
+                  {allRowsSelected ? (
+                    <CheckSquare2 size={16} className="text-orange-600" />
+                  ) : (
+                    <Square size={16} className="text-slate-400" />
+                  )}
+                  {allRowsSelected ? "Размаркирай всички" : "Маркирай всички"}
+                </button>
+                <Badge variant="orange">
+                  {selectedRows.length} / {rows.length} маркирани
+                </Badge>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-end gap-3">
+            <div className="min-w-[280px] flex-1 space-y-2">
+              <FieldLabel>Вид обслужване</FieldLabel>
+              <div className="flex gap-2">
+                <select
+                  value={bulkServiceType}
+                  onChange={(event) => setBulkServiceType(event.target.value)}
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                >
+                  {dropdowns.extinguisherServiceTypes.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => applyBulkValue("serviceType", bulkServiceType)}
+                  disabled={!selectedRows.length || !bulkServiceType}
+                  className={
+                    bulkAppliedAction === "serviceType"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                      : ""
+                  }
+                >
+                  Задай
+                </Button>
+              </div>
+            </div>
+
+            <div className="min-w-[280px] flex-1 space-y-2">
+              <FieldLabel>Състояние</FieldLabel>
+              <div className="flex gap-2">
+                <select
+                  value={bulkResultStatus}
+                  onChange={(event) => setBulkResultStatus(event.target.value)}
+                  className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                >
+                  {extinguisherResultStatusOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => applyBulkValue("resultStatus", bulkResultStatus)}
+                  disabled={!selectedRows.length || !bulkResultStatus}
+                  className={
+                    bulkAppliedAction === "resultStatus"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                      : ""
+                  }
+                >
+                  Задай
+                </Button>
+              </div>
+            </div>
+
+            <div className="min-w-[220px] space-y-2">
+              <FieldLabel>Стикери</FieldLabel>
+              <Button
+                type="button"
+                variant="secondary"
+                className="w-full"
+                onClick={generateStickersForSelectedRows}
+                disabled={
+                  !selectedRowsNeedingStickers.length ||
+                  Boolean(generatingStickerRowId)
+                }
+              >
+                {generatingStickerRowId === "bulk" ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : (
+                  <Tags size={16} />
+                )}
+                Генерирай ({selectedRowsNeedingStickers.length})
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handlePrintAllStickers}
+                disabled={!rowsWithStickers.length}
+              >
+                <Printer size={16} />
+                Принтирай всички ({rowsWithStickers.length})
+              </Button>
+              <div className="text-xs font-bold text-slate-500">
+                Само за маркирани без стикер.
+              </div>
+            </div>
+          </div>
+          {bulkAppliedAction ? (
+            <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">
+              Зададено за {selectedRows.length} маркирани пожарогасителя.
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="hidden">
         <Button
           type="button"
           variant="outline"
@@ -2455,13 +2860,108 @@ function ExtinguisherProtocolSection({
           {rows.length} {"\u0438\u0437\u0431\u0440\u0430\u043d\u0438"}
         </Badge>
       </div>
+
+      {rows.length ? (
+        <div className="hidden">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <button
+                type="button"
+                onClick={toggleAllRowsSelection}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-black text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+              >
+                {allRowsSelected ? (
+                  <CheckSquare2 size={18} className="text-orange-600" />
+                ) : (
+                  <Square size={18} className="text-slate-400" />
+                )}
+                {allRowsSelected ? "Размаркирай всички" : "Маркирай всички"}
+              </button>
+              <div className="mt-2 text-xs font-bold text-slate-500">
+                Маркирани {selectedRows.length} от {rows.length} пожарогасителя
+              </div>
+            </div>
+
+            <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2 xl:max-w-3xl">
+              <div className="space-y-2">
+                <FieldLabel>Вид обслужване за маркираните</FieldLabel>
+                <div className="flex gap-2">
+                  <select
+                    value={bulkServiceType}
+                    onChange={(event) => setBulkServiceType(event.target.value)}
+                    className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  >
+                    {dropdowns.extinguisherServiceTypes.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => applyBulkValue("serviceType", bulkServiceType)}
+                    disabled={!selectedRows.length || !bulkServiceType}
+                  >
+                    Приложи
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <FieldLabel>Състояние за маркираните</FieldLabel>
+                <div className="flex gap-2">
+                  <select
+                    value={bulkResultStatus}
+                    onChange={(event) => setBulkResultStatus(event.target.value)}
+                    className="h-10 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  >
+                    {extinguisherResultStatusOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => applyBulkValue("resultStatus", bulkResultStatus)}
+                    disabled={!selectedRows.length || !bulkResultStatus}
+                  >
+                    Приложи
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={generateStickersForSelectedRows}
+              disabled={
+                !selectedRowsNeedingStickers.length ||
+                Boolean(generatingStickerRowId)
+              }
+            >
+              {generatingStickerRowId === "bulk" ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Tags size={16} />
+              )}
+              Генерирай стикери ({selectedRowsNeedingStickers.length})
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {stickerError ? (
         <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
           {stickerError}
         </div>
       ) : null}
 
-      <div className="mt-3 max-w-2xl">
+      <div className="hidden">
         <SelectField
           label="Пожарогасител от оборудването"
           value=""
@@ -2519,10 +3019,37 @@ function ExtinguisherProtocolSection({
             key={row.id}
             className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
           >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => toggleRowSelection(row.id)}
+                aria-pressed={selectedRowIdSet.has(row.id)}
+                aria-label={`Маркирай пожарогасител ${row.rowNumber}`}
+                className={`flex h-9 w-9 items-center justify-center rounded-xl border shadow-sm transition ${
+                  selectedRowIdSet.has(row.id)
+                    ? "border-orange-300 bg-orange-50 text-orange-700 ring-4 ring-orange-100"
+                    : "border-slate-200 bg-white text-slate-400 hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                }`}
+              >
+                {selectedRowIdSet.has(row.id) ? (
+                  <CheckSquare2 size={18} />
+                ) : (
+                  <Square size={18} />
+                )}
+              </button>
               <div className="text-sm font-black text-slate-800">
                 Пожарогасител № {row.rowNumber}
               </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => removeProtocolRow(row)}
+                aria-label={`Премахни пожарогасител ${row.rowNumber}`}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100"
+              >
+                <X size={16} />
+              </button>
             </div>
             <div className="mt-3 flex flex-col gap-2 rounded-xl border border-red-100 bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2 text-sm font-black text-slate-800">
@@ -2717,10 +3244,6 @@ function ExtinguisherProtocolSection({
                   />
                 </div>
               ) : null}
-            </div>
-            <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-500">
-              Подпис на лицето, извършило обслужването: използва се подписът на
-              техник / обслужващо лице от секцията „Подписи“.
             </div>
           </div>
         ))}

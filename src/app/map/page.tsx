@@ -82,12 +82,12 @@ export default function MapPage() {
       ? {
           value: "text-red-700",
           icon: "bg-red-50 text-red-700 ring-red-200",
-          note: "Минала дата или проблемен статус",
+          note: "Посещение до 7 дни или минала дата",
         }
       : {
           value: "text-slate-700",
           icon: "bg-slate-50 text-slate-600 ring-slate-200",
-          note: "Няма критични обекти",
+          note: "Няма обекти до 7 дни",
         };
 
   async function refreshLocations() {
@@ -162,7 +162,7 @@ export default function MapPage() {
                   {metrics.upcoming}
                 </div>
                 <div className="mt-0.5 text-xs font-bold text-slate-500">
-                  В следващите 30 дни
+                  Между 8 и 30 дни
                 </div>
               </div>
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-700 ring-1 ring-orange-200">
@@ -174,7 +174,7 @@ export default function MapPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <div className="text-xs font-black uppercase text-slate-400">
-                  Просрочени / проблемни
+                  До 7 дни
                 </div>
                 <div className={`mt-1 text-2xl font-black ${overdueTone.value}`}>
                   {metrics.overdue}
@@ -213,7 +213,7 @@ export default function MapPage() {
               },
               {
                 value: "overdue" as const,
-                label: "Просрочени",
+                label: "До 7 дни",
                 count: metrics.overdue,
                 activeClassName:
                   metrics.overdue > 0

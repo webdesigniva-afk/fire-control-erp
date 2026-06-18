@@ -7,7 +7,7 @@ export type ObjectStatus = string;
 
 export const OBJECT_STATUS_OK = "\u0438\u0437\u0440\u044f\u0434\u0435\u043d";
 export const OBJECT_STATUS_UPCOMING = "\u043f\u0440\u0435\u0434\u0441\u0442\u043e\u0438";
-export const OBJECT_STATUS_OVERDUE = "\u043f\u0440\u043e\u0441\u0440\u043e\u0447\u0435\u043d";
+export const OBJECT_STATUS_OVERDUE = "\u0434\u043e 7 \u0434\u043d\u0438";
 
 export type DashboardMapObject = {
   id: string;
@@ -342,24 +342,27 @@ export function buildMapObjectsData(
         .map((task) => task.dueDate)
         .filter((date) => date && date >= todayKey)
         .sort((first, second) => first.localeCompare(second));
-      const hasProblem = locationTasks.some(
-        (task) => task.dueDate && task.dueDate < todayKey
-      );
+      const overdueOrUrgentDates = locationTasks
+        .map((task) => task.dueDate)
+        .filter(
+          (date) => date && dateFromIso(date) && daysBetween(todayKey, date) <= 7
+        );
+      const hasUrgent = overdueOrUrgentDates.length > 0;
       const hasUpcoming = futureDates.some((date) => {
         const days = daysBetween(todayKey, date);
-        return days >= 0 && days <= 30;
+        return days > 7 && days <= 30;
       });
 
-      if (hasUpcoming) upcomingVisitCount += 1;
+      if (hasUrgent || hasUpcoming) upcomingVisitCount += 1;
 
       return {
         id: location.id,
         name: location.name,
-        status: hasProblem
+        status: hasUrgent
           ? OBJECT_STATUS_OVERDUE
           : hasUpcoming
             ? OBJECT_STATUS_UPCOMING
-            : normalizeStatus(location.status),
+            : OBJECT_STATUS_OK,
         nextInspection: futureDates[0] ? formatDate(futureDates[0]) : "",
         position: [
           location.latitude as number,
