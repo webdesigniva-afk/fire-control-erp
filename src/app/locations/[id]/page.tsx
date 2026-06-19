@@ -236,6 +236,17 @@ const PROTOCOL_TYPE_LABEL: Record<string, string> = {
   service: "Протокол за поддръжка на ПИС",
 };
 
+const PROTOCOL_STATUS_LABEL: Record<string, string> = {
+  draft: "Чернова",
+  in_progress: "В процес",
+  "in-progress": "В процес",
+  pending: "В процес",
+  active: "В процес",
+  completed: "Завършен",
+};
+
+const protocolStatusOrder = ["draft", "in_progress", "in-progress", "pending", "active", "completed"];
+
 // localStorage key shared with the protocol form
 const PROTOCOLS_LS_KEY = "firecontrol:protocols";
 
@@ -618,6 +629,23 @@ function formatDateTimeValue(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function protocolTypeLabel(type: string) {
+  return PROTOCOL_TYPE_LABEL[type] ?? (type || "Без тип");
+}
+
+function protocolStatusLabel(status: string) {
+  const normalized = status.trim().toLowerCase();
+  return PROTOCOL_STATUS_LABEL[normalized] ?? (status || "Без статус");
+}
+
+function protocolCreatedTime(protocol: DbProtocol) {
+  const createdTime = Date.parse(protocol.createdAt);
+  if (!Number.isNaN(createdTime)) return createdTime;
+
+  const protocolDateTime = Date.parse(protocol.protocolDate);
+  return Number.isNaN(protocolDateTime) ? 0 : protocolDateTime;
 }
 
 function formatTaskCreatedDate(value: string) {
@@ -2593,7 +2621,8 @@ function OverviewTab() {
                     {PROTOCOL_TYPE_LABEL[protocol.protocolType] ?? protocol.protocolType}
                   </div>
                   <div className="mt-1 text-sm text-slate-500">
-                    {protocol.protocolNumber} · {formatDateValue(protocol.protocolDate)}
+                    {protocol.protocolNumber} · Създаден:{" "}
+                    {formatDateValue(protocol.createdAt || protocol.protocolDate)}
                   </div>
                   <div className="mt-2">
                     <Badge variant={protocol.status === "completed" ? "success" : "neutral"}>
@@ -4801,6 +4830,43 @@ function EquipmentTab() {
 function ProtocolsTab() {
   const location = useLocationProfile();
   const { protocols, protocolsLoadState, refreshProtocols } = useLocationProtocols();
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+
+  const protocolTypeOptions = useMemo(
+    () =>
+      Array.from(new Set(protocols.map((protocol) => protocol.protocolType).filter(Boolean))).sort(
+        (a, b) => protocolTypeLabel(a).localeCompare(protocolTypeLabel(b), "bg")
+      ),
+    [protocols]
+  );
+
+  const protocolStatusOptions = useMemo(
+    () =>
+      Array.from(new Set(protocols.map((protocol) => protocol.status).filter(Boolean))).sort(
+        (a, b) => {
+          const aIndex = protocolStatusOrder.indexOf(a.trim().toLowerCase());
+          const bIndex = protocolStatusOrder.indexOf(b.trim().toLowerCase());
+          if (aIndex !== -1 || bIndex !== -1) {
+            return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+          }
+          return protocolStatusLabel(a).localeCompare(protocolStatusLabel(b), "bg");
+        }
+      ),
+    [protocols]
+  );
+
+  const visibleProtocols = useMemo(() => {
+    return protocols
+      .filter((protocol) => typeFilter === "all" || protocol.protocolType === typeFilter)
+      .filter((protocol) => statusFilter === "all" || protocol.status === statusFilter)
+      .slice()
+      .sort((a, b) => {
+        const timeDiff = protocolCreatedTime(b) - protocolCreatedTime(a);
+        return sortOrder === "newest" ? timeDiff : -timeDiff;
+      });
+  }, [protocols, sortOrder, statusFilter, typeFilter]);
 
   useEffect(() => {
     window.addEventListener("focus", refreshProtocols);
@@ -4824,6 +4890,54 @@ function ProtocolsTab() {
           Нов протокол
         </Link>
       </div>
+
+      {protocolsLoadState === "ready" && protocols.length > 0 && (
+        <div className="mt-5 grid grid-cols-1 gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-3 md:grid-cols-3">
+          <label className="block text-xs font-black uppercase text-slate-400">
+            Тип
+            <select
+              value={typeFilter}
+              onChange={(event) => setTypeFilter(event.target.value)}
+              className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold normal-case text-slate-700 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+            >
+              <option value="all">Всички типове</option>
+              {protocolTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {protocolTypeLabel(type)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-black uppercase text-slate-400">
+            Статус
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold normal-case text-slate-700 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+            >
+              <option value="all">Всички</option>
+              {protocolStatusOptions.map((status) => (
+                <option key={status} value={status}>
+                  {protocolStatusLabel(status)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block text-xs font-black uppercase text-slate-400">
+            Сортиране
+            <select
+              value={sortOrder}
+              onChange={(event) => setSortOrder(event.target.value as "newest" | "oldest")}
+              className="mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold normal-case text-slate-700 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+            >
+              <option value="newest">Най-нови първо</option>
+              <option value="oldest">Най-стари първо</option>
+            </select>
+          </label>
+        </div>
+      )}
 
       <div className="mt-5 space-y-3">
         {protocolsLoadState === "loading" && (
@@ -4849,7 +4963,20 @@ function ProtocolsTab() {
             </p>
           </div>
         )}
-        {protocolsLoadState === "ready" && protocols.length > 0 && protocols.map((protocol) => (
+        {protocolsLoadState === "ready" && protocols.length > 0 && visibleProtocols.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-orange-500 shadow-sm">
+              <FileText size={22} />
+            </div>
+            <div className="mt-3 text-sm font-black text-slate-800">
+              Няма протоколи по избраните филтри.
+            </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Променете типа, статуса или сортирането, за да видите други записи.
+            </p>
+          </div>
+        )}
+        {protocolsLoadState === "ready" && visibleProtocols.map((protocol) => (
             <Link
               key={protocol.id}
               href={`/protocols/view/${encodeURIComponent(protocol.protocolNumber)}`}
@@ -4866,33 +4993,27 @@ function ProtocolsTab() {
                         {protocol.protocolNumber}
                       </div>
                       <div className="mt-1 text-sm font-bold text-slate-500">
-                        {PROTOCOL_TYPE_LABEL[protocol.protocolType] ?? protocol.protocolType}
+                        {protocolTypeLabel(protocol.protocolType)}
                       </div>
                     </div>
                     <Badge
                       variant={protocol.status === "completed" ? "success" : "neutral"}
                     >
-                      {protocol.status === "completed" ? "Завършен" : "Чернова"}
+                      {protocolStatusLabel(protocol.status)}
                     </Badge>
                   </div>
 
-                  <div className="mt-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-3">
+                  <div className="mt-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
                     <div>
-                      <span className="font-bold text-slate-400">Дата: </span>
+                      <span className="font-bold text-slate-400">Създаден: </span>
                       <span className="font-black text-slate-700">
-                        {formatDateValue(protocol.protocolDate)}
+                        {formatDateValue(protocol.createdAt || protocol.protocolDate)}
                       </span>
                     </div>
                     <div>
                       <span className="font-bold text-slate-400">Техник: </span>
                       <span className="font-black text-slate-700">
                         {protocol.technician || "—"}
-                      </span>
-                    </div>
-                    <div>
-                      <span className="font-bold text-slate-400">Клиент: </span>
-                      <span className="font-black text-slate-700">
-                        {protocol.clientName || "—"}
                       </span>
                     </div>
                   </div>
@@ -6346,8 +6467,8 @@ export default function LocationProfilePage() {
           .from("protocols")
           .select(COLS)
           .eq("location_id", locationId)
-          .order("protocol_date", { ascending: false })
           .order("created_at", { ascending: false })
+          .order("protocol_date", { ascending: false })
           .limit(50);
         console.log("[protocols] by location_id →", data?.length ?? 0, error?.message);
         if (error) { setProtocolsLoadState("error"); return; }
@@ -6360,8 +6481,8 @@ export default function LocationProfilePage() {
           .from("protocols")
           .select(COLS)
           .eq("object_code", qrCode)
-          .order("protocol_date", { ascending: false })
           .order("created_at", { ascending: false })
+          .order("protocol_date", { ascending: false })
           .limit(50);
         console.log("[protocols] by object_code(qr) →", data?.length ?? 0, error?.message);
         if (error) { setProtocolsLoadState("error"); return; }
@@ -6375,8 +6496,8 @@ export default function LocationProfilePage() {
           .from("protocols")
           .select(COLS)
           .eq("object_code", locationId)
-          .order("protocol_date", { ascending: false })
           .order("created_at", { ascending: false })
+          .order("protocol_date", { ascending: false })
           .limit(50);
         console.log("[protocols] by object_code(uuid) →", data?.length ?? 0, error?.message);
         // Non-fatal: ignore errors here, it's just a fallback
@@ -6428,11 +6549,11 @@ export default function LocationProfilePage() {
         }
       }
 
-      // Sort merged list: newest protocol_date first, then newest created_at
+      // Sort merged list by creation date first, with protocol_date as a fallback.
       allRows.sort((a, b) => {
-        const pd = String(b["protocol_date"] ?? "").localeCompare(String(a["protocol_date"] ?? ""));
-        if (pd !== 0) return pd;
-        return String(b["created_at"] ?? "").localeCompare(String(a["created_at"] ?? ""));
+        const createdDiff = String(b["created_at"] ?? "").localeCompare(String(a["created_at"] ?? ""));
+        if (createdDiff !== 0) return createdDiff;
+        return String(b["protocol_date"] ?? "").localeCompare(String(a["protocol_date"] ?? ""));
       });
 
       const trimmed = allRows.slice(0, 50);
