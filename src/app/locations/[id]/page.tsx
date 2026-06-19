@@ -1423,7 +1423,9 @@ function buildEquipmentPayload(
     model: form.model.trim() || null,
     serial_number: form.serialNumber.trim() || null,
     installation_date:
-      form.type === "Пожароизвестител" && form.installationDate
+      (form.type === "Пожароизвестител" ||
+        form.type === "Пожароизвестителна централа") &&
+      form.installationDate
         ? form.installationDate
         : null,
     system_address:
@@ -1532,7 +1534,7 @@ function equipmentDetailRows(item: EquipmentItem) {
       rows.push({ label: "Категория", value: item.extinguisherCategory || item.category });
     }
     if (item.capacity) rows.push({ label: "Маса / вместимост", value: item.capacity });
-    if (item.extinguishingAgentType) rows.push({ label: "Вид пожарогасително вещество", value: item.extinguishingAgentType });
+    if (item.extinguishingAgentType) rows.push({ label: "Вид пожарогасително в-во", value: item.extinguishingAgentType });
     if (item.extinguishingAgentTradeName) rows.push({ label: "Търговско наименование", value: item.extinguishingAgentTradeName });
   } else if (item.type === "Пожароизвестителна централа" && item.capacity) {
     rows.push({ label: "Брой линии", value: item.capacity });
@@ -1540,7 +1542,8 @@ function equipmentDetailRows(item: EquipmentItem) {
 
   if (item.type === "Пожароизвестителна централа") {
     if (item.systemType) rows.push({ label: "Тип система", value: item.systemType });
-    if (item.totalDevices) rows.push({ label: "Общо устройства", value: item.totalDevices });
+    if (item.totalDevices) rows.push({ label: "Брой точки", value: item.totalDevices });
+    if (item.installationDate) rows.push({ label: "Дата на монтаж", value: formatDateValue(item.installationDate) });
   }
 
   if (item.type === "Спринклерна система") {
@@ -2903,6 +2906,11 @@ function EquipmentTab() {
     setBulkFormOpen(true);
   }
 
+  function switchToBulkExtinguisherForm() {
+    closeEquipmentForm();
+    openBulkExtinguisherForm();
+  }
+
   function openEditForm(item: EquipmentItem) {
     const type = equipmentTypeFromItem(item);
     setEditingEquipmentId(item.id);
@@ -3257,8 +3265,11 @@ function EquipmentTab() {
       : "Маса / вместимост";
   const showBrandModelSerial =
     form.type === "Пожарогасител" ||
-    form.type === "Пожароизвестител" ||
-    form.type === "Пожароизвестителна централа";
+    form.type === "Пожароизвестител";
+  const locationLabel =
+    form.type === "Пожароизвестителна централа"
+      ? "Локация на централата"
+      : "Локация";
   const showDescription = form.type === "Спринклерна система";
   const showHydrantFields = form.type === "Пожарен кран";
   const showSmokeControlFields = form.type === "Димоотвеждане";
@@ -3278,10 +3289,6 @@ function EquipmentTab() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" onClick={openBulkExtinguisherForm}>
-            <ClipboardPlus size={18} />
-            Много пожарогасители
-          </Button>
           <Button type="button" onClick={openAddForm}>
             <Plus size={18} />
             Добави оборудване
@@ -3363,7 +3370,7 @@ function EquipmentTab() {
                 }
               />
               <EquipmentSelectField
-                label="Вид пожарогасително вещество"
+                label="Вид пожарогасително в-во"
                 value={bulkTemplate.extinguishingAgentType}
                 options={protocolCatalogs.extinguishingAgentTypes}
                 onChange={(value) =>
@@ -3373,7 +3380,7 @@ function EquipmentTab() {
                   openCatalogValueDialog(
                     "extinguishingAgentTypes",
                     "extinguishingAgentType",
-                    "Вид пожарогасително вещество",
+                    "Вид пожарогасително в-во",
                     "bulk"
                   )
                 }
@@ -3564,6 +3571,30 @@ function EquipmentTab() {
                 onChange={(value) => updateForm("type", value)}
               />
 
+              {!editingEquipmentId && form.type === "Пожарогасител" ? (
+                <div className="space-y-2 lg:col-span-2">
+                  <label className="text-xs font-black uppercase text-slate-400">
+                    Начин на добавяне
+                  </label>
+                  <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+                    <button
+                      type="button"
+                      className="inline-flex h-10 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 px-4 text-sm font-black text-orange-700"
+                    >
+                      Индивидуален
+                    </button>
+                    <button
+                      type="button"
+                      onClick={switchToBulkExtinguisherForm}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                    >
+                      <ClipboardPlus size={16} />
+                      Множество
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {showSubtypeSelect ? (
                 <EquipmentSelectField
                   label={subtypeLabel}
@@ -3689,17 +3720,52 @@ function EquipmentTab() {
                     options={["Конвенционална", "Адресируема"]}
                     onChange={(value) => updateForm("systemType", value)}
                   />
+                  <EquipmentSelectField
+                    label="Марка"
+                    value={form.brand}
+                    options={protocolCatalogs.extinguisherBrands}
+                    onChange={(value) => updateForm("brand", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog("extinguisherBrands", "brand", "Марка")
+                    }
+                  />
+                  <EquipmentSelectField
+                    label="Модел"
+                    value={form.model}
+                    options={protocolCatalogs.extinguisherModels}
+                    onChange={(value) => updateForm("model", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog("extinguisherModels", "model", "Модел")
+                    }
+                  />
                   <EquipmentField
-                    label={capacityLabel}
+                    label="Брой линии"
                     value={form.capacity}
+                    type="number"
                     onChange={(value) => updateForm("capacity", value)}
                   />
                   <EquipmentField
-                    label="Общо устройства"
+                    label="Брой точки"
                     value={form.totalDevices}
                     type="number"
                     onChange={(value) => updateForm("totalDevices", value)}
                   />
+                  <EquipmentField
+                    label="Сериен номер на централата"
+                    value={form.serialNumber}
+                    onChange={(value) => updateForm("serialNumber", value)}
+                  />
+                  <div className="space-y-2">
+                    <label className="text-xs font-black uppercase text-slate-400">
+                      Дата на монтаж
+                    </label>
+                    <input
+                      type="date"
+                      value={form.installationDate}
+                      onChange={(event) => updateForm("installationDate", event.target.value)}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                  </div>
                 </>
               ) : null}
 
@@ -3809,7 +3875,7 @@ function EquipmentTab() {
               {form.type === "Пожарогасител" ? (
                 <>
                   <EquipmentSelectField
-                    label="Вид пожарогасително вещество"
+                    label="Вид пожарогасително в-во"
                     value={form.extinguishingAgentType}
                     options={protocolCatalogs.extinguishingAgentTypes}
                     onChange={(value) => updateForm("extinguishingAgentType", value)}
@@ -3817,7 +3883,7 @@ function EquipmentTab() {
                       openCatalogValueDialog(
                         "extinguishingAgentTypes",
                         "extinguishingAgentType",
-                        "Вид пожарогасително вещество"
+                        "Вид пожарогасително в-во"
                       )
                     }
                   />
@@ -3842,7 +3908,7 @@ function EquipmentTab() {
               {showCommonFields ? (
                 <>
                   <EquipmentField
-                    label="Локация"
+                    label={locationLabel}
                     value={form.location}
                     required
                     onChange={(value) => updateForm("location", value)}

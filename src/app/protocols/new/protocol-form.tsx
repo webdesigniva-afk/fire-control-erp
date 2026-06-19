@@ -3161,7 +3161,7 @@ function ExtinguisherProtocolSection({
                 ))}
               </SelectField>
               <SelectField
-                label="Вид пожарогасително вещество"
+                label="Вид пожарогасително в-во"
                 value={row.extinguishingAgentType}
                 disabled
                 onChange={(value) =>
