@@ -42,8 +42,11 @@ type BadgeVariant = "success" | "warning" | "danger" | "neutral" | "orange" | "i
 
 type Opportunity = {
   id: string;
+  lead_client_type: "corporate" | "private";
   company_name: string;
   company_eik: string;
+  first_name: string;
+  last_name: string;
   contact_name: string;
   phone: string;
   email: string;
@@ -66,8 +69,11 @@ type Opportunity = {
 };
 
 type NewLeadForm = {
+  lead_client_type: "corporate" | "private";
   company_name: string;
   company_eik: string;
+  first_name: string;
+  last_name: string;
   contact_name: string;
   phone: string;
   email: string;
@@ -172,8 +178,11 @@ const DEFAULT_SERVICE_CATALOG: LeadServiceCatalog = {
 };
 
 const EMPTY_FORM: NewLeadForm = {
+  lead_client_type: "corporate",
   company_name: "",
   company_eik: "",
+  first_name: "",
+  last_name: "",
   contact_name: "",
   phone: "",
   email: "",
@@ -294,6 +303,56 @@ function normalizePhone(value: string) {
 function isValidEmail(value: string) {
   if (!value.trim()) return true;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function privateLeadName(firstName: string, lastName: string) {
+  return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+}
+
+function leadDisplayName(form: NewLeadForm) {
+  return form.lead_client_type === "private"
+    ? privateLeadName(form.first_name, form.last_name)
+    : form.company_name.trim();
+}
+
+function opportunityClientType(value: unknown): Opportunity["lead_client_type"] {
+  return value === "private" ? "private" : "corporate";
+}
+
+function opportunityClientPayload(opportunity: Opportunity) {
+  if (opportunity.lead_client_type === "private") {
+    const displayName =
+      privateLeadName(opportunity.first_name, opportunity.last_name) ||
+      opportunity.company_name.trim();
+
+    return {
+      client_type: "private",
+      name: displayName,
+      company_name: "",
+      first_name: opportunity.first_name.trim(),
+      last_name: opportunity.last_name.trim(),
+      contact_person: "",
+      phone: opportunity.phone.trim(),
+      email: opportunity.email.trim(),
+      address: opportunity.object_address.trim(),
+      bulstat: "",
+      eik: "",
+    };
+  }
+
+  return {
+    client_type: "corporate",
+    name: opportunity.company_name.trim(),
+    company_name: opportunity.company_name.trim(),
+    first_name: "",
+    last_name: "",
+    contact_person: opportunity.contact_name.trim(),
+    phone: opportunity.phone.trim(),
+    email: opportunity.email.trim(),
+    address: opportunity.object_address.trim(),
+    bulstat: opportunity.company_eik.trim(),
+    eik: opportunity.company_eik.trim(),
+  };
 }
 
 async function readLeadServiceCatalogFromSupabase(): Promise<LeadServiceCatalog> {
@@ -654,6 +713,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
   const [serviceCatalog, setServiceCatalog] = useState<LeadServiceCatalog>(DEFAULT_SERVICE_CATALOG);
   const [addingObjectType, setAddingObjectType] = useState(false);
   const [newObjectType, setNewObjectType] = useState("");
+  const [savingObjectType, setSavingObjectType] = useState(false);
   const [addingServiceCategory, setAddingServiceCategory] = useState("");
   const [newService, setNewService] = useState("");
   const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
@@ -669,6 +729,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
       setDuplicates([]);
       setDuplicateAcknowledged(false);
       setAddingObjectType(false);
+      setSavingObjectType(false);
       setAddingServiceCategory("");
       setNewService("");
     }
@@ -704,8 +765,19 @@ function NewLeadModal({ open, onClose, onCreated }: {
   }, [open]);
 
   function updateForm(key: keyof NewLeadForm, value: string) {
-    setForm((current) => ({ ...current, [key]: value }));
-    if (key === "company_name" || key === "phone") {
+    setForm((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "lead_client_type") {
+        if (value === "private" && !current.object_name.trim()) {
+          next.object_name = "Частен имот";
+        }
+        if (value === "corporate" && current.object_name.trim() === "Частен имот") {
+          next.object_name = "";
+        }
+      }
+      return next;
+    });
+    if (key === "company_name" || key === "first_name" || key === "last_name" || key === "phone") {
       setDuplicates([]);
       setDuplicateAcknowledged(false);
     }
@@ -737,14 +809,23 @@ function NewLeadModal({ open, onClose, onCreated }: {
 
   async function addObjectType() {
     const value = newObjectType.trim();
-    if (!value) return;
+    if (!value || savingObjectType) return;
 
-    const nextSettings = {
-      ...protocolSettings,
-      objectTypes: uniqueValues([...(protocolSettings.objectTypes ?? []), value]),
-    };
-
+    setSavingObjectType(true);
+    setError("");
     try {
+      const databaseSettings = await readProtocolSettingsFromSupabase().catch(() => protocolSettings);
+      const nextSettings = {
+        ...databaseSettings,
+        objectTypes: uniqueValues([
+          ...DEFAULT_OBJECT_TYPES,
+          ...(defaultProtocolSettings.objectTypes ?? []),
+          ...(databaseSettings.objectTypes ?? []),
+          ...(protocolSettings.objectTypes ?? []),
+          value,
+        ]),
+      };
+
       await writeProtocolSettingsToSupabase(nextSettings);
       setProtocolSettings(nextSettings);
       updateForm("object_type", value);
@@ -752,6 +833,8 @@ function NewLeadModal({ open, onClose, onCreated }: {
       setAddingObjectType(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Грешка при запис на типа обект.");
+    } finally {
+      setSavingObjectType(false);
     }
   }
 
@@ -782,7 +865,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
 
   async function findDuplicates() {
     const supabase = createSupabaseBrowserClient();
-    const company = form.company_name.trim();
+    const leadName = leadDisplayName(form);
     const phone = form.phone.trim();
     const normalized = normalizePhone(phone);
     const matches: DuplicateMatch[] = [];
@@ -796,7 +879,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
       const clientName = String(client.name ?? client.organization ?? client.company_name ?? "");
       const clientPhone = String(client.phone ?? "");
       if (
-        (company && clientName.trim().toLowerCase() === company.toLowerCase()) ||
+        (leadName && clientName.trim().toLowerCase() === leadName.toLowerCase()) ||
         (normalized && normalizePhone(clientPhone) === normalized)
       ) {
         matches.push({ id: String(client.id), label: clientName || clientPhone, href: "/clients", source: "client" });
@@ -807,7 +890,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
       const opportunityName = String(opportunity.company_name ?? "");
       const opportunityPhone = String(opportunity.phone ?? "");
       if (
-        (company && opportunityName.trim().toLowerCase() === company.toLowerCase()) ||
+        (leadName && opportunityName.trim().toLowerCase() === leadName.toLowerCase()) ||
         (normalized && normalizePhone(opportunityPhone) === normalized)
       ) {
         matches.push({ id: String(opportunity.id), label: opportunityName || opportunityPhone, href: `/sales/${opportunity.id}`, source: "lead" });
@@ -823,9 +906,10 @@ function NewLeadModal({ open, onClose, onCreated }: {
     if (!form.next_action_date) return;
 
     const supabase = createSupabaseBrowserClient();
-    const title = `${form.next_action}: ${form.company_name.trim()}`;
+    const clientName = leadDisplayName(form);
+    const title = `${form.next_action}: ${clientName}`;
     const description = [
-      `Лийд: ${form.company_name.trim()}`,
+      `Лийд: ${clientName}`,
       form.contact_name.trim() ? `Контакт: ${form.contact_name.trim()}` : "",
       form.phone.trim() ? `Телефон: ${form.phone.trim()}` : "",
       form.services.length
@@ -842,7 +926,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
       object_id: opportunityId,
       object_code: "",
       object_name: form.object_name.trim(),
-      client: form.company_name.trim(),
+      client: clientName,
       due_date: form.next_action_date,
       source_protocol_id: opportunityId,
       source_protocol_number: "",
@@ -860,7 +944,10 @@ function NewLeadModal({ open, onClose, onCreated }: {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!form.company_name.trim()) { setError("Моля въведете име на фирмата."); return; }
+    const clientName = leadDisplayName(form);
+    if (form.lead_client_type === "corporate" && !form.company_name.trim()) { setError("Моля въведете име на фирмата."); return; }
+    if (form.lead_client_type === "private" && !form.first_name.trim()) { setError("Моля въведете име."); return; }
+    if (form.lead_client_type === "private" && !form.last_name.trim()) { setError("Моля въведете фамилия."); return; }
     if (!form.phone.trim()) { setError("Моля въведете телефон."); return; }
     if (!isValidEmail(form.email)) { setError("Моля въведете валиден email или оставете полето празно."); return; }
     setSaving(true); setError("");
@@ -878,9 +965,12 @@ function NewLeadModal({ open, onClose, onCreated }: {
       const { data: opp, error: oppError } = await supabase
         .from("sales_opportunities")
         .insert({
-          company_name: form.company_name.trim(),
-          company_eik: form.company_eik.trim(),
-          contact_name: form.contact_name.trim(),
+          lead_client_type: form.lead_client_type,
+          company_name: clientName,
+          company_eik: form.lead_client_type === "corporate" ? form.company_eik.trim() : "",
+          first_name: form.lead_client_type === "private" ? form.first_name.trim() : "",
+          last_name: form.lead_client_type === "private" ? form.last_name.trim() : "",
+          contact_name: form.lead_client_type === "corporate" ? form.contact_name.trim() : "",
           phone: form.phone.trim(),
           email: form.email.trim(),
           object_type: form.object_type.trim(),
@@ -910,7 +1000,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
       await supabase.from("sales_activity_logs").insert({
         opportunity_id: opp.id, type: "created",
         title: "Лийд създаден",
-        description: `Нов запис: ${form.company_name.trim()}`,
+        description: `Нов запис: ${clientName}`,
       });
       onCreated(); onClose();
     } catch (err) {
@@ -939,23 +1029,76 @@ function NewLeadModal({ open, onClose, onCreated }: {
         <form onSubmit={handleSubmit} className="space-y-6 p-6">
           <section>
             <SectionHeader icon={<UserRound size={17} />} title="Клиент" subtitle="Контактна информация" />
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <FormField label="Фирма *">
-                <Input autoFocus required value={form.company_name} onChange={(e) => updateForm("company_name", e.target.value)} placeholder="Алфа Ритейл ООД" />
-              </FormField>
-              <FormField label="ЕИК">
-                <Input value={form.company_eik} onChange={(e) => updateForm("company_eik", e.target.value)} placeholder="123456789" />
-              </FormField>
-              <FormField label="Лице за контакт">
-                <Input value={form.contact_name} onChange={(e) => updateForm("contact_name", e.target.value)} placeholder="Иван Иванов" />
-              </FormField>
-              <FormField label="Телефон *">
-                <Input required type="tel" value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="+359 88 ..." />
-              </FormField>
-              <FormField label="Email">
-                <Input type="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} placeholder="office@firma.bg" />
-              </FormField>
-            </div>
+            <FormField label="Тип клиент">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: "corporate", label: "Корпоративен" },
+                  { value: "private", label: "Частен" },
+                ].map((option) => {
+                  const selected = form.lead_client_type === option.value;
+                  return (
+                    <label
+                      key={option.value}
+                      className={`inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border px-4 text-sm font-black transition ${
+                        selected
+                          ? "border-orange-200 bg-orange-50 text-orange-700"
+                          : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="leadClientType"
+                        value={option.value}
+                        checked={selected}
+                        onChange={() =>
+                          updateForm(
+                            "lead_client_type",
+                            option.value as NewLeadForm["lead_client_type"]
+                          )
+                        }
+                        className="h-4 w-4 accent-orange-600"
+                      />
+                      {option.label}
+                    </label>
+                  );
+                })}
+              </div>
+            </FormField>
+
+            {form.lead_client_type === "corporate" ? (
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <FormField label="Име на фирма *">
+                  <Input autoFocus required value={form.company_name} onChange={(e) => updateForm("company_name", e.target.value)} placeholder="Алфа Ритейл ООД" />
+                </FormField>
+                <FormField label="ЕИК / Булстат">
+                  <Input value={form.company_eik} onChange={(e) => updateForm("company_eik", e.target.value)} placeholder="123456789" />
+                </FormField>
+                <FormField label="Контактно лице">
+                  <Input value={form.contact_name} onChange={(e) => updateForm("contact_name", e.target.value)} placeholder="Иван Иванов" />
+                </FormField>
+                <FormField label="Телефон *">
+                  <Input required type="tel" value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="+359 88 ..." />
+                </FormField>
+                <FormField label="Email">
+                  <Input type="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} placeholder="office@firma.bg" />
+                </FormField>
+              </div>
+            ) : (
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <FormField label="Име *">
+                  <Input autoFocus required value={form.first_name} onChange={(e) => updateForm("first_name", e.target.value)} placeholder="Иван" />
+                </FormField>
+                <FormField label="Фамилия *">
+                  <Input required value={form.last_name} onChange={(e) => updateForm("last_name", e.target.value)} placeholder="Иванов" />
+                </FormField>
+                <FormField label="Телефон *">
+                  <Input required type="tel" value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="+359 88 ..." />
+                </FormField>
+                <FormField label="Email">
+                  <Input type="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} placeholder="email@example.com" />
+                </FormField>
+              </div>
+            )}
             {duplicates.length > 0 && (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <div className="flex items-center gap-2 text-sm font-black text-amber-900">
@@ -1010,7 +1153,10 @@ function NewLeadModal({ open, onClose, onCreated }: {
                 {addingObjectType && (
                   <div className="mt-2 flex gap-2">
                     <Input value={newObjectType} onChange={(e) => setNewObjectType(e.target.value)} placeholder="Нов тип обект" />
-                    <Button type="button" variant="outline" onClick={addObjectType} disabled={!newObjectType.trim()}>Добави</Button>
+                    <Button type="button" variant="outline" onClick={addObjectType} disabled={!newObjectType.trim() || savingObjectType}>
+                      {savingObjectType ? <Loader2 size={16} className="animate-spin" /> : null}
+                      {savingObjectType ? "Запис..." : "Добави"}
+                    </Button>
                   </div>
                 )}
               </FormField>
@@ -1196,8 +1342,11 @@ export default function SalesPage() {
       }
       const mapped: Opportunity[] = (data ?? []).map((row) => ({
         id: String(row.id),
+        lead_client_type: opportunityClientType(row.lead_client_type),
         company_name: String(row.company_name ?? ""),
         company_eik: String(row.company_eik ?? ""),
+        first_name: String(row.first_name ?? ""),
+        last_name: String(row.last_name ?? ""),
         contact_name: String(row.contact_name ?? ""),
         phone: String(row.phone ?? ""),
         email: String(row.email ?? ""),
@@ -1286,10 +1435,15 @@ export default function SalesPage() {
     try {
       const supabase = createSupabaseBrowserClient();
       let clientId: string | null = null;
+      const clientName =
+        serviceTarget.lead_client_type === "private"
+          ? privateLeadName(serviceTarget.first_name, serviceTarget.last_name) ||
+            serviceTarget.company_name.trim()
+          : serviceTarget.company_name.trim();
       const { data: existingClient } = await supabase
         .from("clients")
         .select("id")
-        .ilike("name", serviceTarget.company_name.trim())
+        .ilike("name", clientName)
         .maybeSingle();
 
       if (existingClient) {
@@ -1297,14 +1451,7 @@ export default function SalesPage() {
       } else {
         const { data: newClient, error: clientError } = await supabase
           .from("clients")
-          .insert({
-            name: serviceTarget.company_name.trim(),
-            contact_person: serviceTarget.contact_name.trim(),
-            phone: serviceTarget.phone.trim(),
-            email: serviceTarget.email.trim(),
-            address: serviceTarget.object_address.trim(),
-            bulstat: serviceTarget.company_eik.trim(),
-          })
+          .insert(opportunityClientPayload(serviceTarget))
           .select("id")
           .single();
         if (clientError || !newClient) {
@@ -1324,7 +1471,7 @@ export default function SalesPage() {
           client_id: clientId,
           object_type: serviceTarget.object_type.trim(),
           qr_code: qrCode,
-          name: serviceTarget.object_name.trim() || serviceTarget.company_name.trim(),
+          name: serviceTarget.object_name.trim() || clientName,
           address,
           region: "",
           status: "изряден",
@@ -1355,7 +1502,7 @@ export default function SalesPage() {
       await supabase
         .from("saved_documents")
         .update({
-          object: serviceTarget.object_name || serviceTarget.company_name,
+          object: serviceTarget.object_name || clientName,
           payload: {
             ...contractPayload,
             locationId: String(newLocation.id),
@@ -1377,7 +1524,7 @@ export default function SalesPage() {
         opportunity_id: serviceTarget.id,
         type: "converted",
         title: "Стартирано обслужване",
-        description: `Създаден е клиент и обект: ${serviceTarget.company_name} / ${serviceTarget.object_name || serviceTarget.company_name}`,
+        description: `Създаден е клиент и обект: ${clientName} / ${serviceTarget.object_name || clientName}`,
       });
 
       showToast("Обслужването е стартирано.");

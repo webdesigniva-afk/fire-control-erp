@@ -749,6 +749,13 @@ function shouldShowActionDescription(action: UpcomingObjectAction) {
   return normalizedTaskText(action.description) !== normalizedTaskText(activitiesText);
 }
 
+function visibleActionActivityTitles(action: UpcomingObjectAction) {
+  const displayTitle = normalizedTaskText(visitDisplayTitle(action));
+  return uniqueActionActivityTitles(action).filter(
+    (title) => normalizedTaskText(title) !== displayTitle
+  );
+}
+
 function actionSourceLabel(action: UpcomingObjectAction) {
   const isSubscriptionAction =
     action.sourceProtocolType === "Абонаментно обслужване / профилактичен преглед" ||
@@ -2203,7 +2210,7 @@ function OverviewTab() {
                   }
 
                   const action = renderItem.action;
-                  const activityTitles = uniqueActionActivityTitles(action);
+                  const activityTitles = visibleActionActivityTitles(action);
                   const sourceLabel = actionSourceLabel(action);
                   const proximity = dateProximityLabel(action.dueDate);
                   const isExpanded = expandedUpcomingActionIds.has(action.id);
@@ -2269,9 +2276,13 @@ function OverviewTab() {
                               {visitDisplayTitle(action)}
                             </div>
                           </div>
-                          <div className="mt-3 text-sm font-black text-slate-700">
-                            {activityTitles.length} дейности
-                          </div>
+                          {activityTitles.length > 0 ? (
+                            <div className="mt-3 text-sm font-black text-slate-700">
+                              {activityTitles.length === 1
+                                ? "1 дейност"
+                                : `${activityTitles.length} дейности`}
+                            </div>
+                          ) : null}
                           {visibleActivities.length > 0 ? (
                             <ul className="mt-2 space-y-1 text-sm font-medium leading-6 text-slate-600">
                               {visibleActivities.map((title) => (
@@ -2466,6 +2477,7 @@ function EquipmentTab() {
     key: EquipmentCatalogKey;
     formKey: keyof EquipmentFormState;
     label: string;
+    target: "single" | "bulk";
   } | null>(null);
   const [pendingCatalogValue, setPendingCatalogValue] = useState("");
   const [catalogAddState, setCatalogAddState] = useState<"idle" | "saving">("idle");
@@ -2624,9 +2636,10 @@ function EquipmentTab() {
   function openCatalogValueDialog(
     key: EquipmentCatalogKey,
     formKey: keyof EquipmentFormState,
-    label: string
+    label: string,
+    target: "single" | "bulk" = "single"
   ) {
-    setPendingCatalogAdd({ key, formKey, label });
+    setPendingCatalogAdd({ key, formKey, label, target });
     setPendingCatalogValue("");
   }
 
@@ -2653,7 +2666,11 @@ function EquipmentTab() {
     try {
       await writeProtocolSettingsToSupabase(nextCatalogs);
       setProtocolCatalogs(nextCatalogs);
-      updateForm(pendingCatalogAdd.formKey, normalized);
+      if (pendingCatalogAdd.target === "bulk") {
+        updateBulkTemplate(pendingCatalogAdd.formKey, normalized);
+      } else {
+        updateForm(pendingCatalogAdd.formKey, normalized);
+      }
       setPendingCatalogAdd(null);
       setPendingCatalogValue("");
       setToastMessage("Стойността е добавена");
@@ -3304,24 +3321,46 @@ function EquipmentTab() {
                 value={bulkTemplate.extinguisherCategory}
                 options={protocolCatalogs.extinguisherCategories}
                 onChange={(value) => updateBulkTemplate("extinguisherCategory", value)}
+                onAddNew={() =>
+                  openCatalogValueDialog(
+                    "extinguisherCategories",
+                    "extinguisherCategory",
+                    "Категория",
+                    "bulk"
+                  )
+                }
               />
               <EquipmentSelectField
                 label="Маса / вместимост"
                 value={bulkTemplate.capacity}
                 options={protocolCatalogs.extinguisherChargeMasses}
                 onChange={(value) => updateBulkTemplate("capacity", value)}
+                onAddNew={() =>
+                  openCatalogValueDialog(
+                    "extinguisherChargeMasses",
+                    "capacity",
+                    "Маса / вместимост",
+                    "bulk"
+                  )
+                }
               />
               <EquipmentSelectField
                 label="Марка"
                 value={bulkTemplate.brand}
                 options={protocolCatalogs.extinguisherBrands}
                 onChange={(value) => updateBulkTemplate("brand", value)}
+                onAddNew={() =>
+                  openCatalogValueDialog("extinguisherBrands", "brand", "Марка", "bulk")
+                }
               />
               <EquipmentSelectField
                 label="Модел"
                 value={bulkTemplate.model}
                 options={protocolCatalogs.extinguisherModels}
                 onChange={(value) => updateBulkTemplate("model", value)}
+                onAddNew={() =>
+                  openCatalogValueDialog("extinguisherModels", "model", "Модел", "bulk")
+                }
               />
               <EquipmentSelectField
                 label="Вид пожарогасително вещество"
@@ -3330,6 +3369,14 @@ function EquipmentTab() {
                 onChange={(value) =>
                   updateBulkTemplate("extinguishingAgentType", value)
                 }
+                onAddNew={() =>
+                  openCatalogValueDialog(
+                    "extinguishingAgentTypes",
+                    "extinguishingAgentType",
+                    "Вид пожарогасително вещество",
+                    "bulk"
+                  )
+                }
               />
               <EquipmentSelectField
                 label="Търговско наименование"
@@ -3337,6 +3384,14 @@ function EquipmentTab() {
                 options={protocolCatalogs.extinguishingAgentTradeNames}
                 onChange={(value) =>
                   updateBulkTemplate("extinguishingAgentTradeName", value)
+                }
+                onAddNew={() =>
+                  openCatalogValueDialog(
+                    "extinguishingAgentTradeNames",
+                    "extinguishingAgentTradeName",
+                    "Търговско наименование",
+                    "bulk"
+                  )
                 }
               />
               <div className="space-y-2 md:col-span-2 lg:col-span-3">

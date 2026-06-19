@@ -827,11 +827,14 @@ function ActivityCard({ activities }: { activities: Activity[] }) {
       <SectionHeader title="Последна активност" eyebrow="30 дни" />
       <div className="mt-5 max-h-[420px] space-y-4 overflow-y-auto pr-1">
         {activities.length ? (
-          activities.map((activity) => {
+          activities.map((activity, index) => {
             const Icon = activity.icon;
 
             return (
-              <div key={`${activity.action}-${activity.details}`} className="flex gap-3">
+              <div
+                key={`${activity.occurredAt}-${activity.action}-${activity.details}-${index}`}
+                className="flex gap-3"
+              >
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-600">
                   <Icon className="h-4 w-4" />
                 </div>

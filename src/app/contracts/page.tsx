@@ -17,6 +17,8 @@ type ContractListItem = {
   client: string;
   objectName: string;
   href: string;
+  offerHref: string;
+  offerNumber: string;
   status: "accepted" | "draft";
   createdAt: string;
   expiresAt: string;
@@ -92,10 +94,27 @@ function contractState(contract: ContractListItem, todayKey: string) {
   return { label: "Чернова", variant: "neutral" as const };
 }
 
+function opportunityIdFromContract(row: DataRecord, href: string) {
+  const payload = isRecord(row.payload) ? row.payload : {};
+  const contract = isRecord(payload.contract) ? payload.contract : {};
+  const fromPayload = textValue(contract, ["opportunityId", "opportunity_id"]);
+  if (fromPayload) return fromPayload;
+
+  const fromId = textValue(row, ["id"]).replace(/^contract-/, "");
+  if (fromId) return fromId;
+
+  const match = href.match(/\/sales\/contract\/([^/?#]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : "";
+}
+
 function mapContract(row: DataRecord): ContractListItem {
   const payload = isRecord(row.payload) ? row.payload : {};
   const contract = isRecord(payload.contract) ? payload.contract : {};
   const href = textValue(row, ["href"]) || `/sales/contract/${textValue(row, ["id"]).replace(/^contract-/, "")}`;
+  const opportunityId = opportunityIdFromContract(row, href);
+  const offerNumber =
+    textValue(contract, ["offerNumber", "offer_number"]) ||
+    textValue(payload, ["offerNumber", "offer_number"]);
   const createdAt =
     textValue(contract, ["date", "createdAt", "created_at"]) ||
     textValue(row, ["updated_at", "created_at"]).slice(0, 10);
@@ -106,6 +125,8 @@ function mapContract(row: DataRecord): ContractListItem {
     client: textValue(row, ["client"]) || textValue(contract, ["client"]) || "Без клиент",
     objectName: textValue(row, ["object"]) || textValue(contract, ["object"]) || "Без обект",
     href: `${href}${href.includes("?") ? "&" : "?"}mode=view`,
+    offerHref: opportunityId ? `/sales/offer/${encodeURIComponent(opportunityId)}?mode=view` : "",
+    offerNumber,
     status: payload.status === "accepted" ? "accepted" : "draft",
     createdAt,
     expiresAt: addYearsToDateValue(createdAt, 1),
@@ -157,6 +178,7 @@ export default function ContractsPage() {
         contract.number,
         contract.client,
         contract.objectName,
+        contract.offerNumber,
         contract.total,
       ].some((value) => value.toLowerCase().includes(normalized))
     );
@@ -211,7 +233,7 @@ export default function ContractsPage() {
 
               return (
                 <Card key={contract.id} hover className="p-5">
-                  <div className="grid gap-4 lg:grid-cols-[minmax(260px,1.2fr)_minmax(280px,1fr)_auto] lg:items-center">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(260px,1.15fr)_minmax(420px,1.35fr)_auto] lg:items-center">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="font-black text-slate-950">{contract.number}</div>
@@ -221,7 +243,7 @@ export default function ContractsPage() {
                       <div className="mt-0.5 text-xs font-medium text-slate-400">{contract.objectName}</div>
                     </div>
 
-                    <div className="grid gap-3 border-t border-slate-100 pt-3 text-xs font-bold text-slate-500 sm:grid-cols-3 lg:border-l lg:border-t-0 lg:py-1 lg:pl-5">
+                    <div className="grid gap-3 border-t border-slate-100 pt-3 text-xs font-bold text-slate-500 sm:grid-cols-4 lg:border-l lg:border-t-0 lg:py-1 lg:pl-5">
                       <div>
                         <div className="uppercase text-slate-400">Създаден</div>
                         <div className="mt-1 text-sm text-slate-800">{formatDateValue(contract.createdAt)}</div>
@@ -233,6 +255,22 @@ export default function ContractsPage() {
                       <div>
                         <div className="uppercase text-slate-400">Стойност</div>
                         <div className="mt-1 text-sm text-slate-800">{contract.total || "—"}</div>
+                      </div>
+                      <div>
+                        <div className="uppercase text-slate-400">Оферта към договора</div>
+                        {contract.offerHref ? (
+                          <Link
+                            href={contract.offerHref}
+                            className="mt-1 inline-flex max-w-full items-center gap-1.5 truncate text-sm font-black text-orange-700 transition hover:text-orange-800"
+                          >
+                            <ExternalLink size={14} className="shrink-0" />
+                            <span className="truncate">
+                              {contract.offerNumber || "Отвори оферта"}
+                            </span>
+                          </Link>
+                        ) : (
+                          <div className="mt-1 text-sm text-slate-800">—</div>
+                        )}
                       </div>
                     </div>
 

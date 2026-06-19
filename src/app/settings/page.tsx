@@ -919,7 +919,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                       <Input value={newCatalogValues[group.key] || ""} onChange={(event) => setNewCatalogValues((values) => ({ ...values, [group.key]: event.target.value }))} placeholder={group.placeholder} />
-                      <Button type="button" variant="secondary" onClick={() => addCatalogValue(group.key)} disabled={saving}><Plus size={15} />+ Добави ново</Button>
+                      <Button type="button" variant="secondary" onClick={() => addCatalogValue(group.key)} disabled={saving}><Plus size={15} />Добави ново</Button>
                     </div>
                   </div>
                 ))}

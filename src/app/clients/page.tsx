@@ -6,12 +6,14 @@ import {
   Building2,
   Edit3,
   Eye,
+  Mail,
   Phone,
   Plus,
   RefreshCw,
   Search,
   Trash2,
   UserRound,
+  X,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
 import { Badge } from "../../components/ui/badge";
@@ -44,7 +46,11 @@ type ClientLocation = {
 
 type ClientProfile = {
   id: string;
+  clientType: "corporate" | "private";
   name: string;
+  companyName: string;
+  firstName: string;
+  lastName: string;
   contactPerson: string;
   phone: string;
   email: string;
@@ -54,7 +60,10 @@ type ClientProfile = {
 };
 
 type ClientFormState = {
-  name: string;
+  clientType: "corporate" | "private";
+  companyName: string;
+  firstName: string;
+  lastName: string;
   contactPerson: string;
   phone: string;
   email: string;
@@ -62,8 +71,13 @@ type ClientFormState = {
   bulstat: string;
 };
 
+const clientsPerPage = 10;
+
 const emptyForm: ClientFormState = {
-  name: "",
+  clientType: "corporate",
+  companyName: "",
+  firstName: "",
+  lastName: "",
   contactPerson: "",
   phone: "",
   email: "",
@@ -86,13 +100,77 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
 function formFromClient(client: ClientProfile): ClientFormState {
   return {
     ...emptyForm,
-    name: client.name,
+    clientType: client.clientType,
+    companyName: client.companyName || client.name,
+    firstName: client.firstName,
+    lastName: client.lastName,
     contactPerson: client.contactPerson,
     phone: client.phone,
     email: client.email,
     address: client.address,
     bulstat: client.bulstat,
   };
+}
+
+function privateClientName(firstName: string, lastName: string) {
+  return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+}
+
+function validPhone(value: string) {
+  return /^[+\d][\d\s().-]{5,}$/.test(value.trim());
+}
+
+function validEmail(value: string) {
+  return !value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function clientDisplayName(form: ClientFormState) {
+  return form.clientType === "private"
+    ? privateClientName(form.firstName, form.lastName)
+    : form.companyName.trim();
+}
+
+function validateClientForm(form: ClientFormState) {
+  if (form.clientType === "corporate" && !form.companyName.trim()) {
+    return "Име на фирма е задължително.";
+  }
+
+  if (form.clientType === "private") {
+    if (!form.firstName.trim()) return "Име е задължително.";
+    if (!form.lastName.trim()) return "Фамилия е задължителна.";
+  }
+
+  if (!form.phone.trim()) return "Телефон е задължителен.";
+  if (!validPhone(form.phone)) return "Въведете валиден телефон.";
+  if (!validEmail(form.email)) return "Въведете валиден имейл.";
+
+  return "";
+}
+
+function clientPayload(form: ClientFormState) {
+  const displayName = clientDisplayName(form);
+
+  return {
+    client_type: form.clientType,
+    name: displayName,
+    company_name: form.clientType === "corporate" ? form.companyName.trim() : "",
+    first_name: form.clientType === "private" ? form.firstName.trim() : "",
+    last_name: form.clientType === "private" ? form.lastName.trim() : "",
+    contact_person: form.clientType === "corporate" ? form.contactPerson.trim() : "",
+    phone: form.phone.trim(),
+    email: form.email.trim(),
+    address: form.address.trim(),
+    bulstat: form.clientType === "corporate" ? form.bulstat.trim() : "",
+    eik: form.clientType === "corporate" ? form.bulstat.trim() : "",
+  };
+}
+
+function clientTypeLabel(type: ClientProfile["clientType"]) {
+  return type === "private" ? "Частен" : "Корпоративен";
+}
+
+function clientTypeVariant(type: ClientProfile["clientType"]) {
+  return type === "private" ? "neutral" : "info";
 }
 
 function ClientField({
@@ -143,6 +221,10 @@ export default function ClientsPage() {
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [form, setForm] = useState<ClientFormState>(emptyForm);
   const [search, setSearch] = useState("");
+  const [clientTypeFilter, setClientTypeFilter] = useState<
+    "all" | ClientProfile["clientType"]
+  >("all");
+  const [clientPage, setClientPage] = useState(1);
   const [selectedClientId, setSelectedClientId] = useState("");
   const [formMode, setFormMode] = useState<"hidden" | "create" | "edit">("hidden");
   const [loadState, setLoadState] = useState<
@@ -155,11 +237,17 @@ export default function ClientsPage() {
 
   const filteredClients = useMemo(() => {
     const query = search.trim().toLowerCase();
-    if (!query) return clients;
+    const typeFilteredClients =
+      clientTypeFilter === "all"
+        ? clients
+        : clients.filter((client) => client.clientType === clientTypeFilter);
 
-    return clients.filter((client) =>
+    if (!query) return typeFilteredClients;
+
+    return typeFilteredClients.filter((client) =>
       [
         client.name,
+        clientTypeLabel(client.clientType),
         client.contactPerson,
         client.phone,
         client.email,
@@ -170,16 +258,33 @@ export default function ClientsPage() {
         .toLowerCase()
         .includes(query)
     );
-  }, [clients, search]);
+  }, [clients, search, clientTypeFilter]);
 
   const selectedClient =
-    clients.find((client) => client.id === selectedClientId) ??
-    filteredClients[0] ??
-    null;
+    clients.find((client) => client.id === selectedClientId) ?? null;
 
   const totalLocations = clients.reduce(
     (total, client) => total + client.locations.length,
     0
+  );
+  const showCorporateColumns = clientTypeFilter === "corporate";
+  const showEmailColumn = clientTypeFilter !== "corporate";
+  const clientTableColumnCount =
+    5 + (showEmailColumn ? 1 : 0) + (showCorporateColumns ? 2 : 0);
+  const totalClientPages = Math.max(
+    1,
+    Math.ceil(filteredClients.length / clientsPerPage)
+  );
+  const safeClientPage = Math.min(clientPage, totalClientPages);
+  const clientPageStart = (safeClientPage - 1) * clientsPerPage;
+  const pagedClients = filteredClients.slice(
+    clientPageStart,
+    clientPageStart + clientsPerPage
+  );
+  const visibleClientStart = filteredClients.length ? clientPageStart + 1 : 0;
+  const visibleClientEnd = Math.min(
+    clientPageStart + clientsPerPage,
+    filteredClients.length
   );
 
   function updateForm(key: keyof ClientFormState, value: string) {
@@ -191,6 +296,10 @@ export default function ClientsPage() {
     setFormMode("create");
     setMessage("");
     setErrorMessage("");
+  }
+
+  function toggleClientDetails(client: ClientProfile) {
+    setSelectedClientId((current) => (current === client.id ? "" : client.id));
   }
 
   function openEditForm(client: ClientProfile) {
@@ -255,9 +364,30 @@ export default function ClientsPage() {
             };
           });
 
+        const clientType: ClientProfile["clientType"] =
+          textValue(client, ["client_type", "clientType"]) === "private"
+            ? "private"
+            : "corporate";
+        const companyName = textValue(client, [
+          "company_name",
+          "companyName",
+          "name",
+          "organization",
+        ]);
+        const firstName = textValue(client, ["first_name", "firstName"]);
+        const lastName = textValue(client, ["last_name", "lastName"]);
+
         return {
           id: clientId,
-          name: textValue(client, ["name", "organization", "company_name"]),
+          clientType,
+          name:
+            clientType === "private"
+              ? privateClientName(firstName, lastName) ||
+                textValue(client, ["name", "person"])
+              : companyName,
+          companyName,
+          firstName,
+          lastName,
           contactPerson: textValue(client, [
             "contact_person",
             "contact",
@@ -273,10 +403,7 @@ export default function ClientsPage() {
       });
 
       setClients(mappedClients);
-      setSelectedClientId((current) => {
-        if (mappedClients.some((client) => client.id === current)) return current;
-        return mappedClients[0]?.id ?? "";
-      });
+      setSelectedClientId("");
       setLoadState("ready");
     } catch {
       setErrorMessage("Грешка при връзка със Supabase");
@@ -287,6 +414,16 @@ export default function ClientsPage() {
   useEffect(() => {
     loadClients();
   }, []);
+
+  useEffect(() => {
+    setClientPage(1);
+  }, [search, clientTypeFilter]);
+
+  useEffect(() => {
+    if (clientPage > totalClientPages) {
+      setClientPage(totalClientPages);
+    }
+  }, [clientPage, totalClientPages]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -300,14 +437,7 @@ export default function ClientsPage() {
     const supabase = createSupabaseBrowserClient();
     const { data: clientRow, error: clientError } = await supabase
       .from("clients")
-      .insert({
-        name: form.name,
-        contact_person: form.contactPerson,
-        phone: form.phone,
-        email: form.email,
-        address: form.address,
-        bulstat: form.bulstat,
-      })
+      .insert(clientPayload(form))
       .select("*")
       .single();
 
@@ -322,14 +452,7 @@ export default function ClientsPage() {
     const supabase = createSupabaseBrowserClient();
     const { error } = await supabase
       .from("clients")
-      .update({
-        name: form.name,
-        contact_person: form.contactPerson,
-        phone: form.phone,
-        email: form.email,
-        address: form.address,
-        bulstat: form.bulstat,
-      })
+      .update(clientPayload(form))
       .eq("id", selectedClient.id);
 
     if (error) {
@@ -344,6 +467,13 @@ export default function ClientsPage() {
     setErrorMessage("");
 
     try {
+      const validationError = validateClientForm(form);
+      if (validationError) {
+        setLoadState("ready");
+        setErrorMessage(validationError);
+        return;
+      }
+
       if (formMode === "edit") {
         await updateClient();
         setMessage("Клиентът е обновен успешно");
@@ -410,21 +540,52 @@ export default function ClientsPage() {
         </div>
 
         <Card className="p-4">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="relative w-full xl:max-w-xl">
-              <Search
-                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                size={18}
-              />
-              <Input
-                placeholder="Търсене по клиент, контакт, телефон, ЕИК или обект..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="w-full pl-11"
-              />
+          <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center">
+            <div className="flex min-w-0 flex-1 flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center">
+              <div className="relative w-full min-w-0 xl:min-w-[360px] xl:flex-1">
+                <Search
+                  className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  size={18}
+                />
+                <Input
+                  placeholder="Търсене по клиент, контакт, телефон, ЕИК или обект..."
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  className="w-full pl-11"
+                />
+              </div>
+
+              <div className="flex w-full rounded-xl border border-slate-200 bg-white p-1 shadow-sm sm:w-auto">
+                {[
+                  { value: "all", label: "Всички" },
+                  { value: "corporate", label: "Корпоративни" },
+                  { value: "private", label: "Частни" },
+                ].map((option) => {
+                  const selected = clientTypeFilter === option.value;
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() =>
+                        setClientTypeFilter(
+                          option.value as typeof clientTypeFilter
+                        )
+                      }
+                      className={`h-9 rounded-lg px-3 text-xs font-black transition ${
+                        selected
+                          ? "bg-orange-50 text-orange-700"
+                          : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row xl:ml-auto">
               <Button type="button" onClick={openCreateForm}>
                 <Plus size={18} />
                 Добави клиент
@@ -474,45 +635,134 @@ export default function ClientsPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-5">
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                <ClientField
-                  label="Клиент / организация"
-                  value={form.name}
-                  required
-                  onChange={(value) => updateForm("name", value)}
-                />
-                <ClientField
-                  label="ЕИК / БУЛСТАТ"
-                  value={form.bulstat}
-                  onChange={(value) => updateForm("bulstat", value)}
-                />
-                <ClientField
-                  label="Контактно лице"
-                  value={form.contactPerson}
-                  onChange={(value) => updateForm("contactPerson", value)}
-                />
-                <ClientField
-                  label="Телефон"
-                  value={form.phone}
-                  onChange={(value) => updateForm("phone", value)}
-                />
-                <ClientField
-                  label="Имейл"
-                  type="email"
-                  value={form.email}
-                  onChange={(value) => updateForm("email", value)}
-                />
-                <ClientField
-                  label="Адрес на клиента"
-                  value={form.address}
-                  onChange={(value) => updateForm("address", value)}
-                />
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                <div className="text-xs font-black uppercase text-slate-400">
+                  Тип клиент
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[
+                    { value: "corporate", label: "Корпоративен" },
+                    { value: "private", label: "Частен" },
+                  ].map((option) => {
+                    const selected = form.clientType === option.value;
+
+                    return (
+                      <label
+                        key={option.value}
+                        className={`inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border px-4 text-sm font-black transition ${
+                          selected
+                            ? "border-orange-200 bg-orange-50 text-orange-700"
+                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="clientType"
+                          value={option.value}
+                          checked={selected}
+                          onChange={() =>
+                            updateForm(
+                              "clientType",
+                              option.value as ClientFormState["clientType"]
+                            )
+                          }
+                          className="h-4 w-4 accent-orange-600"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
+
+              {form.clientType === "corporate" ? (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <ClientField
+                    label="Име на фирма *"
+                    value={form.companyName}
+                    required
+                    onChange={(value) => updateForm("companyName", value)}
+                  />
+                  <ClientField
+                    label="ЕИК / Булстат"
+                    value={form.bulstat}
+                    onChange={(value) => updateForm("bulstat", value)}
+                  />
+                  <ClientField
+                    label="Контактно лице"
+                    value={form.contactPerson}
+                    onChange={(value) => updateForm("contactPerson", value)}
+                  />
+                  <ClientField
+                    label="Телефон *"
+                    type="tel"
+                    value={form.phone}
+                    required
+                    onChange={(value) => updateForm("phone", value)}
+                  />
+                  <ClientField
+                    label="Имейл"
+                    type="email"
+                    value={form.email}
+                    onChange={(value) => updateForm("email", value)}
+                  />
+                  <ClientField
+                    label="Адрес"
+                    value={form.address}
+                    onChange={(value) => updateForm("address", value)}
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <ClientField
+                    label="Име *"
+                    value={form.firstName}
+                    required
+                    onChange={(value) => updateForm("firstName", value)}
+                  />
+                  <ClientField
+                    label="Фамилия *"
+                    value={form.lastName}
+                    required
+                    onChange={(value) => updateForm("lastName", value)}
+                  />
+                  <ClientField
+                    label="Телефон *"
+                    type="tel"
+                    value={form.phone}
+                    required
+                    onChange={(value) => updateForm("phone", value)}
+                  />
+                  <ClientField
+                    label="Имейл"
+                    type="email"
+                    value={form.email}
+                    onChange={(value) => updateForm("email", value)}
+                  />
+                  <div className="md:col-span-2">
+                    <ClientField
+                      label="Адрес"
+                      value={form.address}
+                      onChange={(value) => updateForm("address", value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {errorMessage ? (
+                <div className="rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
+                  {errorMessage}
+                </div>
+              ) : null}
 
               <div className="flex justify-end">
                 <Button
                   type="submit"
-                  disabled={loadState === "saving" || !form.name.trim()}
+                  disabled={
+                    loadState === "saving" ||
+                    !clientDisplayName(form) ||
+                    !form.phone.trim()
+                  }
                 >
                   {formMode === "edit" ? (
                     <Edit3 size={18} />
@@ -530,20 +780,26 @@ export default function ClientsPage() {
           </Card>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[1fr_420px]">
+        <div>
           <Card className="overflow-hidden p-0">
             <div className="border-b border-slate-100 px-5 py-4">
               <h2 className="text-lg font-black">Регистър клиенти</h2>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-left">
+              <table className="w-full min-w-[960px] border-collapse text-left">
                 <thead className="bg-slate-50 text-xs font-black uppercase text-slate-400">
                   <tr>
                     <th className="px-4 py-3">Клиент</th>
-                    <th className="px-4 py-3">Контакт</th>
+                    <th className="px-4 py-3">Тип</th>
                     <th className="px-4 py-3">Телефон</th>
-                    <th className="px-4 py-3">ЕИК</th>
+                    {showEmailColumn ? <th className="px-4 py-3">Имейл</th> : null}
+                    {showCorporateColumns ? (
+                      <>
+                        <th className="px-4 py-3">Контактно лице</th>
+                        <th className="px-4 py-3">ЕИК / Булстат</th>
+                      </>
+                    ) : null}
                     <th className="px-4 py-3 text-center">Обекти</th>
                     <th className="px-4 py-3 text-right">Действия</th>
                   </tr>
@@ -552,7 +808,7 @@ export default function ClientsPage() {
                   {loadState === "loading" ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={clientTableColumnCount}
                         className="px-4 py-8 text-center font-bold text-slate-400"
                       >
                         Loading...
@@ -563,7 +819,7 @@ export default function ClientsPage() {
                   {loadState !== "loading" && filteredClients.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={clientTableColumnCount}
                         className="px-4 py-8 text-center font-bold text-slate-400"
                       >
                         Няма намерени клиенти
@@ -571,8 +827,8 @@ export default function ClientsPage() {
                     </tr>
                   ) : null}
 
-                  {filteredClients.map((client) => {
-                    const selected = selectedClient?.id === client.id;
+                  {pagedClients.map((client) => {
+                    const selected = selectedClientId === client.id;
 
                     return (
                       <tr
@@ -584,7 +840,7 @@ export default function ClientsPage() {
                         <td className="px-4 py-3">
                           <button
                             type="button"
-                            onClick={() => setSelectedClientId(client.id)}
+                            onClick={() => toggleClientDetails(client)}
                             className="text-left"
                           >
                             <div className="font-black text-slate-900">
@@ -595,15 +851,29 @@ export default function ClientsPage() {
                             </div>
                           </button>
                         </td>
-                        <td className="px-4 py-3 font-medium text-slate-600">
-                          {client.contactPerson || "Няма контакт"}
+                        <td className="px-4 py-3">
+                          <Badge variant={clientTypeVariant(client.clientType)}>
+                            {clientTypeLabel(client.clientType)}
+                          </Badge>
                         </td>
                         <td className="px-4 py-3 font-medium text-slate-600">
                           {client.phone || "Няма телефон"}
                         </td>
-                        <td className="px-4 py-3 font-mono text-xs font-bold text-slate-500">
-                          {client.bulstat || "няма"}
-                        </td>
+                        {showEmailColumn ? (
+                          <td className="px-4 py-3 font-medium text-slate-600">
+                            {client.email || "—"}
+                          </td>
+                        ) : null}
+                        {showCorporateColumns ? (
+                          <>
+                            <td className="px-4 py-3 font-medium text-slate-600">
+                              {client.contactPerson || "Няма контакт"}
+                            </td>
+                            <td className="px-4 py-3 font-mono text-xs font-bold text-slate-500">
+                              {client.bulstat || "няма"}
+                            </td>
+                          </>
+                        ) : null}
                         <td className="px-4 py-3 text-center">
                           <Badge variant="orange">
                             {client.locations.length}
@@ -616,7 +886,7 @@ export default function ClientsPage() {
                               variant="outline"
                               size="icon"
                               aria-label="Преглед"
-                              onClick={() => setSelectedClientId(client.id)}
+                              onClick={() => toggleClientDetails(client)}
                             >
                               <Eye size={16} />
                             </Button>
@@ -647,32 +917,105 @@ export default function ClientsPage() {
                 </tbody>
               </table>
             </div>
+
+            {loadState !== "loading" && filteredClients.length > 0 ? (
+              <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 text-sm font-bold text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  Показани {visibleClientStart}-{visibleClientEnd} от{" "}
+                  {filteredClients.length}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={safeClientPage <= 1}
+                    onClick={() => setClientPage((page) => Math.max(1, page - 1))}
+                  >
+                    Предишна
+                  </Button>
+                  <div className="min-w-20 text-center text-xs font-black uppercase text-slate-400">
+                    {safeClientPage} / {totalClientPages}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={safeClientPage >= totalClientPages}
+                    onClick={() =>
+                      setClientPage((page) => Math.min(totalClientPages, page + 1))
+                    }
+                  >
+                    Следваща
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </Card>
 
-                    <Card className="p-5">
-            {selectedClient ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-black text-slate-900">{selectedClient.name}</h2>
-                    <p className="mt-1 text-sm text-slate-500">Детайли и обекти на клиента.</p>
+          {selectedClient ? (
+            <div
+              className="fixed inset-0 z-50 flex justify-end bg-slate-950/25 p-3 backdrop-blur-[2px] sm:p-5"
+              onClick={() => setSelectedClientId("")}
+            >
+              <Card
+                className="flex h-full w-full max-w-[460px] flex-col overflow-hidden p-0 shadow-[0_24px_70px_rgba(15,23,42,0.22)]"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate text-lg font-black text-slate-900">
+                        {selectedClient.name}
+                      </h2>
+                      <Badge variant={clientTypeVariant(selectedClient.clientType)}>
+                        {clientTypeLabel(selectedClient.clientType)}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-sm font-medium text-slate-500">
+                      Детайли и обекти на клиента.
+                    </p>
                   </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    aria-label="Затвори"
+                    onClick={() => setSelectedClientId("")}
+                  >
+                    <X size={16} />
+                  </Button>
                 </div>
 
-                <div className="mt-5 grid grid-cols-1 gap-3">
+                <div className="flex-1 space-y-4 overflow-y-auto p-5">
                   <div className="rounded-2xl bg-slate-50 p-4">
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                      <UserRound size={16} />
-                      {selectedClient.contactPerson || "Няма контактно лице"}
-                    </div>
+                    {selectedClient.clientType === "corporate" ? (
+                      <>
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                          <UserRound size={16} />
+                          {selectedClient.contactPerson || "Няма контактно лице"}
+                        </div>
+                        <div className="mt-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                          <Building2 size={16} />
+                          {selectedClient.bulstat || "Няма ЕИК / БУЛСТАТ"}
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                        <UserRound size={16} />
+                        {selectedClient.name}
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center gap-2 text-sm font-bold text-slate-700">
                       <Phone size={16} />
                       {selectedClient.phone || "Няма телефон"}
                     </div>
-                    <div className="mt-2 flex items-center gap-2 text-sm font-bold text-slate-700">
-                      <Building2 size={16} />
-                      {selectedClient.bulstat || "Няма ЕИК / БУЛСТАТ"}
-                    </div>
+                    {selectedClient.email ? (
+                      <div className="mt-2 flex items-center gap-2 text-sm font-bold text-slate-700">
+                        <Mail size={16} />
+                        <span className="min-w-0 truncate">{selectedClient.email}</span>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div>
@@ -717,13 +1060,9 @@ export default function ClientsPage() {
                     </div>
                   </div>
                 </div>
-              </>
-            ) : (
-              <div className="p-8 text-center text-sm font-bold text-slate-400">
-                Изберете клиент от регистъра
-              </div>
-            )}
-          </Card>
+              </Card>
+            </div>
+          ) : null}
         </div>
       </div>
       <DeleteConfirmDialog

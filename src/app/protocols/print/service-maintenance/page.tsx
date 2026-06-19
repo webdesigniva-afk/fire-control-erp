@@ -360,12 +360,12 @@ export default async function ServiceMaintenancePrintPage({
         </section>
 
         <footer className="avoid-break mt-3">
-          <div className="grid grid-cols-2 gap-5">
-            <div className="rounded-none border-2 border-black p-2">
+          <div className="grid grid-cols-2 gap-8">
+            <div className="min-h-[92px] pt-1">
               <div className="text-[10px] font-black italic leading-4">
                 Персонал, изпълняващ функцията на стандарта БДС EN 16763:2017
               </div>
-              <div className="mt-3 text-[10px]">
+              <div className="mt-8 text-[10px]">
                 Име, подпис:{" "}
                 <PrintSignatureLine
                   previewId={previewId}
@@ -381,12 +381,12 @@ export default async function ServiceMaintenancePrintPage({
               </div>
             </div>
 
-            <div className="rounded-none border-2 border-black p-2">
+            <div className="min-h-[92px] pt-1">
               <div className="text-[10px] font-bold italic leading-4">
                 Клиент: Всяка работа бе разрешена от мен и изпълнена според
                 изискванията ми
               </div>
-              <div className="mt-3 text-[10px]">
+              <div className="mt-8 text-[10px]">
                 Име, подпис:{" "}
                 <PrintSignatureLine
                   previewId={previewId}
@@ -404,9 +404,7 @@ export default async function ServiceMaintenancePrintPage({
           </div>
 
           <div className="mt-2.5 flex items-end justify-between">
-            <div className="flex h-10 w-40 items-center justify-center border-2 border-black text-center text-[9px] font-bold">
-              Място за фирмен печат
-            </div>
+            <div className="h-14 w-44 border border-black" aria-hidden="true" />
             <div className="text-right">
               <div className="text-[17px] font-black tracking-tight">
                 FIRE<span className="text-orange-600 print:text-black">Control</span>

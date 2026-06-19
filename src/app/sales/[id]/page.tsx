@@ -43,7 +43,10 @@ type BadgeVariant = "success" | "warning" | "danger" | "neutral" | "orange" | "i
 
 type Opportunity = {
   id: string;
+  lead_client_type: "corporate" | "private";
   company_name: string;
+  first_name: string;
+  last_name: string;
   contact_name: string;
   phone: string;
   email: string;
@@ -199,6 +202,55 @@ function serviceDisplayName(service: OpportunityService): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function privateLeadName(firstName: string, lastName: string) {
+  return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+}
+
+function opportunityClientType(value: unknown): Opportunity["lead_client_type"] {
+  return value === "private" ? "private" : "corporate";
+}
+
+function opportunityClientName(opportunity: Opportunity) {
+  return opportunity.lead_client_type === "private"
+    ? privateLeadName(opportunity.first_name, opportunity.last_name) ||
+        opportunity.company_name.trim()
+    : opportunity.company_name.trim();
+}
+
+function opportunityClientPayload(opportunity: Opportunity) {
+  const clientName = opportunityClientName(opportunity);
+
+  if (opportunity.lead_client_type === "private") {
+    return {
+      client_type: "private",
+      name: clientName,
+      company_name: "",
+      first_name: opportunity.first_name.trim(),
+      last_name: opportunity.last_name.trim(),
+      contact_person: "",
+      phone: opportunity.phone.trim(),
+      email: opportunity.email.trim(),
+      address: opportunity.object_address.trim(),
+      bulstat: "",
+      eik: "",
+    };
+  }
+
+  return {
+    client_type: "corporate",
+    name: clientName,
+    company_name: clientName,
+    first_name: "",
+    last_name: "",
+    contact_person: opportunity.contact_name.trim(),
+    phone: opportunity.phone.trim(),
+    email: opportunity.email.trim(),
+    address: opportunity.object_address.trim(),
+    bulstat: "",
+    eik: "",
+  };
 }
 
 function groupServicesByCategory(services: OpportunityService[]) {
@@ -646,7 +698,10 @@ export default function SalesDealPage() {
       const row = oppResult.data;
       setOpportunity({
         id: String(row.id),
+        lead_client_type: opportunityClientType(row.lead_client_type),
         company_name: String(row.company_name ?? ""),
+        first_name: String(row.first_name ?? ""),
+        last_name: String(row.last_name ?? ""),
         contact_name: String(row.contact_name ?? ""),
         phone: String(row.phone ?? ""),
         email: String(row.email ?? ""),
@@ -749,21 +804,15 @@ export default function SalesDealPage() {
     try {
       const supabase = createSupabaseBrowserClient();
       let clientId: string | null = null;
+      const clientName = opportunityClientName(opportunity);
       const { data: existingClient } = await supabase
-        .from("clients").select("id").ilike("name", opportunity.company_name.trim()).maybeSingle();
+        .from("clients").select("id").ilike("name", clientName).maybeSingle();
       if (existingClient) {
         clientId = String(existingClient.id);
       } else {
         const { data: newClient, error: clientError } = await supabase
           .from("clients")
-          .insert({
-            name: opportunity.company_name.trim(),
-            contact_person: opportunity.contact_name.trim(),
-            phone: opportunity.phone.trim(),
-            email: opportunity.email.trim(),
-            address: opportunity.object_address.trim(),
-            bulstat: "",
-          })
+          .insert(opportunityClientPayload(opportunity))
           .select("id").single();
         if (clientError || !newClient) { showToast("Грешка при създаване на клиент.", "error"); return; }
         clientId = String(newClient.id);
@@ -777,7 +826,7 @@ export default function SalesDealPage() {
           client_id: clientId,
           object_type: opportunity.object_type.trim(),
           qr_code: qrCode,
-          name: opportunity.object_name.trim() || opportunity.company_name.trim(),
+          name: opportunity.object_name.trim() || clientName,
           address,
           region: "",
           status: "изряден",
@@ -800,7 +849,7 @@ export default function SalesDealPage() {
       await supabase
         .from("saved_documents")
         .update({
-          object: opportunity.object_name || opportunity.company_name,
+          object: opportunity.object_name || clientName,
           payload: {
             ...contractPayload,
             locationId: String(newLocation.id),
@@ -821,7 +870,7 @@ export default function SalesDealPage() {
       await supabase.from("sales_activity_logs").insert({
         opportunity_id: opportunity.id, type: "converted",
         title: "Стартирано обслужване",
-        description: `Създаден е клиент и обект: ${opportunity.company_name} / ${opportunity.object_name || opportunity.company_name}`,
+        description: `Създаден е клиент и обект: ${clientName} / ${opportunity.object_name || clientName}`,
       });
       setStartServiceOpen(false);
       router.push(`/locations/${encodeURIComponent(String(newLocation.qr_code))}`);
@@ -867,12 +916,13 @@ export default function SalesDealPage() {
   const isContract = opportunity.stage === "contract";
   const servicesByCategory = groupServicesByCategory(opportunity.services);
   const visibleStatus = displayOpportunityStatus(opportunity);
+  const opportunityTitle = opportunityClientName(opportunity);
 
   return (
     <AppShell title="Продажби" description="Пълна търговска възможност и подготовка за оперативен процес" showSearch={false}>
       <div className="space-y-6">
         <PageHeader
-          title={opportunity.company_name}
+          title={opportunityTitle}
           badge={<Badge variant={STAGE_BADGE[opportunity.stage]}>{STAGE_LABELS[opportunity.stage]}</Badge>}
           description={opportunity.object_name ? `Обект: ${opportunity.object_name}` : undefined}
           actions={
@@ -942,8 +992,14 @@ export default function SalesDealPage() {
               </Button>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <InfoRow icon={Building2} label="Фирма" value={opportunity.company_name} />
-              <InfoRow icon={UserRound} label="Контакт" value={opportunity.contact_name} />
+              {opportunity.lead_client_type === "private" ? (
+                <InfoRow icon={UserRound} label="Име" value={opportunityTitle} />
+              ) : (
+                <>
+                  <InfoRow icon={Building2} label="Фирма" value={opportunity.company_name} />
+                  <InfoRow icon={UserRound} label="Контакт" value={opportunity.contact_name} />
+                </>
+              )}
               <InfoRow icon={Phone} label="Телефон" value={opportunity.phone} />
               <InfoRow icon={Mail} label="Email" value={opportunity.email} />
               {opportunity.object_type && <InfoRow icon={Building2} label="Тип обект" value={opportunity.object_type} />}
@@ -1056,7 +1112,7 @@ export default function SalesDealPage() {
 
       {archiveOpen && opportunity && (
         <ArchiveConfirmModal
-          companyName={opportunity.company_name}
+          companyName={opportunityTitle}
           archiving={archiving}
           onConfirm={handleArchive}
           onCancel={() => { if (!archiving) setArchiveOpen(false); }}
@@ -1065,7 +1121,7 @@ export default function SalesDealPage() {
 
       {startServiceOpen && opportunity && (
         <StartServiceConfirmModal
-          companyName={opportunity.company_name}
+          companyName={opportunityTitle}
           loading={startingService}
           onConfirm={handleStartService}
           onCancel={() => { if (!startingService) setStartServiceOpen(false); }}
