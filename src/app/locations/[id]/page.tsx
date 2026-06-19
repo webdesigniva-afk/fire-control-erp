@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ClipboardEvent,
   type FormEvent,
   type ReactNode,
   type SetStateAction,
@@ -28,19 +29,27 @@ import {
   Edit3,
   Eye,
   ExternalLink,
+  Fan,
   FileText,
+  FireExtinguisher,
   ImagePlus,
+  LampWallUp,
   Loader2,
   MapPin,
+  MapPinned,
   MoreVertical,
+  PanelTop,
   Phone,
   Plus,
   Printer,
   QrCode,
   Save,
+  Siren,
   SlidersHorizontal,
+  SprayCan,
   Trash2,
   UserRound,
+  Waves,
   Wrench,
   X,
   type LucideIcon,
@@ -114,6 +123,7 @@ type EquipmentItem = {
   stickerNumber: string;
   stickerGeneratedAt: string;
   stickerPrintedAt: string;
+  status: string;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -338,6 +348,179 @@ const equipmentCategoryByType: Record<string, string> = {
   "Евакуационен план": "evacuation-plan",
   Друго: "other",
 };
+
+function equipmentListIcon(type: string): { icon: LucideIcon; className: string } {
+  switch (type) {
+    case "Пожарогасител":
+      return { icon: FireExtinguisher, className: "bg-orange-50 text-orange-600" };
+    case "Пожароизвестител":
+      return { icon: Siren, className: "bg-red-50 text-red-600" };
+    case "Пожароизвестителна централа":
+      return { icon: PanelTop, className: "bg-sky-50 text-sky-600" };
+    case "Пожарен кран":
+      return { icon: Waves, className: "bg-cyan-50 text-cyan-600" };
+    case "Спринклерна система":
+      return { icon: SprayCan, className: "bg-blue-50 text-blue-600" };
+    case "Аварийно осветление":
+      return { icon: LampWallUp, className: "bg-amber-50 text-amber-600" };
+    case "Димоотвеждане":
+      return { icon: Fan, className: "bg-slate-100 text-slate-600" };
+    case "Евакуационен план":
+      return { icon: MapPinned, className: "bg-emerald-50 text-emerald-600" };
+    default:
+      return { icon: CircleAlert, className: "bg-slate-100 text-slate-500" };
+  }
+}
+
+type EquipmentOverviewFilter =
+  | "extinguisher"
+  | "fire-alarm"
+  | "hydrant"
+  | "emergency-lighting"
+  | "sprinkler"
+  | "smoke-control"
+  | "evacuation-plan";
+
+type EquipmentOverviewItem = {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  iconClassName: string;
+  filter: EquipmentOverviewFilter;
+};
+
+function equipmentNumericValue(value: string) {
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function matchesEquipmentOverviewFilter(
+  item: EquipmentItem,
+  filter: EquipmentOverviewFilter
+) {
+  const text = [item.type, item.name, item.category].join(" ").toLowerCase();
+
+  switch (filter) {
+    case "extinguisher":
+      return text.includes("пожарогасител") || text.includes("extinguisher");
+    case "fire-alarm":
+      return (
+        text.includes("пожароизвестител") ||
+        text.includes("fire-alarm-panel") ||
+        text.includes("detector")
+      );
+    case "hydrant":
+      return text.includes("пожарен кран") || text.includes("fire-hydrant");
+    case "emergency-lighting":
+      return text.includes("аварийно осветление") || text.includes("emergency-lighting");
+    case "sprinkler":
+      return text.includes("спринклер") || text.includes("sprinkler");
+    case "smoke-control":
+      return text.includes("димоотвеждане") || text.includes("smoke-control");
+    case "evacuation-plan":
+      return text.includes("евакуационен план") || text.includes("evacuation-plan");
+  }
+}
+
+function getEquipmentOverview(equipment: EquipmentItem[]): EquipmentOverviewItem[] {
+  const matches = (item: EquipmentItem, ...terms: string[]) => {
+    const text = [item.type, item.name, item.category].join(" ").toLowerCase();
+    return terms.some((term) => text.includes(term));
+  };
+  const count = (...terms: string[]) =>
+    equipment.filter((item) => matches(item, ...terms)).length;
+  const sum = (field: keyof EquipmentItem, ...terms: string[]) =>
+    equipment
+      .filter((item) => matches(item, ...terms))
+      .reduce((total, item) => total + equipmentNumericValue(String(item[field] ?? "")), 0);
+  const activeExtinguisherCount = equipment.filter(
+    (item) =>
+      matches(item, "пожарогасител", "extinguisher") &&
+      !["бракуван", "липсващ", "неактив"].some((status) =>
+        item.status.toLowerCase().includes(status)
+      )
+  ).length;
+  const fireAlarmPoints = sum(
+    "totalDevices",
+    "пожароизвестителна централа",
+    "fire-alarm-panel"
+  );
+  const sprinklerCount = sum("totalDevices", "спринклерна система", "sprinkler");
+  const smokeControlCount = equipment
+    .filter((item) => matches(item, "димоотвеждане", "smoke-control"))
+    .reduce(
+      (total, item) =>
+        total +
+        equipmentNumericValue(item.subtype) +
+        equipmentNumericValue(item.description) +
+        equipmentNumericValue(item.capacity),
+      0
+    );
+
+  const overview: EquipmentOverviewItem[] = [
+    {
+      label: "Пожарогасители",
+      filter: "extinguisher",
+      value: String(activeExtinguisherCount),
+      icon: FireExtinguisher,
+      iconClassName: "text-orange-600",
+    },
+    {
+      label: "Пожароизвестяване",
+      filter: "fire-alarm",
+      value: `${fireAlarmPoints} точки`,
+      icon: Siren,
+      iconClassName: "text-red-600",
+    },
+    {
+      label: "Пожарни кранове",
+      filter: "hydrant",
+      value: String(count("пожарен кран", "fire-hydrant")),
+      icon: Waves,
+      iconClassName: "text-cyan-600",
+    },
+    {
+      label: "Аварийно осветление",
+      filter: "emergency-lighting",
+      value: String(count("аварийно осветление", "emergency-lighting")),
+      icon: LampWallUp,
+      iconClassName: "text-amber-600",
+    },
+    {
+      label: "Спринклери",
+      filter: "sprinkler",
+      value: String(sprinklerCount),
+      icon: SprayCan,
+      iconClassName: "text-blue-600",
+    },
+    {
+      label: "Димоотвеждане",
+      filter: "smoke-control",
+      value: String(smokeControlCount),
+      icon: Fan,
+      iconClassName: "text-slate-600",
+    },
+    {
+      label: "Евакуационни планове",
+      filter: "evacuation-plan",
+      value: String(count("евакуационен план", "evacuation-plan")),
+      icon: FileText,
+      iconClassName: "text-emerald-600",
+    },
+  ];
+
+  return overview.filter((item) => Number.parseInt(item.value, 10) > 0);
+}
+
+function equipmentOverviewGridClass(count: number) {
+  if (count === 1) return "grid-cols-1";
+  if (count === 2) return "grid-cols-2";
+  if (count === 3) return "grid-cols-1 sm:grid-cols-3";
+  if (count === 4) return "grid-cols-2 lg:grid-cols-4";
+  if (count === 5) return "grid-cols-2 md:grid-cols-3 lg:grid-cols-5";
+  if (count === 6) return "grid-cols-2 md:grid-cols-3 lg:grid-cols-6";
+  return "grid-cols-2 md:grid-cols-4 xl:grid-cols-7";
+}
 
 type DataRecord = Record<string, unknown>;
 
@@ -1268,6 +1451,7 @@ function mapEquipment(rows: DataRecord[]): EquipmentItem[] {
     stickerNumber: textValue(row, ["sticker_number"]),
     stickerGeneratedAt: textValue(row, ["sticker_generated_at"]),
     stickerPrintedAt: textValue(row, ["sticker_printed_at"]),
+    status: textValue(row, ["status"]),
     notes: textValue(row, ["notes", "note"]),
     createdAt: textValue(row, ["created_at"]),
     updatedAt: textValue(row, ["updated_at"]),
@@ -1302,13 +1486,21 @@ type BulkExtinguisherRow = {
   location: string;
 };
 
+type BulkEquipmentKind = "extinguisher" | "emergency-lighting";
+
 type EquipmentCatalogKey =
   | "extinguisherBrands"
   | "extinguisherModels"
   | "extinguisherCategories"
   | "extinguisherChargeMasses"
   | "extinguishingAgentTypes"
-  | "extinguishingAgentTradeNames";
+  | "extinguishingAgentTradeNames"
+  | "fireAlarmPanelBrands"
+  | "fireAlarmPanelModels"
+  | "emergencyLightingTypes"
+  | "fireHydrantTypes"
+  | "fireHydrantDiameters"
+  | "evacuationPlanTypes";
 
 const emptyEquipmentForm: EquipmentFormState = {
   type: "",
@@ -1332,12 +1524,24 @@ const emptyEquipmentForm: EquipmentFormState = {
   notes: "",
 };
 
-function emptyBulkExtinguisherTemplate(): EquipmentFormState {
+function emptyBulkEquipmentTemplate(kind: BulkEquipmentKind): EquipmentFormState {
+  if (kind === "emergency-lighting") {
+    return {
+      ...emptyEquipmentForm,
+      type: "Аварийно осветление",
+      category: equipmentCategoryByType["Аварийно осветление"],
+    };
+  }
+
   return {
     ...emptyEquipmentForm,
     type: "Пожарогасител",
     category: equipmentCategoryByType["Пожарогасител"],
   };
+}
+
+function emptyBulkExtinguisherTemplate(): EquipmentFormState {
+  return emptyBulkEquipmentTemplate("extinguisher");
 }
 
 function createBulkExtinguisherRow(
@@ -1379,10 +1583,14 @@ function generatedEquipmentName(form: EquipmentFormState) {
   }
 
   if (type === "Димоотвеждане") {
-    return [type, normalizeDisplayPart(form.systemType)].filter(Boolean).join(" ");
+    return type;
   }
 
   if (type === "Аварийно осветление") {
+    return [type, normalizeDisplayPart(form.subtype)].filter(Boolean).join(" ");
+  }
+
+  if (type === "Евакуационен план") {
     return [type, normalizeDisplayPart(form.subtype)].filter(Boolean).join(" ");
   }
 
@@ -1434,14 +1642,12 @@ function buildEquipmentPayload(
         : null,
     system_type:
       (form.type === "Пожароизвестителна централа" ||
-        form.type === "Спринклерна система" ||
-        form.type === "Димоотвеждане")
+        form.type === "Спринклерна система")
         ? form.systemType.trim() || null
         : null,
     total_devices:
       (form.type === "Пожароизвестителна централа" ||
-        form.type === "Спринклерна система" ||
-        form.type === "Димоотвеждане") && form.totalDevices
+        form.type === "Спринклерна система") && form.totalDevices
         ? Number(form.totalDevices)
         : null,
     pump_group:
@@ -1502,6 +1708,21 @@ function equipmentDetailRows(item: EquipmentItem) {
   const isExtinguisher = isFireExtinguisherEquipment(item);
   const isHydrant = isFireHydrantEquipment(item);
   const isSmokeControl = isSmokeControlEquipment(item);
+
+  if (isSmokeControl) {
+    return [
+      item.subtype
+        ? { label: "Брой люкове", value: item.subtype }
+        : null,
+      item.description
+        ? { label: "Брой клапи", value: item.description }
+        : null,
+      item.capacity
+        ? { label: "Брой вентилатори", value: item.capacity }
+        : null,
+    ].filter((row): row is { label: string; value: string } => Boolean(row));
+  }
+
   const rows: { label: string; value: string }[] = [
     { label: "Име", value: item.name },
     { label: "Тип оборудване", value: item.type },
@@ -1551,14 +1772,6 @@ function equipmentDetailRows(item: EquipmentItem) {
     if (item.totalDevices) rows.push({ label: "Брой спринклери", value: item.totalDevices });
     if (item.pumpGroup) rows.push({ label: "Помпена група", value: item.pumpGroup });
     if (item.pumpStationLocation) rows.push({ label: "Локация на помпената станция", value: item.pumpStationLocation });
-  }
-
-  if (item.type === "Димоотвеждане") {
-    if (item.systemType) rows.push({ label: "Тип", value: item.systemType });
-    if (item.subtype) rows.push({ label: "Люк", value: item.subtype });
-    if (item.capacity) rows.push({ label: "Вентилатор", value: item.capacity });
-    if (item.description) rows.push({ label: "Клапа", value: item.description });
-    if (item.totalDevices) rows.push({ label: "Брой", value: item.totalDevices });
   }
 
   if (item.brand) rows.push({ label: "Марка", value: item.brand });
@@ -1627,6 +1840,8 @@ function EquipmentField({
   type = "text",
   required = false,
   placeholder,
+  suggestions,
+  suggestionListId,
 }: {
   label: string;
   value: string;
@@ -1634,6 +1849,8 @@ function EquipmentField({
   type?: string;
   required?: boolean;
   placeholder?: string;
+  suggestions?: string[];
+  suggestionListId?: string;
 }) {
   return (
     <div className="space-y-2">
@@ -1645,9 +1862,17 @@ function EquipmentField({
         required={required}
         value={value}
         placeholder={placeholder}
+        list={suggestionListId}
         onChange={(event) => onChange(event.target.value)}
         className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
       />
+      {suggestionListId ? (
+        <datalist id={suggestionListId}>
+          {uniqueOptions(suggestions ?? []).map((suggestion) => (
+            <option key={suggestion} value={suggestion} />
+          ))}
+        </datalist>
+      ) : null}
     </div>
   );
 }
@@ -2451,6 +2676,7 @@ function EquipmentTab() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingEquipmentId, setEditingEquipmentId] = useState<string | null>(null);
   const [viewingEquipment, setViewingEquipment] = useState<EquipmentItem | null>(null);
+  const [equipmentFilter, setEquipmentFilter] = useState<EquipmentOverviewFilter | null>(null);
   const [serviceHistory, setServiceHistory] = useState<
     FireExtinguisherServiceHistoryItem[]
   >([]);
@@ -2463,6 +2689,8 @@ function EquipmentTab() {
   const [deleteTarget, setDeleteTarget] = useState<EquipmentItem | null>(null);
   const [form, setForm] = useState<EquipmentFormState>(emptyEquipmentForm);
   const [bulkFormOpen, setBulkFormOpen] = useState(false);
+  const [bulkEquipmentKind, setBulkEquipmentKind] =
+    useState<BulkEquipmentKind>("extinguisher");
   const [bulkTemplate, setBulkTemplate] = useState<EquipmentFormState>(
     emptyBulkExtinguisherTemplate
   );
@@ -2623,6 +2851,13 @@ function EquipmentTab() {
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
+        if (bulkEquipmentKind === "emergency-lighting") {
+          const [location = ""] = line.split(/\t|;|,/);
+          return createBulkExtinguisherRow({
+            location: location.trim(),
+          });
+        }
+
         const [serialNumber = "", location = ""] = line.split(/\t|;|,/);
         return createBulkExtinguisherRow({
           serialNumber: serialNumber.trim(),
@@ -2634,6 +2869,42 @@ function EquipmentTab() {
 
     setBulkRows(pastedRows);
     setBulkPasteText("");
+  }
+
+  function handleBulkLocationPaste(
+    rowId: string,
+    event: ClipboardEvent<HTMLInputElement>
+  ) {
+    if (bulkEquipmentKind !== "emergency-lighting") return;
+
+    const pastedLocations = event.clipboardData
+      .getData("text")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => (line.split(/\t|;|,/)[0] ?? "").trim())
+      .filter(Boolean);
+
+    if (pastedLocations.length <= 1) return;
+
+    event.preventDefault();
+    setBulkRows((current) => {
+      const startIndex = Math.max(
+        current.findIndex((row) => row.id === rowId),
+        0
+      );
+      const nextRows = [...current];
+      pastedLocations.forEach((locationValue, offset) => {
+        const targetIndex = startIndex + offset;
+        const existing = nextRows[targetIndex];
+        if (existing) {
+          nextRows[targetIndex] = { ...existing, location: locationValue };
+        } else {
+          nextRows.push(createBulkExtinguisherRow({ location: locationValue }));
+        }
+      });
+      return nextRows;
+    });
   }
 
   function openCatalogValueDialog(
@@ -2897,8 +3168,9 @@ function EquipmentTab() {
     setFormOpen(true);
   }
 
-  function openBulkExtinguisherForm() {
-    setBulkTemplate(emptyBulkExtinguisherTemplate());
+  function openBulkEquipmentForm(kind: BulkEquipmentKind) {
+    setBulkEquipmentKind(kind);
+    setBulkTemplate(emptyBulkEquipmentTemplate(kind));
     setBulkRows(createBulkExtinguisherRows(5));
     setBulkPasteText("");
     setBulkSaveState("idle");
@@ -2906,9 +3178,9 @@ function EquipmentTab() {
     setBulkFormOpen(true);
   }
 
-  function switchToBulkExtinguisherForm() {
+  function switchToBulkEquipmentForm(kind: BulkEquipmentKind) {
     closeEquipmentForm();
-    openBulkExtinguisherForm();
+    openBulkEquipmentForm(kind);
   }
 
   function openEditForm(item: EquipmentItem) {
@@ -2979,6 +3251,7 @@ function EquipmentTab() {
 
   function closeBulkExtinguisherForm() {
     if (bulkSaveState === "saving") return;
+    setBulkEquipmentKind("extinguisher");
     setBulkTemplate(emptyBulkExtinguisherTemplate());
     setBulkRows(createBulkExtinguisherRows(5));
     setBulkPasteText("");
@@ -3077,7 +3350,7 @@ function EquipmentTab() {
   async function handleSaveEquipment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const displayName = generatedEquipmentName(form);
-    if (!form.type.trim() || !form.location.trim() || !displayName) {
+    if (!form.type.trim() || !displayName) {
       return;
     }
 
@@ -3145,19 +3418,26 @@ function EquipmentTab() {
     }
   }
 
-  async function handleSaveBulkExtinguishers(event: FormEvent<HTMLFormElement>) {
+  async function handleSaveBulkEquipment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const displayName = generatedEquipmentName(bulkTemplate);
     const rowsToSave = bulkRows.filter(
-      (row) => row.serialNumber.trim() || row.location.trim()
+      (row) =>
+        bulkEquipmentKind === "emergency-lighting"
+          ? row.location.trim()
+          : row.serialNumber.trim() || row.location.trim()
     );
     const missingLocationRows = rowsToSave.filter((row) => !row.location.trim());
+    const equipmentLabel =
+      bulkEquipmentKind === "emergency-lighting"
+        ? "аварийно осветление"
+        : "пожарогасител";
 
     if (!displayName || !rowsToSave.length || missingLocationRows.length) {
       setErrorMessage(
         missingLocationRows.length
           ? "Всеки попълнен ред трябва да има локация."
-          : "Добавете поне един пожарогасител."
+          : `Добавете поне един запис за ${equipmentLabel}.`
       );
       setBulkSaveState("error");
       return;
@@ -3183,14 +3463,18 @@ function EquipmentTab() {
       const { error } = await supabase.from("equipment").insert(payloads);
 
       if (error) {
-        setErrorMessage(error.message || "Пожарогасителите не бяха записани");
+        setErrorMessage(error.message || "Оборудването не беше записано");
         setBulkSaveState("error");
         return;
       }
 
       await refreshEquipmentList();
       closeBulkExtinguisherForm();
-      setToastMessage(`Добавени са ${rowsToSave.length} пожарогасителя`);
+      setToastMessage(
+        bulkEquipmentKind === "emergency-lighting"
+          ? `Добавени са ${rowsToSave.length} аварийни осветления`
+          : `Добавени са ${rowsToSave.length} пожарогасителя`
+      );
     } catch {
       setErrorMessage("Грешка при връзка със Supabase");
       setBulkSaveState("error");
@@ -3274,9 +3558,33 @@ function EquipmentTab() {
   const showHydrantFields = form.type === "Пожарен кран";
   const showSmokeControlFields = form.type === "Димоотвеждане";
   const showCommonFields = Boolean(form.type);
+  const equipmentOverview = useMemo(
+    () => getEquipmentOverview(equipment),
+    [equipment]
+  );
+  const filteredEquipment = useMemo(
+    () =>
+      equipmentFilter
+        ? equipment.filter((item) => matchesEquipmentOverviewFilter(item, equipmentFilter))
+        : equipment,
+    [equipment, equipmentFilter]
+  );
+
+  useEffect(() => {
+    if (
+      equipmentFilter &&
+      !equipmentOverview.some((item) => item.filter === equipmentFilter)
+    ) {
+      setEquipmentFilter(null);
+    }
+  }, [equipmentFilter, equipmentOverview]);
   const bulkGeneratedName = generatedEquipmentName(bulkTemplate);
+  const isBulkEmergencyLighting = bulkEquipmentKind === "emergency-lighting";
   const bulkFilledRows = bulkRows.filter(
-    (row) => row.serialNumber.trim() || row.location.trim()
+    (row) =>
+      isBulkEmergencyLighting
+        ? row.location.trim()
+        : row.serialNumber.trim() || row.location.trim()
   ).length;
 
   return (
@@ -3296,19 +3604,67 @@ function EquipmentTab() {
         </div>
       </div>
 
+      {equipmentOverview.length > 0 ? (
+      <section
+        aria-label="Обзор на оборудването"
+        className="mt-5 overflow-hidden rounded-lg border border-slate-200 bg-white"
+      >
+        <div className={`grid divide-x divide-y divide-slate-100 ${equipmentOverviewGridClass(equipmentOverview.length)}`}>
+          {equipmentOverview.map((item) => {
+            const Icon = item.icon;
+            const isSelected = equipmentFilter === item.filter;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                aria-pressed={isSelected}
+                title={
+                  isSelected
+                    ? "Покажи цялото оборудване"
+                    : `Покажи само: ${item.label}`
+                }
+                onClick={() =>
+                  setEquipmentFilter((current) =>
+                    current === item.filter ? null : item.filter
+                  )
+                }
+                className={`flex min-h-24 cursor-pointer items-center gap-3 px-4 py-3 text-left transition duration-150 focus:outline-none focus:ring-4 focus:ring-orange-100 active:scale-[0.99] ${
+                  isSelected
+                    ? "bg-orange-50 ring-1 ring-inset ring-orange-200 shadow-sm"
+                    : "hover:bg-slate-50 hover:shadow-sm"
+                }`}
+              >
+                <Icon size={21} className={`shrink-0 ${item.iconClassName}`} />
+                <div className="min-w-0">
+                  <div className="text-lg font-black text-slate-900">{item.value}</div>
+                  <div className="mt-0.5 text-[10px] font-black uppercase leading-4 text-slate-400">
+                    {item.label}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      ) : null}
+
       {bulkFormOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">
           <form
-            onSubmit={handleSaveBulkExtinguishers}
+            onSubmit={handleSaveBulkEquipment}
             className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
           >
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-black">
-                  Масово добавяне на пожарогасители
+                  {isBulkEmergencyLighting
+                    ? "Масово добавяне на аварийно осветление"
+                    : "Масово добавяне на пожарогасители"}
                 </h3>
                 <p className="mt-1 text-sm text-slate-500">
-                  Попълнете общите данни веднъж, после въведете само сериен номер и локация за всеки пожарогасител.
+                  {isBulkEmergencyLighting
+                    ? "Попълнете типа и общите бележки веднъж, после въведете локациите за всяко аварийно тяло."
+                    : "Попълнете общите данни веднъж, после въведете само сериен номер и локация за всеки пожарогасител."}
                 </p>
               </div>
               <Button
@@ -3323,84 +3679,103 @@ function EquipmentTab() {
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-              <EquipmentSelectField
-                label="Категория"
-                value={bulkTemplate.extinguisherCategory}
-                options={protocolCatalogs.extinguisherCategories}
-                onChange={(value) => updateBulkTemplate("extinguisherCategory", value)}
-                onAddNew={() =>
-                  openCatalogValueDialog(
-                    "extinguisherCategories",
-                    "extinguisherCategory",
-                    "Категория",
-                    "bulk"
-                  )
-                }
-              />
-              <EquipmentSelectField
-                label="Маса / вместимост"
-                value={bulkTemplate.capacity}
-                options={protocolCatalogs.extinguisherChargeMasses}
-                onChange={(value) => updateBulkTemplate("capacity", value)}
-                onAddNew={() =>
-                  openCatalogValueDialog(
-                    "extinguisherChargeMasses",
-                    "capacity",
-                    "Маса / вместимост",
-                    "bulk"
-                  )
-                }
-              />
-              <EquipmentSelectField
-                label="Марка"
-                value={bulkTemplate.brand}
-                options={protocolCatalogs.extinguisherBrands}
-                onChange={(value) => updateBulkTemplate("brand", value)}
-                onAddNew={() =>
-                  openCatalogValueDialog("extinguisherBrands", "brand", "Марка", "bulk")
-                }
-              />
-              <EquipmentSelectField
-                label="Модел"
-                value={bulkTemplate.model}
-                options={protocolCatalogs.extinguisherModels}
-                onChange={(value) => updateBulkTemplate("model", value)}
-                onAddNew={() =>
-                  openCatalogValueDialog("extinguisherModels", "model", "Модел", "bulk")
-                }
-              />
-              <EquipmentSelectField
-                label="Вид пожарогасително в-во"
-                value={bulkTemplate.extinguishingAgentType}
-                options={protocolCatalogs.extinguishingAgentTypes}
-                onChange={(value) =>
-                  updateBulkTemplate("extinguishingAgentType", value)
-                }
-                onAddNew={() =>
-                  openCatalogValueDialog(
-                    "extinguishingAgentTypes",
-                    "extinguishingAgentType",
-                    "Вид пожарогасително в-во",
-                    "bulk"
-                  )
-                }
-              />
-              <EquipmentSelectField
-                label="Търговско наименование"
-                value={bulkTemplate.extinguishingAgentTradeName}
-                options={protocolCatalogs.extinguishingAgentTradeNames}
-                onChange={(value) =>
-                  updateBulkTemplate("extinguishingAgentTradeName", value)
-                }
-                onAddNew={() =>
-                  openCatalogValueDialog(
-                    "extinguishingAgentTradeNames",
-                    "extinguishingAgentTradeName",
-                    "Търговско наименование",
-                    "bulk"
-                  )
-                }
-              />
+              {isBulkEmergencyLighting ? (
+                <EquipmentSelectField
+                  label="Тип"
+                  value={bulkTemplate.subtype}
+                  options={protocolCatalogs.emergencyLightingTypes}
+                  onChange={(value) => updateBulkTemplate("subtype", value)}
+                  onAddNew={() =>
+                    openCatalogValueDialog(
+                      "emergencyLightingTypes",
+                      "subtype",
+                      "Тип аварийно осветление",
+                      "bulk"
+                    )
+                  }
+                />
+              ) : (
+                <>
+                  <EquipmentSelectField
+                    label="Категория"
+                    value={bulkTemplate.extinguisherCategory}
+                    options={protocolCatalogs.extinguisherCategories}
+                    onChange={(value) => updateBulkTemplate("extinguisherCategory", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog(
+                        "extinguisherCategories",
+                        "extinguisherCategory",
+                        "Категория",
+                        "bulk"
+                      )
+                    }
+                  />
+                  <EquipmentSelectField
+                    label="Маса / вместимост"
+                    value={bulkTemplate.capacity}
+                    options={protocolCatalogs.extinguisherChargeMasses}
+                    onChange={(value) => updateBulkTemplate("capacity", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog(
+                        "extinguisherChargeMasses",
+                        "capacity",
+                        "Маса / вместимост",
+                        "bulk"
+                      )
+                    }
+                  />
+                  <EquipmentSelectField
+                    label="Марка"
+                    value={bulkTemplate.brand}
+                    options={protocolCatalogs.extinguisherBrands}
+                    onChange={(value) => updateBulkTemplate("brand", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog("extinguisherBrands", "brand", "Марка", "bulk")
+                    }
+                  />
+                  <EquipmentSelectField
+                    label="Модел"
+                    value={bulkTemplate.model}
+                    options={protocolCatalogs.extinguisherModels}
+                    onChange={(value) => updateBulkTemplate("model", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog("extinguisherModels", "model", "Модел", "bulk")
+                    }
+                  />
+                  <EquipmentSelectField
+                    label="Вид пожарогасително в-во"
+                    value={bulkTemplate.extinguishingAgentType}
+                    options={protocolCatalogs.extinguishingAgentTypes}
+                    onChange={(value) =>
+                      updateBulkTemplate("extinguishingAgentType", value)
+                    }
+                    onAddNew={() =>
+                      openCatalogValueDialog(
+                        "extinguishingAgentTypes",
+                        "extinguishingAgentType",
+                        "Вид пожарогасително в-во",
+                        "bulk"
+                      )
+                    }
+                  />
+                  <EquipmentSelectField
+                    label="Търговско наименование"
+                    value={bulkTemplate.extinguishingAgentTradeName}
+                    options={protocolCatalogs.extinguishingAgentTradeNames}
+                    onChange={(value) =>
+                      updateBulkTemplate("extinguishingAgentTradeName", value)
+                    }
+                    onAddNew={() =>
+                      openCatalogValueDialog(
+                        "extinguishingAgentTradeNames",
+                        "extinguishingAgentTradeName",
+                        "Търговско наименование",
+                        "bulk"
+                      )
+                    }
+                  />
+                </>
+              )}
               <div className="space-y-2 md:col-span-2 lg:col-span-3">
                 <label className="text-xs font-black uppercase text-slate-400">
                   Общи бележки
@@ -3423,7 +3798,9 @@ function EquipmentTab() {
                     Редове за създаване
                   </h4>
                   <p className="mt-1 text-xs font-bold text-slate-500">
-                    При paste от Excel първата колона е сериен номер, втората е локация.
+                    {isBulkEmergencyLighting
+                      ? "При paste от Excel една колона се приема като една локация."
+                      : "При paste от Excel първата колона е сериен номер, втората е локация."}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -3446,25 +3823,36 @@ function EquipmentTab() {
                 {bulkRows.map((row, index) => (
                   <div
                     key={row.id}
-                    className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 md:grid-cols-[48px_1fr_1.4fr_40px]"
+                    className={`grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 ${
+                      isBulkEmergencyLighting
+                        ? "md:grid-cols-[48px_1fr_40px]"
+                        : "md:grid-cols-[48px_1fr_1.4fr_40px]"
+                    }`}
                   >
                     <div className="flex h-10 items-center justify-center rounded-lg bg-slate-50 text-xs font-black text-slate-400">
                       {index + 1}
                     </div>
-                    <input
-                      value={row.serialNumber}
-                      placeholder="Сериен номер"
-                      onChange={(event) =>
-                        updateBulkRow(row.id, "serialNumber", event.target.value)
-                      }
-                      className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
-                    />
+                    {!isBulkEmergencyLighting ? (
+                      <input
+                        value={row.serialNumber}
+                        placeholder="Сериен номер"
+                        onChange={(event) =>
+                          updateBulkRow(row.id, "serialNumber", event.target.value)
+                        }
+                        className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                      />
+                    ) : null}
                     <input
                       value={row.location}
-                      placeholder="Локация в обекта"
+                      placeholder={
+                        isBulkEmergencyLighting
+                          ? "Главен вход"
+                          : "Локация в обекта"
+                      }
                       onChange={(event) =>
                         updateBulkRow(row.id, "location", event.target.value)
                       }
+                      onPaste={(event) => handleBulkLocationPaste(row.id, event)}
                       className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
                     />
                     <Button
@@ -3481,6 +3869,7 @@ function EquipmentTab() {
               </div>
             </div>
 
+            {!isBulkEmergencyLighting ? (
             <div className="mt-4 rounded-2xl border border-slate-200 p-4">
               <label className="text-xs font-black uppercase text-slate-400">
                 Постави от Excel
@@ -3488,7 +3877,11 @@ function EquipmentTab() {
               <textarea
                 value={bulkPasteText}
                 onChange={(event) => setBulkPasteText(event.target.value)}
-                placeholder={"SN001\tКоридор ет. 1\nSN002\tДо ел. табло"}
+                placeholder={
+                  isBulkEmergencyLighting
+                    ? "Главен вход\nКоридор етаж 1\nСтълбище\nАвариен изход север"
+                    : "SN001\tКоридор ет. 1\nSN002\tДо ел. табло"
+                }
                 rows={3}
                 className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
               />
@@ -3505,10 +3898,11 @@ function EquipmentTab() {
                 </Button>
               </div>
             </div>
+            ) : null}
 
             {bulkSaveState === "error" ? (
               <div className="mt-4 rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">
-                {errorMessage || "Пожарогасителите не бяха записани"}
+                {errorMessage || "Оборудването не беше записано"}
               </div>
             ) : null}
 
@@ -3516,7 +3910,10 @@ function EquipmentTab() {
               <div className="text-sm font-bold text-slate-500">
                 Ще се създадат {bulkFilledRows} записа като{" "}
                 <span className="font-black text-slate-900">
-                  {bulkGeneratedName || "Пожарогасител"}
+                  {bulkGeneratedName ||
+                    (isBulkEmergencyLighting
+                      ? "Аварийно осветление"
+                      : "Пожарогасител")}
                 </span>
               </div>
               <div className="flex justify-end gap-2">
@@ -3571,22 +3968,30 @@ function EquipmentTab() {
                 onChange={(value) => updateForm("type", value)}
               />
 
-              {!editingEquipmentId && form.type === "Пожарогасител" ? (
+              {!editingEquipmentId &&
+              (form.type === "Пожарогасител" ||
+                form.type === "Аварийно осветление") ? (
                 <div className="space-y-2 lg:col-span-2">
                   <label className="text-xs font-black uppercase text-slate-400">
                     Начин на добавяне
                   </label>
-                  <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+                  <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      className="inline-flex h-10 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 px-4 text-sm font-black text-orange-700"
+                      className="inline-flex h-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 px-3 text-sm font-black text-orange-700"
                     >
-                      Индивидуален
+                      Индивидуално
                     </button>
                     <button
                       type="button"
-                      onClick={switchToBulkExtinguisherForm}
-                      className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                      onClick={() =>
+                        switchToBulkEquipmentForm(
+                          form.type === "Аварийно осветление"
+                            ? "emergency-lighting"
+                            : "extinguisher"
+                        )
+                      }
+                      className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
                     >
                       <ClipboardPlus size={16} />
                       Множество
@@ -3594,7 +3999,9 @@ function EquipmentTab() {
                   </div>
                 </div>
               ) : null}
+            </div>
 
+            <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
               {showSubtypeSelect ? (
                 <EquipmentSelectField
                   label={subtypeLabel}
@@ -3621,20 +4028,51 @@ function EquipmentTab() {
               ) : null}
 
               {form.type === "Аварийно осветление" ? (
-                <EquipmentField
+                <EquipmentSelectField
                   label={subtypeLabel}
                   value={form.subtype}
+                  options={protocolCatalogs.emergencyLightingTypes}
                   onChange={(value) => updateForm("subtype", value)}
+                  onAddNew={() =>
+                    openCatalogValueDialog(
+                      "emergencyLightingTypes",
+                      "subtype",
+                      "Тип аварийно осветление"
+                    )
+                  }
+                />
+              ) : null}
+
+              {form.type === "Евакуационен план" ? (
+                <EquipmentSelectField
+                  label="Тип план"
+                  value={form.subtype}
+                  options={protocolCatalogs.evacuationPlanTypes}
+                  onChange={(value) => updateForm("subtype", value)}
+                  onAddNew={() =>
+                    openCatalogValueDialog(
+                      "evacuationPlanTypes",
+                      "subtype",
+                      "Тип евакуационен план"
+                    )
+                  }
                 />
               ) : null}
 
               {showHydrantFields ? (
                 <>
-                  <EquipmentField
-                    label="Тип кран"
+                  <EquipmentSelectField
+                    label="Тип"
                     value={form.subtype}
-                    placeholder="Стенен, вътрешен..."
+                    options={protocolCatalogs.fireHydrantTypes}
                     onChange={(value) => updateForm("subtype", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog(
+                        "fireHydrantTypes",
+                        "subtype",
+                        "Тип пожарен кран"
+                      )
+                    }
                   />
                   <EquipmentField
                     label="Дължина на шланга"
@@ -3642,11 +4080,18 @@ function EquipmentTab() {
                     placeholder="20 м"
                     onChange={(value) => updateForm("capacity", value)}
                   />
-                  <EquipmentField
+                  <EquipmentSelectField
                     label="Диаметър"
                     value={form.description}
-                    placeholder="DN 50"
+                    options={protocolCatalogs.fireHydrantDiameters}
                     onChange={(value) => updateForm("description", value)}
+                    onAddNew={() =>
+                      openCatalogValueDialog(
+                        "fireHydrantDiameters",
+                        "description",
+                        "Диаметър пожарен кран"
+                      )
+                    }
                   />
                 </>
               ) : null}
@@ -3654,30 +4099,22 @@ function EquipmentTab() {
               {showSmokeControlFields ? (
                 <>
                   <EquipmentField
-                    label="Тип"
-                    value={form.systemType}
-                    onChange={(value) => updateForm("systemType", value)}
-                  />
-                  <EquipmentField
-                    label="Люк"
+                    label="Брой люкове"
                     value={form.subtype}
+                    type="number"
                     onChange={(value) => updateForm("subtype", value)}
                   />
                   <EquipmentField
-                    label="Вентилатор"
-                    value={form.capacity}
-                    onChange={(value) => updateForm("capacity", value)}
-                  />
-                  <EquipmentField
-                    label="Клапа"
+                    label="Брой клапи"
                     value={form.description}
+                    type="number"
                     onChange={(value) => updateForm("description", value)}
                   />
                   <EquipmentField
-                    label="Брой"
-                    value={form.totalDevices}
+                    label="Брой вентилатори"
+                    value={form.capacity}
                     type="number"
-                    onChange={(value) => updateForm("totalDevices", value)}
+                    onChange={(value) => updateForm("capacity", value)}
                   />
                 </>
               ) : null}
@@ -3723,20 +4160,23 @@ function EquipmentTab() {
                   <EquipmentSelectField
                     label="Марка"
                     value={form.brand}
-                    options={protocolCatalogs.extinguisherBrands}
+                    options={protocolCatalogs.fireAlarmPanelBrands}
                     onChange={(value) => updateForm("brand", value)}
                     onAddNew={() =>
-                      openCatalogValueDialog("extinguisherBrands", "brand", "Марка")
+                      openCatalogValueDialog(
+                        "fireAlarmPanelBrands",
+                        "brand",
+                        "Марка пожароизвестителна централа"
+                      )
                     }
                   />
-                  <EquipmentSelectField
+                  <EquipmentField
                     label="Модел"
                     value={form.model}
-                    options={protocolCatalogs.extinguisherModels}
+                    placeholder="Въведи модел"
+                    suggestions={protocolCatalogs.fireAlarmPanelModels}
+                    suggestionListId="fire-alarm-panel-model-suggestions"
                     onChange={(value) => updateForm("model", value)}
-                    onAddNew={() =>
-                      openCatalogValueDialog("extinguisherModels", "model", "Модел")
-                    }
                   />
                   <EquipmentField
                     label="Брой линии"
@@ -3905,12 +4345,11 @@ function EquipmentTab() {
                 </>
               ) : null}
 
-              {showCommonFields ? (
+              {showCommonFields && !showSmokeControlFields ? (
                 <>
                   <EquipmentField
                     label={locationLabel}
                     value={form.location}
-                    required
                     onChange={(value) => updateForm("location", value)}
                   />
                   <div className="space-y-2 md:col-span-2 lg:col-span-3">
@@ -3925,6 +4364,20 @@ function EquipmentTab() {
                     />
                   </div>
                 </>
+              ) : null}
+
+              {showSmokeControlFields ? (
+                <div className="space-y-2 md:col-span-2 lg:col-span-3">
+                  <label className="text-xs font-black uppercase text-slate-400">
+                    Бележки
+                  </label>
+                  <textarea
+                    value={form.notes}
+                    onChange={(event) => updateForm("notes", event.target.value)}
+                    rows={3}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  />
+                </div>
               ) : null}
             </div>
 
@@ -3943,7 +4396,6 @@ function EquipmentTab() {
                 disabled={
                   saveState === "saving" ||
                   !form.type.trim() ||
-                  !form.location.trim() ||
                   !generatedName
                 }
               >
@@ -4216,10 +4668,12 @@ function EquipmentTab() {
         </div>
       ) : null}
 
-      {equipment.length === 0 ? (
+      {filteredEquipment.length === 0 ? (
         <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center">
           <div className="text-sm font-bold text-slate-500">
-            Няма добавено оборудване за този обект.
+            {equipmentFilter
+              ? "Няма оборудване от избрания тип."
+              : "Няма добавено оборудване за този обект."}
           </div>
         </div>
       ) : (
@@ -4231,44 +4685,59 @@ function EquipmentTab() {
                 <th className="px-4 py-4">Име</th>
                 <th className="px-4 py-4">Тип</th>
                 <th className="px-4 py-4">Локация</th>
-                <th className="px-4 py-4">Действия</th>
+                <th className="min-w-[200px] px-4 py-4">Действия</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
-              {equipment.map((item) => (
+              {filteredEquipment.map((item) => (
                   <tr
                     key={item.id}
                     className="transition hover:bg-orange-50/40"
                   >
                     <td className="px-4 py-4">
-                      <div className="font-black text-slate-800">{item.name}</div>
-                      {isFireExtinguisherEquipment(item) ? (
-                        <div className="mt-1 space-y-0.5 text-xs font-bold text-slate-500">
-                          {item.serialNumber ? <div>SN: {item.serialNumber}</div> : null}
-                          <div>
-                            Стикер:{" "}
-                            {item.stickerNumber ? `№${item.stickerNumber}` : "няма"}
-                          </div>
-                          {item.nextCheckDate ? (
-                            <div>
-                              Следваща проверка: {formatDateValue(item.nextCheckDate)}
+                      {(() => {
+                        const { icon: EquipmentIcon, className } = equipmentListIcon(item.type);
+                        return (
+                          <div className="flex items-start gap-3">
+                            <div
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${className}`}
+                              title={item.type || "Друго оборудване"}
+                            >
+                              <EquipmentIcon size={18} aria-hidden="true" />
                             </div>
-                          ) : null}
-                        </div>
-                      ) : item.serialNumber ? (
-                        <div className="mt-1 text-xs font-bold text-slate-400">
-                          Сериен номер: {item.serialNumber}
-                        </div>
-                      ) : null}
+                            <div className="min-w-0">
+                              <div className="font-black text-slate-800">{item.name}</div>
+                              {isFireExtinguisherEquipment(item) ? (
+                                <div className="mt-1 space-y-0.5 text-xs font-bold text-slate-500">
+                                  {item.serialNumber ? <div>SN: {item.serialNumber}</div> : null}
+                                  <div>
+                                    Стикер:{" "}
+                                    {item.stickerNumber ? `№${item.stickerNumber}` : "няма"}
+                                  </div>
+                                  {item.nextCheckDate ? (
+                                    <div>
+                                      Следваща проверка: {formatDateValue(item.nextCheckDate)}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : item.serialNumber ? (
+                                <div className="mt-1 text-xs font-bold text-slate-400">
+                                  Сериен номер: {item.serialNumber}
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-4 font-bold text-slate-700">
                       {item.type || "—"}
                     </td>
                     <td className="px-4 py-4 font-medium text-slate-600">
-                      {item.location || "—"}
+                      {isSmokeControlEquipment(item) ? "—" : item.location || "—"}
                     </td>
-                    <td className="px-4 py-4">
-                      <div className="flex flex-wrap gap-2">
+                    <td className="min-w-[200px] px-4 py-4">
+                      <div className="flex flex-nowrap gap-2">
                         <Button
                           type="button"
                           variant="outline"

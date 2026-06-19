@@ -52,6 +52,12 @@ type CatalogKey =
   | "extinguishingAgentTradeNames"
   | "extinguisherChargeMasses"
   | "extinguisherServiceTypes"
+  | "fireAlarmPanelBrands"
+  | "fireAlarmPanelModels"
+  | "emergencyLightingTypes"
+  | "fireHydrantTypes"
+  | "fireHydrantDiameters"
+  | "evacuationPlanTypes"
   | "serviceSystemStatuses";
 
 type ServiceSetting = {
@@ -85,6 +91,12 @@ const catalogGroups: Array<{ key: CatalogKey; title: string; placeholder: string
   { key: "extinguishingAgentTradeNames", title: "Търговски имена", placeholder: "Напр. ABC 40" },
   { key: "extinguisherChargeMasses", title: "Вместимост / маса", placeholder: "Напр. 6" },
   { key: "extinguisherServiceTypes", title: "Видове обслужване", placeholder: "Напр. презареждане" },
+  { key: "fireAlarmPanelBrands", title: "Марки пожароизвестителни централи", placeholder: "Напр. Teletek" },
+  { key: "fireAlarmPanelModels", title: "Модели пожароизвестителни централи", placeholder: "Напр. IRIS 8" },
+  { key: "emergencyLightingTypes", title: "Тип аварийно осветление", placeholder: "Напр. Табела Изход" },
+  { key: "fireHydrantTypes", title: "Тип пожарен кран", placeholder: "Напр. Вътрешен пожарен кран" },
+  { key: "fireHydrantDiameters", title: "Диаметър пожарен кран", placeholder: "Напр. DN52" },
+  { key: "evacuationPlanTypes", title: "Тип евакуационен план", placeholder: "Напр. План на етаж" },
   { key: "serviceSystemStatuses", title: "Статуси", placeholder: "Напр. Изрядна" },
 ];
 

@@ -41,6 +41,7 @@ type ClientOption = {
   id: string;
   name: string;
   bulstat: string;
+  clientType: "corporate" | "private";
 };
 
 type LocationFormState = {
@@ -100,6 +101,28 @@ function objectTypeOptions(settings: ProtocolSettings, selectedValue = "") {
 
 const ADD_OBJECT_TYPE_VALUE = "__add_object_type__";
 
+const privateObjectTypes = [
+  "Апартамент",
+  "Къща",
+  "Вила",
+  "Гараж",
+  "Магазин",
+  "Друг",
+];
+
+const corporateObjectTypes = [
+  "Офис",
+  "Склад",
+  "Производствена база",
+  "Хотел",
+  "Търговски обект",
+  "Заведение",
+  "Училище",
+  "Болница",
+  "Административна сграда",
+  "Друг",
+];
+
 function FormField({
   label,
   children,
@@ -155,13 +178,25 @@ function NewLocationContent() {
     () => clients.find((client) => client.id === form.clientId) ?? null,
     [clients, form.clientId]
   );
-  const availableObjectTypes = useMemo(
-    () => objectTypeOptions(protocolSettings, form.objectType),
-    [protocolSettings, form.objectType]
-  );
+  const isPrivateClient = selectedClient?.clientType === "private";
+  const availableObjectTypes = isPrivateClient
+    ? privateObjectTypes
+    : corporateObjectTypes;
 
   function updateForm(key: keyof LocationFormState, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  function updateClient(clientId: string) {
+    const clientType = clients.find((client) => client.id === clientId)?.clientType;
+    const allowedTypes = clientType === "private" ? privateObjectTypes : corporateObjectTypes;
+
+    setForm((current) => ({
+      ...current,
+      clientId,
+      objectType: allowedTypes.includes(current.objectType) ? current.objectType : "",
+    }));
+    setAddingObjectType(false);
   }
 
   async function addObjectType() {
@@ -205,11 +240,15 @@ function NewLocationContent() {
         return;
       }
 
-      const mappedClients = ((clientsData as DataRecord[]) ?? []).map(
-        (client) => ({
+      const mappedClients: ClientOption[] = ((clientsData as DataRecord[]) ?? []).map(
+        (client): ClientOption => ({
           id: textValue(client, ["id"]),
           name: textValue(client, ["name", "organization", "company_name"]),
           bulstat: textValue(client, ["bulstat", "eik", "vat_number"]),
+          clientType:
+            textValue(client, ["client_type", "clientType"]) === "private"
+              ? "private"
+              : "corporate",
         })
       );
       const localSettings = readProtocolSettings();
@@ -251,7 +290,13 @@ function NewLocationContent() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!form.clientId || !form.name.trim()) return;
+    if (
+      !form.clientId ||
+      !form.objectType.trim() ||
+      (!isPrivateClient && !form.name.trim())
+    ) {
+      return;
+    }
 
     setErrorMessage("");
 
@@ -259,6 +304,9 @@ function NewLocationContent() {
       const supabase = createSupabaseBrowserClient();
       const qrCode = form.qrCode.trim() || createQrCode();
       const address = form.address.trim();
+      const locationName = isPrivateClient
+        ? form.objectType.trim()
+        : form.name.trim();
 
       setSaveState(address ? "geocoding" : "saving");
       const geocoded = address ? await geocodeAddress(address) : null;
@@ -276,7 +324,7 @@ function NewLocationContent() {
           client_id: form.clientId,
           object_type: form.objectType.trim(),
           qr_code: qrCode,
-          name: form.name.trim(),
+          name: locationName,
           address,
           region: "",
           status: "изряден",
@@ -343,15 +391,17 @@ function NewLocationContent() {
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <FormField label="Име на обект">
-                <Input
-                  required
-                  value={form.name}
-                  onChange={(event) => updateForm("name", event.target.value)}
-                  placeholder="Напр. Склад Север"
-                  className="w-full"
-                />
-              </FormField>
+              {!isPrivateClient ? (
+                <FormField label="Име на обект">
+                  <Input
+                    required
+                    value={form.name}
+                    onChange={(event) => updateForm("name", event.target.value)}
+                    placeholder="Напр. Склад Север"
+                    className="w-full"
+                  />
+                </FormField>
+              ) : null}
 
               <FormField
                 label="Клиент"
@@ -364,9 +414,7 @@ function NewLocationContent() {
                 <select
                   required
                   value={form.clientId}
-                  onChange={(event) =>
-                    updateForm("clientId", event.target.value)
-                  }
+                  onChange={(event) => updateClient(event.target.value)}
                   disabled={loadState === "loading" || clients.length === 0}
                   className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100 disabled:opacity-60"
                 >
@@ -382,16 +430,9 @@ function NewLocationContent() {
               <FormField label="Тип обект">
                 <div className="flex gap-2">
                   <select
+                    required
                     value={form.objectType}
-                    onChange={(event) => {
-                      if (event.target.value === ADD_OBJECT_TYPE_VALUE) {
-                        setAddingObjectType(true);
-                        updateForm("objectType", "");
-                        return;
-                      }
-                      setAddingObjectType(false);
-                      updateForm("objectType", event.target.value);
-                    }}
+                    onChange={(event) => updateForm("objectType", event.target.value)}
                     className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
                   >
                     <option value="">Изберете тип</option>
@@ -400,27 +441,8 @@ function NewLocationContent() {
                         {type}
                       </option>
                     ))}
-                    <option value={ADD_OBJECT_TYPE_VALUE}>Добави +</option>
                   </select>
                 </div>
-                {addingObjectType ? (
-                  <div className="mt-2 flex gap-2">
-                    <Input
-                      value={newObjectType}
-                      onChange={(event) => setNewObjectType(event.target.value)}
-                      placeholder="Нов тип обект"
-                      className="w-full"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={addObjectType}
-                      disabled={!newObjectType.trim()}
-                    >
-                      Добави
-                    </Button>
-                  </div>
-                ) : null}
               </FormField>
 
               <div className="lg:col-span-2">
@@ -477,9 +499,11 @@ function NewLocationContent() {
               <div className="font-black text-slate-900">
                 {selectedClient?.name || "Няма избран клиент"}
               </div>
-              <div className="mt-1 text-sm font-bold text-slate-500">
-                {selectedClient?.bulstat || "ЕИК / БУЛСТАТ не е попълнен"}
-              </div>
+              {selectedClient?.clientType === "corporate" ? (
+                <div className="mt-1 text-sm font-bold text-slate-500">
+                  {selectedClient.bulstat || "ЕИК / БУЛСТАТ не е попълнен"}
+                </div>
+              ) : null}
             </div>
           </Card>
 
@@ -506,7 +530,8 @@ function NewLocationContent() {
                   isSaving ||
                   loadState === "loading" ||
                   !form.clientId ||
-                  !form.name.trim()
+                  !form.objectType.trim() ||
+                  (!isPrivateClient && !form.name.trim())
                 }
                 className="w-full"
               >

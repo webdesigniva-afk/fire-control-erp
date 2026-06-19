@@ -46,6 +46,12 @@ export type ProtocolSettings = {
   extinguishingAgentTypes: string[];
   extinguishingAgentTradeNames: string[];
   extinguisherServiceTypes: string[];
+  fireAlarmPanelBrands: string[];
+  fireAlarmPanelModels: string[];
+  emergencyLightingTypes: string[];
+  fireHydrantTypes: string[];
+  fireHydrantDiameters: string[];
+  evacuationPlanTypes: string[];
   serviceSystemStatuses: string[];
   archivedCatalogValues?: Record<string, string[]>;
 };
@@ -122,6 +128,43 @@ export const defaultProtocolSettings: ProtocolSettings = {
     "техническо обслужване",
     "презареждане",
     "хидростатично изпитване на устойчивост на налягане",
+  ],
+  fireAlarmPanelBrands: [
+    "Teletek",
+    "Honeywell",
+    "Bosch",
+    "Siemens",
+    "Друг производител",
+  ],
+  fireAlarmPanelModels: ["IRIS 8", "SIMPO", "Cerberus PRO"],
+  emergencyLightingTypes: [
+    "Аварийно осветително тяло",
+    "Табела Изход",
+    "Паник осветление",
+    "Прожектор",
+    "Друго",
+  ],
+  fireHydrantTypes: [
+    "Вътрешен пожарен кран",
+    "Външен пожарен хидрант",
+    "Сух щранг",
+    "Друго",
+  ],
+  fireHydrantDiameters: [
+    "DN25",
+    "DN52",
+    "DN65",
+    "DN80",
+    "DN100",
+    "DN150",
+    "Неизвестен",
+  ],
+  evacuationPlanTypes: [
+    "Общ план",
+    "План на етаж",
+    "План за евакуация при пожар",
+    "План за аварийни ситуации",
+    "Друг",
   ],
   serviceSystemStatuses: ["Изрядна", "С отклонения", "Неизправна"],
   archivedCatalogValues: {},

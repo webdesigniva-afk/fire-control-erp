@@ -8,11 +8,18 @@ import {
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Fan,
   FileText,
+  FireExtinguisher,
+  LampWallUp,
   MapPin,
   Phone,
   ShieldCheck,
+  Siren,
+  SprayCan,
+  Waves,
   Wrench,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
@@ -44,6 +51,10 @@ type PassportEquipment = {
   status: string;
   nextCheckDate: string;
   notes: string;
+  subtype: string;
+  capacity: string;
+  description: string;
+  totalDevices: string;
 };
 
 type PassportProtocol = {
@@ -136,6 +147,10 @@ function mapEquipment(rows: DataRecord[]): PassportEquipment[] {
       "next_service_date",
     ]),
     notes: textValue(row, ["notes", "note", "description"]),
+    subtype: textValue(row, ["subtype"]),
+    capacity: textValue(row, ["capacity", "mass", "charge_mass"]),
+    description: textValue(row, ["description"]),
+    totalDevices: textValue(row, ["total_devices"]),
   }));
 }
 
@@ -148,6 +163,132 @@ function mapProtocols(rows: DataRecord[]): PassportProtocol[] {
     status: textValue(row, ["status"]),
     technician: textValue(row, ["technician"]),
   }));
+}
+
+function equipmentGroupLabel(type: string) {
+  const normalized = type.trim();
+  const lower = normalized.toLowerCase();
+
+  if (
+    lower.includes("аварийно осветление") ||
+    lower.includes("emergency-lighting")
+  ) {
+    return "Аварийно осветление";
+  }
+
+  return normalized || "Друго оборудване";
+}
+
+function equipmentGroupTitle(type: string, count: number) {
+  return `${equipmentGroupLabel(type)} (${count})`;
+}
+
+type EquipmentOverviewItem = {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  iconClassName: string;
+};
+
+function numericValue(value: string) {
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function equipmentTypeText(item: PassportEquipment) {
+  return [item.type, item.name].join(" ").toLowerCase();
+}
+
+function getEquipmentOverview(equipment: PassportEquipment[]): EquipmentOverviewItem[] {
+  const matches = (item: PassportEquipment, ...terms: string[]) => {
+    const text = equipmentTypeText(item);
+    return terms.some((term) => text.includes(term));
+  };
+  const count = (...terms: string[]) =>
+    equipment.filter((item) => matches(item, ...terms)).length;
+  const activeExtinguisherCount = equipment.filter(
+    (item) =>
+      matches(item, "пожарогасител", "extinguisher") &&
+      !["бракуван", "липсващ", "неактив"].some((status) =>
+        item.status.toLowerCase().includes(status)
+      )
+  ).length;
+  const sum = (field: keyof PassportEquipment, ...terms: string[]) =>
+    equipment
+      .filter((item) => matches(item, ...terms))
+      .reduce((total, item) => total + numericValue(String(item[field] ?? "")), 0);
+
+  const fireAlarmPoints = sum(
+    "totalDevices",
+    "пожароизвестителна централа",
+    "fire-alarm-panel"
+  );
+  const sprinklerCount = sum("totalDevices", "спринклерна система", "sprinkler");
+  const smokeControlCount = equipment
+    .filter((item) => matches(item, "димоотвеждане", "smoke-control"))
+    .reduce(
+      (total, item) =>
+        total +
+        numericValue(item.subtype) +
+        numericValue(item.description) +
+        numericValue(item.capacity),
+      0
+    );
+
+  return [
+    {
+      label: "Пожарогасители",
+      value: String(activeExtinguisherCount),
+      icon: FireExtinguisher,
+      iconClassName: "text-orange-600",
+    },
+    {
+      label: "Пожароизвестяване",
+      value: `${fireAlarmPoints} точки`,
+      icon: Siren,
+      iconClassName: "text-red-600",
+    },
+    {
+      label: "Пожарни кранове",
+      value: String(count("пожарен кран", "fire-hydrant")),
+      icon: Waves,
+      iconClassName: "text-cyan-600",
+    },
+    {
+      label: "Аварийно осветление",
+      value: String(count("аварийно осветление", "emergency-lighting")),
+      icon: LampWallUp,
+      iconClassName: "text-amber-600",
+    },
+    {
+      label: "Спринклери",
+      value: String(sprinklerCount),
+      icon: SprayCan,
+      iconClassName: "text-blue-600",
+    },
+    {
+      label: "Димоотвеждане",
+      value: String(smokeControlCount),
+      icon: Fan,
+      iconClassName: "text-slate-600",
+    },
+    {
+      label: "Евакуационни планове",
+      value: String(count("евакуационен план", "evacuation-plan")),
+      icon: ClipboardList,
+      iconClassName: "text-emerald-600",
+    },
+  ].filter((item) => Number.parseInt(item.value, 10) > 0);
+}
+
+function equipmentOverviewGridClass(count: number) {
+  if (count === 1) return "grid-cols-1";
+  if (count === 2) return "grid-cols-2";
+  if (count === 3) return "grid-cols-1 sm:grid-cols-3";
+  if (count === 4) return "grid-cols-2 lg:grid-cols-4";
+  if (count === 5) return "grid-cols-2 md:grid-cols-3 lg:grid-cols-5";
+  if (count === 6) return "grid-cols-2 md:grid-cols-3 lg:grid-cols-6";
+  return "grid-cols-2 md:grid-cols-4 xl:grid-cols-7";
 }
 
 function BrandHeader({ internal = false }: { internal?: boolean }) {
@@ -249,11 +390,15 @@ function InternalPassport({ data }: { data: PassportData }) {
     )
   );
   const recentProtocols = protocols.slice(0, 5);
+  const equipmentOverview = useMemo(
+    () => getEquipmentOverview(equipment),
+    [equipment]
+  );
   const groupedEquipment = useMemo(() => {
     const groups = new Map<string, PassportEquipment[]>();
 
     for (const item of equipment) {
-      const key = item.type || "Друго оборудване";
+      const key = equipmentGroupLabel(item.type);
       groups.set(key, [...(groups.get(key) ?? []), item]);
     }
 
@@ -281,6 +426,30 @@ function InternalPassport({ data }: { data: PassportData }) {
             </Badge>
           </div>
         </Card>
+
+        {equipmentOverview.length > 0 ? (
+        <section
+          aria-label="Обзор на оборудването"
+          className="overflow-hidden rounded-lg border border-slate-200 bg-white"
+        >
+          <div className={`grid divide-x divide-y divide-slate-100 ${equipmentOverviewGridClass(equipmentOverview.length)}`}>
+            {equipmentOverview.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.label} className="flex min-h-24 items-center gap-3 px-4 py-3">
+                  <Icon size={21} className={`shrink-0 ${item.iconClassName}`} />
+                  <div className="min-w-0">
+                    <div className="text-lg font-black text-slate-900">{item.value}</div>
+                    <div className="mt-0.5 text-[10px] font-black uppercase leading-4 text-slate-400">
+                      {item.label}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+        ) : null}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
           <StatCard label="Оборудване" value={equipment.length} />
@@ -339,11 +508,13 @@ function InternalPassport({ data }: { data: PassportData }) {
               groupedEquipment.map(([type, items]) => (
                 <div key={type} className="rounded-2xl bg-slate-50 p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <div className="font-black text-slate-900">{type}</div>
+                    <div className="font-black text-slate-900">
+                      {equipmentGroupTitle(type, items.length)}
+                    </div>
                     <Badge variant="neutral">{items.length}</Badge>
                   </div>
                   <div className="mt-3 space-y-2">
-                    {items.slice(0, 6).map((item) => (
+                    {items.map((item) => (
                       <div
                         key={item.id}
                         className="rounded-xl border border-slate-100 bg-white p-3"
