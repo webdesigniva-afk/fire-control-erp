@@ -832,6 +832,119 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
   return "";
 }
 
+function payloadFromDbRow(row: DataRecord) {
+  const payload = row["protocol_payload"];
+  return isRecord(payload) ? (payload as Partial<StoredProtocol>) : {};
+}
+
+function protocolTypeFromStoredValue(value: unknown): StoredProtocol["protocolType"] {
+  if (typeof value !== "string" || !value.trim()) return "";
+  if ((protocolTypes as string[]).includes(value)) return value as ProtocolType;
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "subscription") return protocolTypes[0];
+  if (normalized === "extinguisher") return protocolTypes[1];
+  if (normalized === "service") return protocolTypes[2];
+
+  const displayValue = Object.entries(PROTOCOL_TYPE_KEY).find(
+    ([, dbValue]) => dbValue === normalized
+  )?.[0];
+
+  return displayValue && (protocolTypes as string[]).includes(displayValue)
+    ? (displayValue as ProtocolType)
+    : "";
+}
+
+function mapDbRowToStoredProtocol(row: DataRecord): StoredProtocol {
+  const payload = payloadFromDbRow(row);
+  const rowStatus = textValue(row, ["status"]);
+
+  return {
+    number:
+      payload.number ||
+      textValue(row, ["protocol_number", "number", "id"]),
+    status:
+      payload.status === "completed" || rowStatus === "completed"
+        ? "completed"
+        : "draft",
+    protocolType: protocolTypeFromStoredValue(
+      payload.protocolType || textValue(row, ["protocol_type", "type"])
+    ),
+    objectCode: payload.objectCode || textValue(row, ["object_code"]),
+    date: payload.date || textValue(row, ["protocol_date", "date"]),
+    client: payload.client || textValue(row, ["client_name"]),
+    objectName: payload.objectName || textValue(row, ["object_name"]),
+    address: payload.address || "",
+    region: payload.region || "",
+    phone: payload.phone || "",
+    technician: payload.technician || textValue(row, ["technician"]),
+    contractReference: payload.contractReference || "",
+    clientRepresentative: payload.clientRepresentative || "",
+    personnelFunctions:
+      payload.personnelFunctions || { A: false, B: false, C: false },
+    subscriptionChecks: payload.subscriptionChecks || {},
+    subscriptionCheckNotes: payload.subscriptionCheckNotes || {},
+    serviceQuality: payload.serviceQuality || "",
+    photos: Array.isArray(payload.photos) ? payload.photos : [],
+    notes: payload.notes || "",
+    serviceDefects: payload.serviceDefects || "",
+    serviceDeviations: payload.serviceDeviations || "",
+    serviceSystemStatus: payload.serviceSystemStatus || "",
+    nextVisitDate: payload.nextVisitDate || "",
+    technicianSignatureDataUrl: payload.technicianSignatureDataUrl || "",
+    clientSignatureDataUrl: payload.clientSignatureDataUrl || "",
+    extinguisherRows: Array.isArray(payload.extinguisherRows)
+      ? payload.extinguisherRows
+      : [],
+    selectedEquipmentIds: Array.isArray(payload.selectedEquipmentIds)
+      ? payload.selectedEquipmentIds
+      : [],
+    checks: payload.checks || {},
+    savedAt:
+      typeof payload.savedAt === "number"
+        ? payload.savedAt
+        : Date.parse(textValue(row, ["updated_at", "created_at"])) || Date.now(),
+    completedAt: payload.completedAt,
+  };
+}
+
+async function loadDbDraftProtocol(number: string) {
+  const supabase = createSupabaseBrowserClient();
+
+  const canonical = await supabase
+    .from("protocols")
+    .select("*")
+    .eq("protocol_number", number)
+    .maybeSingle();
+
+  if (!canonical.error && canonical.data) {
+    return mapDbRowToStoredProtocol(canonical.data as DataRecord);
+  }
+
+  const legacy = await supabase
+    .from("protocols")
+    .select("*")
+    .eq("number", number)
+    .maybeSingle();
+
+  if (!legacy.error && legacy.data) {
+    return mapDbRowToStoredProtocol(legacy.data as DataRecord);
+  }
+
+  return null;
+}
+
+async function loadDraftProtocolForEdit(number: string) {
+  const dbDraft = await loadDbDraftProtocol(number).catch(() => null);
+  if (dbDraft) return dbDraft;
+
+  return (
+    loadStoredProtocols().find(
+      (record) => record.number === number && record.status === "draft"
+    ) ?? fallbackDraftProtocols.find((record) => record.number === number) ?? null
+  );
+}
+
 function readTeamSession(): TeamSession | null {
   if (typeof window === "undefined") return null;
 
@@ -1456,6 +1569,42 @@ function SignatureCapture({
 
     return { canvas, context };
   }
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    if (!value) return;
+
+    let cancelled = false;
+    const image = new Image();
+    image.onload = () => {
+      if (cancelled) return;
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      const padding = 10;
+      const availableWidth = canvas.width - padding * 2;
+      const availableHeight = canvas.height - padding * 2;
+      const scale = Math.min(
+        availableWidth / image.width,
+        availableHeight / image.height,
+        1
+      );
+      const width = image.width * scale;
+      const height = image.height * scale;
+      const x = padding + (availableWidth - width) / 2;
+      const y = padding + (availableHeight - height) / 2;
+
+      context.drawImage(image, x, y, width, height);
+    };
+    image.src = value;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
 
   function saveSignature() {
     const canvas = canvasRef.current;
@@ -4005,11 +4154,10 @@ export function ProtocolForm({
     if (!draftNumber || draftHydratedRef.current) return;
     if (formLoadState === "loading") return;
 
-    const storedDraft =
-      loadStoredProtocols().find(
-        (record) => record.number === draftNumber && record.status === "draft"
-      ) ??
-      fallbackDraftProtocols.find((record) => record.number === draftNumber);
+    let isMounted = true;
+
+    loadDraftProtocolForEdit(draftNumber).then((storedDraft) => {
+      if (!isMounted || draftHydratedRef.current) return;
 
     if (!storedDraft) {
       setSaveState({
@@ -4071,6 +4219,11 @@ export function ProtocolForm({
     }
 
     draftHydratedRef.current = true;
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [draftNumber, formLoadState, objectOptionsFromDb, selectedObjectCode]);
 
   useEffect(() => {
@@ -4841,11 +4994,12 @@ export function ProtocolForm({
   const isCompleting = isSaving && saveState.mode === "complete";
 
   function handleTechnicianChange(technician: string) {
+    const previousTechnician = selectedTechnician;
     setSelectedTechnician(technician);
     const savedSignature = technicianSignatures[technician];
     if (savedSignature) {
       setTechnicianSignatureDataUrl(savedSignature);
-    } else {
+    } else if (technician !== previousTechnician || !draftNumber) {
       setTechnicianSignatureDataUrl("");
     }
   }

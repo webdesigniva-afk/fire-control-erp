@@ -11,6 +11,8 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
+  Trash2,
+  UserCheck,
   UserRoundX,
   UsersRound,
   X,
@@ -449,6 +451,7 @@ export default function TeamPage() {
   const [isCreateOpen, setCreateOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<TeamMember | null>(null);
   const [deactivateMember, setDeactivateMember] = useState<TeamMember | null>(null);
+  const [deleteMember, setDeleteMember] = useState<TeamMember | null>(null);
   const [resetPinMember, setResetPinMember] = useState<TeamMember | null>(null);
   const [oneTimePin, setOneTimePin] = useState<{ employeeCode: string; pin: string; title: string } | null>(null);
   const [form, setForm] = useState<TeamForm>(emptyForm);
@@ -808,6 +811,61 @@ export default function TeamPage() {
     }
   }
 
+  async function handleActivate(member: TeamMember) {
+    setSaving(true);
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+      const { data, error } = await supabase
+        .from("team_members")
+        .update({ is_active: true, updated_at: new Date().toISOString() })
+        .eq("id", member.id)
+        .select(teamMemberSelect)
+        .single();
+
+      if (error) throw new Error(error.message);
+      setMembers((items) => items.map((item) => (item.id === member.id ? (data as TeamMember) : item)));
+      showNotice("Профилът е активиран.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Грешка при активиране.", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteMember() {
+    if (!deleteMember) return;
+    if (currentProfile?.id === deleteMember.id) {
+      showNotice("Не можете да изтриете собствения си профил.", "error");
+      return;
+    }
+
+    setSaving(true);
+
+    try {
+      const supabase = createSupabaseBrowserClient();
+
+      if (deleteMember.photo_storage_path) {
+        await supabase.storage.from("team-avatars").remove([deleteMember.photo_storage_path]);
+      }
+
+      const { error } = await supabase
+        .from("team_members")
+        .delete()
+        .eq("id", deleteMember.id);
+
+      if (error) throw new Error(error.message);
+
+      setMembers((items) => items.filter((item) => item.id !== deleteMember.id));
+      setDeleteMember(null);
+      showNotice("Профилът е изтрит.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Грешка при изтриване.", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function copyCredentials(employeeCode: string, pin: string) {
     await navigator.clipboard.writeText(buildLoginText(employeeCode, pin));
     showNotice("Данните за вход са копирани.");
@@ -945,10 +1003,12 @@ export default function TeamPage() {
                             type="button"
                             variant="danger"
                             size="sm"
+                            className="text-[0px]"
                             onClick={() => setDeactivateMember(member)}
-                            disabled={!member.is_active || saving}
+                            disabled={saving}
                           >
-                            <UserRoundX size={14} />
+                            {member.is_active ? <UserRoundX size={14} /> : <UserCheck size={14} />}
+                            <span className="ml-2 text-sm">{member.is_active ? "Деактивирай" : "Управление"}</span>
                             Деактивирай
                           </Button>
                         </div>
@@ -1144,7 +1204,7 @@ export default function TeamPage() {
         </ModalShell>
       ) : null}
 
-      {deactivateMember ? (
+      {deactivateMember?.is_active ? (
         <ModalShell title="Деактивирай потребител" subtitle={deactivateMember.name} onClose={() => setDeactivateMember(null)}>
           <div className="space-y-5">
             <p className="text-sm font-semibold leading-6 text-slate-600">
@@ -1155,6 +1215,59 @@ export default function TeamPage() {
               <Button type="button" variant="danger" onClick={handleDeactivate} disabled={saving}>
                 {saving ? <Loader2 size={16} className="animate-spin" /> : <UserRoundX size={16} />}
                 Деактивирай
+              </Button>
+            </div>
+          </div>
+        </ModalShell>
+      ) : null}
+      {deactivateMember && !deactivateMember.is_active ? (
+        <ModalShell title="Управление на неактивен профил" subtitle={deactivateMember.name} onClose={() => setDeactivateMember(null)}>
+          <div className="space-y-5">
+            <p className="text-sm font-semibold leading-6 text-slate-600">
+              Профилът е неактивен. Можете да го активирате отново или да го изтриете окончателно от системата.
+            </p>
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+              <Button type="button" variant="outline" onClick={() => setDeactivateMember(null)}>Отказ</Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  await handleActivate(deactivateMember);
+                  setDeactivateMember(null);
+                }}
+                disabled={saving}
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <UserCheck size={16} />}
+                Активирай
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => {
+                  setDeleteMember(deactivateMember);
+                  setDeactivateMember(null);
+                }}
+                disabled={saving}
+              >
+                <Trash2 size={16} />
+                Изтрий
+              </Button>
+            </div>
+          </div>
+        </ModalShell>
+      ) : null}
+
+      {deleteMember ? (
+        <ModalShell title="Изтрий профил" subtitle={deleteMember.name} onClose={() => setDeleteMember(null)}>
+          <div className="space-y-5">
+            <p className="text-sm font-semibold leading-6 text-slate-600">
+              Това действие ще изтрие профила окончателно. Използвайте го само ако този човек не трябва да остава в списъка на екипа.
+            </p>
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-5">
+              <Button type="button" variant="outline" onClick={() => setDeleteMember(null)}>Отказ</Button>
+              <Button type="button" variant="danger" onClick={handleDeleteMember} disabled={saving}>
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                Изтрий профила
               </Button>
             </div>
           </div>

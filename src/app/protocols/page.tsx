@@ -59,6 +59,7 @@ type StoredProtocol = {
   client: string;
   objectName: string;
   technician: string;
+  photos?: unknown[];
   technicianSignatureDataUrl?: string;
   clientSignatureDataUrl?: string;
   savedAt: number;
@@ -189,7 +190,7 @@ function mapStoredToListItem(record: StoredProtocol): ProtocolListItem {
     technician: record.technician || "—",
     date: formatStoredDate(record.date),
     status,
-    photos: 0,
+    photos: Array.isArray(record.photos) ? record.photos.length : 0,
     signed,
     emailed: false,
     source: "stored",
@@ -220,6 +221,10 @@ function protocolDisplayType(value: string) {
   return value === "Сервизен протокол"
     ? "Протокол за поддръжка на ПИС"
     : value;
+}
+
+function photoCountLabel(count: number) {
+  return count === 1 ? "1 снимка" : `${count} снимки`;
 }
 
 function payloadFromDbRow(row: DataRecord) {
@@ -257,6 +262,7 @@ function mapDbRowToListItem(row: DataRecord): ProtocolListItem {
     technician: payload.technician || textValue(row, ["technician"]),
     technicianSignatureDataUrl: payload.technicianSignatureDataUrl || "",
     clientSignatureDataUrl: payload.clientSignatureDataUrl || "",
+    photos: Array.isArray(payload.photos) ? payload.photos : [],
     savedAt:
       typeof payload.savedAt === "number"
         ? payload.savedAt
@@ -275,10 +281,35 @@ async function readDbProtocols(): Promise<ProtocolListItem[]> {
 
   const deletedNumbers = readDeletedProtocolNumbers();
 
-  return ((data as DataRecord[]) ?? [])
+  const protocols = ((data as DataRecord[]) ?? [])
     .map(mapDbRowToListItem)
     .filter((item) => item.number && !deletedNumbers.has(item.number))
     .sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
+
+  const protocolNumbers = protocols.map((item) => item.number).filter(Boolean);
+  if (!protocolNumbers.length) return protocols;
+
+  const { data: photoRows, error: photosError } = await supabase
+    .from("protocol_photos")
+    .select("protocol_number")
+    .in("protocol_number", protocolNumbers);
+
+  if (photosError) {
+    console.warn("[protocols] failed to load photo counts", photosError.message);
+    return protocols;
+  }
+
+  const photoCounts = new Map<string, number>();
+  for (const row of (photoRows as DataRecord[]) ?? []) {
+    const protocolNumber = textValue(row, ["protocol_number"]);
+    if (!protocolNumber) continue;
+    photoCounts.set(protocolNumber, (photoCounts.get(protocolNumber) ?? 0) + 1);
+  }
+
+  return protocols.map((item) => ({
+    ...item,
+    photos: Math.max(item.photos, photoCounts.get(item.number) ?? 0),
+  }));
 }
 
 function readStoredProtocols(): ProtocolListItem[] {
@@ -610,7 +641,7 @@ export default function ProtocolsPage() {
                     <div className="flex flex-wrap gap-2">
                       <Badge variant="neutral">
                         <Camera size={14} />
-                        {protocol.photos} снимки
+                        {photoCountLabel(protocol.photos)}
                       </Badge>
                       <Badge variant={protocol.signed ? "success" : "neutral"}>
                         <PenLine size={14} />
