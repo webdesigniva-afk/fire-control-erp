@@ -9,7 +9,6 @@ import {
   ChartNoAxesColumnIncreasing,
   ClipboardCheck,
   FileText,
-  Flame,
   Handshake,
   PanelLeft,
   PanelLeftClose,
@@ -80,19 +79,29 @@ export function AppSidebar() {
       <div className="flex h-full flex-col">
         <div
           className={`flex items-center ${
-            isExpanded ? "gap-3" : "justify-center"
+            isExpanded ? "justify-center" : "justify-center"
           }`}
         >
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 via-red-500 to-orange-400 text-white shadow-[0_12px_28px_rgba(239,68,68,0.22)]">
-            <Flame size={24} />
+          <div className={isExpanded ? "flex min-w-0 flex-col items-center text-center" : "hidden"}>
+            <img
+              src="/firecontrol-header-logo.png"
+              alt="FIREControl"
+              className="h-13 w-auto max-w-[210px] object-contain"
+            />
+            <div className="mt-1 text-xs font-black uppercase tracking-normal text-orange-500/85">
+              ERP система
+            </div>
           </div>
-          <div className={isExpanded ? "block min-w-0" : "hidden"}>
-            <div className="text-xl font-black tracking-tight text-slate-950">
-              FIRE<span className="text-orange-500">Control</span>
-            </div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-              ERP Platform
-            </div>
+          <div
+            className={`${
+              isExpanded ? "hidden" : "flex"
+            } h-12 w-12 shrink-0 items-center justify-center rounded-2xl border-2 border-orange-300 bg-orange-50 shadow-[0_12px_28px_rgba(249,115,22,0.18)]`}
+          >
+            <img
+              src="/firecontrol-flame.png"
+              alt="FIREControl"
+              className="h-8 w-8 translate-x-[2px] object-contain"
+            />
           </div>
         </div>
 

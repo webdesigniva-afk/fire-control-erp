@@ -90,9 +90,11 @@ export default function TechnicianPage() {
       <div className="mx-auto w-full max-w-xl px-4 py-5">
         <header className="flex items-start justify-between gap-4">
           <div>
-            <div className="text-xs font-black uppercase text-orange-500">
-              FIREControl
-            </div>
+            <img
+              src="/firecontrol-header-logo.png"
+              alt="FIREControl"
+              className="h-8 w-auto object-contain object-left"
+            />
             <h1 className="mt-1 text-3xl font-black tracking-tight">
               Здравей, Иван
             </h1>
