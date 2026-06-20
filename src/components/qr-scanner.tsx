@@ -1,5 +1,6 @@
 "use client";
 
+import jsQR from "jsqr";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { QrCode, X } from "lucide-react";
 import { Button } from "./ui/button";
@@ -60,6 +61,7 @@ function QrScannerModal({
   onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animationRef = useRef<number | null>(null);
   const [status, setStatus] = useState<"idle" | "starting" | "scanning" | "error">(
@@ -78,13 +80,16 @@ function QrScannerModal({
     streamRef.current = null;
   }, []);
 
-  const openPassport = useCallback((rawValue: string) => {
-    const url = passportUrlFromScan(rawValue);
-    if (!url) return;
+  const openPassport = useCallback(
+    (rawValue: string) => {
+      const url = passportUrlFromScan(rawValue);
+      if (!url) return;
 
-    stopCamera();
-    window.location.assign(url);
-  }, [stopCamera]);
+      stopCamera();
+      window.location.assign(url);
+    },
+    [stopCamera]
+  );
 
   useEffect(() => {
     if (!open) {
@@ -101,15 +106,6 @@ function QrScannerModal({
       if (!navigator.mediaDevices?.getUserMedia) {
         setStatus("error");
         setMessage("Браузърът не позволява достъп до камера.");
-        return;
-      }
-
-      const BarcodeDetector = getBarcodeDetector();
-      if (!BarcodeDetector) {
-        setStatus("error");
-        setMessage(
-          "Този браузър няма вграден QR scanner. Поставете QR кода ръчно долу."
-        );
         return;
       }
 
@@ -131,15 +127,44 @@ function QrScannerModal({
           await videoRef.current.play();
         }
 
-        const detector = new BarcodeDetector({ formats: ["qr_code"] });
+        const BarcodeDetector = getBarcodeDetector();
+        const detector = BarcodeDetector
+          ? new BarcodeDetector({ formats: ["qr_code"] })
+          : null;
+
         setStatus("scanning");
 
         async function scanFrame() {
           if (cancelled || !videoRef.current) return;
 
           try {
-            const results = await detector.detect(videoRef.current);
-            const rawValue = results.find((result) => result.rawValue)?.rawValue;
+            let rawValue = "";
+
+            if (detector) {
+              const results = await detector.detect(videoRef.current);
+              rawValue = results.find((result) => result.rawValue)?.rawValue ?? "";
+            } else {
+              const video = videoRef.current;
+              const canvas = canvasRef.current;
+              const width = video.videoWidth;
+              const height = video.videoHeight;
+
+              if (canvas && width > 0 && height > 0) {
+                canvas.width = width;
+                canvas.height = height;
+
+                const context = canvas.getContext("2d", {
+                  willReadFrequently: true,
+                });
+
+                if (context) {
+                  context.drawImage(video, 0, 0, width, height);
+                  const imageData = context.getImageData(0, 0, width, height);
+                  rawValue = jsQR(imageData.data, width, height)?.data ?? "";
+                }
+              }
+            }
+
             if (rawValue) {
               openPassport(rawValue);
               return;
@@ -196,6 +221,7 @@ function QrScannerModal({
               playsInline
               className="h-full w-full object-cover"
             />
+            <canvas ref={canvasRef} className="hidden" />
             <div className="pointer-events-none absolute inset-8 rounded-2xl border-2 border-white/80 shadow-[0_0_0_999px_rgba(15,23,42,0.28)]" />
             {status !== "scanning" ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/75 p-6 text-center text-white">

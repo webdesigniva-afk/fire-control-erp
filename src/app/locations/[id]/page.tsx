@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   ChevronDown,
   CircleAlert,
+  ClipboardList,
   ClipboardPlus,
   Edit3,
   Eye,
@@ -32,9 +33,12 @@ import {
   Fan,
   FileText,
   FireExtinguisher,
+  Globe,
   ImagePlus,
   LampWallUp,
   Loader2,
+  Mail,
+  Lock,
   MapPin,
   MapPinned,
   MoreVertical,
@@ -44,9 +48,11 @@ import {
   Printer,
   QrCode,
   Save,
+  ShieldCheck,
   Siren,
   SlidersHorizontal,
   SprayCan,
+  Tag,
   Trash2,
   UserRound,
   Waves,
@@ -2005,9 +2011,21 @@ function InfoRow({
   );
 }
 
-function GeneratedQrCode({ compact = false }: { compact?: boolean }) {
+function GeneratedQrCode({
+  compact = false,
+  labelSize = "default",
+}: {
+  compact?: boolean;
+  labelSize?: "default" | "large";
+}) {
   const [qrImage, setQrImage] = useState<string | null>(null);
   const location = useLocationProfile();
+  const sizeClassName =
+    labelSize === "large"
+      ? "h-52 w-52"
+      : compact
+        ? "h-28 w-28"
+        : "h-36 w-36";
 
   useEffect(() => {
     let isMounted = true;
@@ -2028,9 +2046,7 @@ function GeneratedQrCode({ compact = false }: { compact?: boolean }) {
 
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white p-3 ${
-        compact ? "h-28 w-28" : "h-36 w-36"
-      }`}
+      className={`flex shrink-0 items-center justify-center bg-white p-3 ${sizeClassName}`}
     >
       {qrImage ? (
         <img
@@ -2043,6 +2059,154 @@ function GeneratedQrCode({ compact = false }: { compact?: boolean }) {
           Генериране...
         </div>
       )}
+    </div>
+  );
+}
+
+function ObjectQrInfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="grid grid-cols-[26px_1fr] items-start gap-2 border-b border-slate-200 py-1.5 last:border-b-0">
+      <div className="flex h-6 w-6 items-center justify-center text-slate-950">
+        <Icon size={18} strokeWidth={2.2} />
+      </div>
+      <div className="min-w-0">
+        <div className="text-[8px] font-black uppercase tracking-normal text-slate-500">
+          {label}
+        </div>
+        <div className="mt-0.5 break-words text-[11px] font-black leading-tight text-slate-950">
+          {value || "-"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function formatLabelPhone(value: string) {
+  const normalized = value.trim();
+  const digits = normalized.replace(/\D/g, "");
+
+  if (digits.length === 12 && digits.startsWith("359")) {
+    return `+359 ${digits.slice(3, 6)} ${digits.slice(6, 9)} ${digits.slice(9)}`;
+  }
+
+  if (digits.length === 10 && digits.startsWith("0")) {
+    return `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}`;
+  }
+
+  return normalized;
+}
+
+function ObjectQrLabel({ print = false }: { print?: boolean }) {
+  const location = useLocationProfile();
+  const contactPhone = formatLabelPhone(location.phone);
+
+  return (
+    <div
+      className={`overflow-hidden bg-white text-slate-950 ${
+        print
+          ? "w-[100mm] rounded-[2mm] border border-slate-950"
+          : "aspect-[100/65] w-full max-w-[520px] rounded-lg border border-slate-300 shadow-sm"
+      }`}
+    >
+      <div className="bg-slate-950 px-3 py-2 text-white">
+        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+          <div className="min-w-0">
+            <img
+              src="/firecontrol-header-logo.png"
+              alt="FIREControl"
+              className="h-8 w-auto max-w-[165px] object-contain"
+            />
+            <div className="mt-0.5 text-[9px] font-black uppercase tracking-normal text-white">
+              Дигитален паспорт на обект
+            </div>
+          </div>
+          <div className="flex items-center gap-2 border-l border-white/15 pl-3 text-white">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-orange-500/20 text-orange-400">
+              <QrCode size={16} />
+            </div>
+            <div>
+              <div className="text-[9px] font-black uppercase tracking-normal">
+                Сканирай
+              </div>
+              <div className="text-[8px] font-bold text-slate-300">
+                за паспорт
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[40mm_1fr] bg-white">
+        <div
+          className="border-r border-slate-200 bg-slate-50 p-3.5"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(135deg, rgba(15,23,42,0.035) 0, rgba(15,23,42,0.035) 1px, transparent 1px, transparent 10px)",
+          }}
+        >
+          <div className="mx-auto max-w-[35mm]">
+            <div className="relative flex justify-center rounded-2xl bg-white p-2.5 shadow-sm ring-1 ring-slate-200">
+              <span className="absolute left-0 top-0 h-6 w-6 rounded-tl-2xl border-l-[3px] border-t-[3px] border-orange-500" />
+              <span className="absolute right-0 top-0 h-6 w-6 rounded-tr-2xl border-r-[3px] border-t-[3px] border-orange-500" />
+              <span className="absolute bottom-0 left-0 h-6 w-6 rounded-bl-2xl border-b-[3px] border-l-[3px] border-orange-500" />
+              <span className="absolute bottom-0 right-0 h-6 w-6 rounded-br-2xl border-b-[3px] border-r-[3px] border-orange-500" />
+              <GeneratedQrCode compact />
+            </div>
+
+            <div className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-orange-600 to-orange-400 px-2 py-1.5 text-white shadow-sm">
+              <Lock size={13} className="shrink-0" />
+              <span className="text-[8px] font-black uppercase tracking-normal">
+                Оторизиран достъп
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-3.5 py-3">
+          <ObjectQrInfoRow icon={Building2} label="Обект" value={location.name} />
+          <ObjectQrInfoRow icon={Tag} label="Код" value={location.id} />
+          <ObjectQrInfoRow icon={MapPin} label="Адрес" value={location.address} />
+          <ObjectQrInfoRow icon={Phone} label="Контакт" value={contactPhone} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[0.9fr_1.1fr] gap-3 border-t border-slate-200 bg-white px-3.5 py-2 text-slate-950">
+        <div className="flex min-w-0 items-center gap-2">
+          <ShieldCheck size={18} className="shrink-0" />
+          <div className="text-[8px] font-bold leading-3 text-slate-600">
+            Вътрешен паспорт за техници
+          </div>
+        </div>
+        <div className="flex min-w-0 items-center gap-2">
+          <ClipboardList size={18} className="shrink-0" />
+          <div className="text-[8px] font-bold leading-3 text-slate-600">
+            Проверки, протоколи и забележки
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-2 bg-slate-950 px-3.5 py-2 text-white">
+        <div className="inline-flex min-w-0 items-center gap-1 text-[9px] font-black text-orange-400">
+          <Globe size={12} className="shrink-0 text-white" />
+          <span className="whitespace-nowrap">www.firecontrol.bg</span>
+        </div>
+        <div className="inline-flex min-w-0 items-center gap-1 text-[9px] font-black text-orange-400">
+          <Phone size={12} className="shrink-0 text-white" />
+          <span className="whitespace-nowrap">+358 896 089 991</span>
+        </div>
+        <div className="inline-flex min-w-0 items-center gap-1 text-[9px] font-black text-orange-400">
+          <Mail size={12} className="shrink-0 text-white" />
+          <span className="whitespace-nowrap">office@firecontrol.bg</span>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2109,92 +2273,12 @@ function ObjectQrCard() {
         </div>
       </div>
 
-      <div className="mt-5 max-w-[560px] min-w-0 border border-dashed border-slate-300 bg-slate-50 p-5">
-        <div className="flex items-center justify-between border-b border-slate-200 pb-3">
-          <div className="text-lg font-black tracking-tight">
-            FIRE<span className="text-orange-500">Control</span>
-          </div>
-          <Badge variant="orange">Паспорт</Badge>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-4 sm:flex-row">
-          <GeneratedQrCode compact />
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-bold uppercase text-slate-400">
-              Обект
-            </div>
-            <div className="mt-1 text-xl font-black leading-tight text-slate-900">
-              {location.name}
-            </div>
-            <div className="mt-3 text-xs font-bold uppercase text-slate-400">
-              ID
-            </div>
-            <div className="mt-1 font-mono text-base font-black text-slate-800">
-              {location.id}
-            </div>
-            <div className="mt-4 text-xs font-bold uppercase text-slate-400">
-              Контакт
-            </div>
-            <div className="mt-1 text-lg font-black text-slate-900">
-              {location.phone || "Не е зададен"}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-4 border-t border-slate-200 pt-3 text-xs font-bold leading-5 text-slate-500">
-          Камера: публичен контакт. ERP: вътрешен паспорт.
-        </div>
+      <div className="mt-5 flex min-w-0 justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+        <ObjectQrLabel />
       </div>
 
       <div className="object-passport-print mt-6 hidden">
-        <div className="w-[90mm] border border-slate-950 bg-white p-[5mm] text-slate-950">
-          <div className="flex items-center justify-between border-b-2 border-slate-950 pb-2">
-            <div className="text-[18px] font-black tracking-tight">
-              FIRE<span className="text-orange-500">Control</span>
-            </div>
-            <div className="border border-slate-950 px-2 py-1 text-[10px] font-black uppercase">
-              Паспорт
-            </div>
-          </div>
-          <div className="mt-4 flex gap-4">
-            <GeneratedQrCode compact />
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-black uppercase text-slate-500">
-                Обект
-              </div>
-              <div className="mt-1 text-lg font-black leading-tight">
-                {location.name}
-              </div>
-              <div className="mt-3 text-[10px] font-black uppercase text-slate-500">
-                ID
-              </div>
-              <div className="mt-1 font-mono text-sm font-black">
-                {location.id}
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 border border-slate-300 p-2 text-xs">
-            <div className="font-black uppercase text-slate-500">Адрес</div>
-            <div className="mt-1 font-bold leading-4">{location.address || "—"}</div>
-          </div>
-          <div className="mt-3 grid grid-cols-[1fr_auto] items-center gap-3 border border-slate-300 p-2 text-xs">
-            <div>
-              <div className="font-black uppercase text-slate-500">Контакт</div>
-              <div className="mt-1 text-base font-black">
-                {location.phone || "089466346"}
-              </div>
-            </div>
-            <div className="text-right text-[10px] font-black uppercase leading-4 text-slate-500">
-              Digital
-              <br />
-              Passport
-            </div>
-          </div>
-          <div className="mt-3 border-t border-slate-300 pt-2 text-[9px] font-bold leading-4 text-slate-500">
-            Публично сканиране показва контакт. ERP сканиране отваря вътрешна
-            сервизна информация за техника.
-          </div>
-        </div>
+        <ObjectQrLabel print />
       </div>
     </section>
   );

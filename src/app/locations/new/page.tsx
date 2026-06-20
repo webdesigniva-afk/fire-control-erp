@@ -26,6 +26,7 @@ import { Card } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
 import { PageHeader } from "../../../components/ui/page-header";
 import { geocodeAddress } from "../../../lib/geocoding";
+import { createObjectQrCode } from "../../../lib/object-qr";
 import {
   defaultProtocolSettings,
   readProtocolSettings,
@@ -75,7 +76,7 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
 }
 
 function createQrCode() {
-  return `OBJ-${Date.now().toString().slice(-6)}`;
+  return createObjectQrCode();
 }
 
 function uniqueValues(values: string[]) {

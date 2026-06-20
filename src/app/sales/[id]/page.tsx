@@ -36,6 +36,7 @@ import {
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
 import { serviceTasksUpdatedEvent } from "../../../lib/tasks";
 import { geocodeAddress } from "../../../lib/geocoding";
+import { createObjectQrCode } from "../../../lib/object-qr";
 
 // Types
 type Stage = "lead" | "offer" | "order" | "contract";
@@ -817,7 +818,7 @@ export default function SalesDealPage() {
         if (clientError || !newClient) { showToast("Грешка при създаване на клиент.", "error"); return; }
         clientId = String(newClient.id);
       }
-      const qrCode = `SALE-${Date.now().toString(36).toUpperCase().slice(-6)}`;
+      const qrCode = createObjectQrCode();
       const address = opportunity.object_address.trim();
       const geocoded = address ? await geocodeAddress(address) : null;
       const { data: newLocation, error: locationError } = await supabase

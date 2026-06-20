@@ -60,7 +60,7 @@ const defaultSticker: StickerRecord = {
   company_settings: {
     companyName: "FIREControl",
     address: "\u0433\u0440. \u0428\u0443\u043c\u0435\u043d, \u0443\u043b. \u201e\u0412\u043b\u0430\u0434\u0430\u0439\u0441\u043a\u043e \u0432\u044a\u0441\u0442\u0430\u043d\u0438\u0435\u201c 152",
-    phone: "0896 089 991",
+    phone: "+358 896 089 991",
     email: "office@firecontrol.bg",
     bulstat: "\u2116 873000-1637\n29.12.2023",
   },
@@ -271,7 +271,7 @@ export default function FireExtinguisherStickerPage({ params }: StickerPageProps
 
       <section className="fire-sticker-label mx-auto grid h-[60mm] w-[90mm] grid-rows-[9.5mm_1fr_8.8mm] overflow-hidden rounded-[5mm] border-[0.9mm] border-red-700 bg-white p-[1.7mm] shadow-2xl">
         <header className="grid grid-cols-[31mm_1fr] items-center gap-[1.7mm] border-b border-slate-300 pb-[1mm]">
-          <img src="/firecontrol-logo.svg" alt="FIREControl" className="h-[7mm] w-full object-contain object-left" />
+          <img src="/firecontrol-header-logo.png" alt="FIREControl" className="h-[7mm] w-full object-contain object-left" />
           <div className="text-center leading-none">
             <div className="rounded-[1mm] bg-red-700 px-[1mm] py-[0.85mm] text-[2.55mm] font-black text-white">
                 {"\u0422\u0415\u0425\u041d\u0418\u0427\u0415\u0421\u041a\u041e \u041e\u0411\u0421\u041b\u0423\u0416\u0412\u0410\u041d\u0415"}
@@ -305,9 +305,9 @@ export default function FireExtinguisherStickerPage({ params }: StickerPageProps
 
           <div className="min-h-0 pl-[1.7mm] pt-[0.7mm]">
             <StickerInfo icon={<CalendarDays size={13} />} label={"\u0414\u0410\u0422\u0410"} value={formatDate(sticker.service_date)} />
-            <StickerInfo icon={<CalendarDays size={13} />} iconClass="text-orange-600" label={"\u0421\u041b\u0415\u0414\u0412. \u041f\u0420\u041e\u0412\u0415\u0420\u041a\u0410"} value={formatDate(sticker.next_service_date)} valueClass="text-orange-600" />
+            <StickerInfo icon={<CalendarDays size={13} />} iconClass="text-orange-600" label={"\u0421\u041b\u0415\u0414\u0412. \u041e\u0411\u0421\u041b\u0423\u0416\u0412\u0410\u041d\u0415"} value={formatDate(sticker.next_service_date)} valueClass="text-orange-600" highlight />
             <StickerInfo icon={<UserRound size={13} />} label={"\u0418\u0417\u0412\u042a\u0420\u0428\u0418\u041b"} value={sticker.technician} />
-            <StickerInfo icon={<Flame size={13} />} iconClass="text-orange-600" label={"\u041f\u041e\u0416\u0410\u0420\u041e\u0413."} value={extinguisherType} />
+            <StickerInfo icon={<Flame size={13} />} iconClass="text-orange-600" label={"\u0422\u0418\u041f"} value={extinguisherType} />
             <StickerInfo
               icon={<MapPin size={13} />}
               label={"\u041e\u0411\u0415\u041a\u0422"}
@@ -319,7 +319,7 @@ export default function FireExtinguisherStickerPage({ params }: StickerPageProps
 
         <footer className="grid min-h-0 grid-cols-[1.3fr_1fr] grid-rows-2 items-center gap-x-[1.4mm] border-t border-slate-300 pt-[0.9mm] text-[1.95mm] leading-tight">
           <FooterItem icon={<Building2 size={13} />} lines={[addressParts[0] || "\u0433\u0440. \u0428\u0443\u043c\u0435\u043d", addressParts.slice(1).join(", ") || "\u0443\u043b. \u201e\u0412\u043b\u0430\u0434\u0430\u0439\u0441\u043a\u043e \u0432\u044a\u0441\u0442\u0430\u043d\u0438\u0435\u201c 152"]} />
-          <FooterItem icon={<Phone size={13} />} lines={[company.phone || "0896 089 991"]} />
+          <FooterItem icon={<Phone size={13} />} lines={[company.phone || "+358 896 089 991"]} />
           <FooterItem icon={<Globe2 size={13} />} lines={["www.firecontrol.bg"]} />
           <FooterItem icon={<Mail size={13} />} lines={[company.email || "office@firecontrol.bg"]} />
         </footer>
@@ -335,6 +335,7 @@ function StickerInfo({
   value,
   valueClass = "",
   detail,
+  highlight = false,
 }: {
   icon: ReactElement;
   iconClass?: string;
@@ -342,9 +343,10 @@ function StickerInfo({
   value: string;
   valueClass?: string;
   detail?: string;
+  highlight?: boolean;
 }) {
   return (
-    <div className="grid min-h-[5.45mm] grid-cols-[4.6mm_1fr_18mm] items-center gap-[0.8mm] border-b border-dashed border-slate-300 py-[0.45mm] last:border-b-0">
+    <div className={`grid min-h-[5.45mm] grid-cols-[4.6mm_1fr_18mm] items-center gap-[0.8mm] border-b border-dashed border-slate-300 py-[0.45mm] last:border-b-0 ${highlight ? "rounded-[1mm] bg-orange-50 px-[0.6mm]" : ""}`}>
       <div className={iconClass}>{icon}</div>
       <div className="text-[2.05mm] font-black leading-tight">{label}</div>
       <div className={`fire-sticker-value text-right text-[2.25mm] font-semibold leading-tight ${valueClass}`}>

@@ -175,27 +175,53 @@ textarea {
 
   body.print-object-passport {
     background: #ffffff;
+    height: 92mm !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    width: 106mm !important;
   }
 
-  body.print-object-passport * {
+  body.print-object-passport
+    *:not(.object-passport-print):not(.object-passport-print *) {
+    height: 0 !important;
+    margin: 0 !important;
+    max-height: 0 !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    padding: 0 !important;
     visibility: hidden;
   }
 
   body.print-object-passport .object-passport-print,
   body.print-object-passport .object-passport-print * {
+    max-height: none !important;
+    min-height: 0 !important;
     visibility: visible;
   }
 
   body.print-object-passport .object-passport-print {
+    border: 0 !important;
     display: block !important;
-    left: 0;
+    height: auto !important;
+    left: 3mm;
     margin: 0;
-    position: absolute;
-    top: 0;
+    overflow: visible !important;
+    page-break-after: avoid;
+    page-break-before: avoid;
+    page-break-inside: avoid;
+    position: fixed;
+    top: 3mm;
+  }
+
+  body.print-object-passport .object-passport-print > * {
+    page-break-after: avoid;
+    page-break-before: avoid;
+    page-break-inside: avoid;
   }
 
   @page {
-    margin: 6mm;
-    size: auto;
+    margin: 0;
+    size: 106mm 92mm;
   }
 }
