@@ -364,25 +364,25 @@ function NewLocationContent() {
       }
 
       if (address) {
-        void geocodeAddress(address, {
+        const geocoded = await geocodeAddress(address, {
           maxQueries: 8,
           nominatimQueryLimit: 3,
           requestTimeoutMs: 3000,
-        })
-          .then(async (geocoded) => {
-            if (!geocoded) return;
+        });
 
-            await supabase
-              .from("locations")
-              .update({
-                latitude: geocoded.latitude,
-                longitude: geocoded.longitude,
-                geocoded_address: geocoded.displayName,
-                geocoded_at: new Date().toISOString(),
-              })
-              .eq("id", textValue(locationRow as DataRecord, ["id"]));
-          })
-          .catch(() => undefined);
+        if (geocoded) {
+          const { error: geocodingUpdateError } = await supabase
+            .from("locations")
+            .update({
+              latitude: geocoded.latitude,
+              longitude: geocoded.longitude,
+              geocoded_address: geocoded.displayName,
+              geocoded_at: new Date().toISOString(),
+            })
+            .eq("id", textValue(locationRow as DataRecord, ["id"]));
+
+          if (geocodingUpdateError) throw geocodingUpdateError;
+        }
       }
 
       router.push(`/locations/${qrCode}`);

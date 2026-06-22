@@ -6688,6 +6688,7 @@ export default function LocationProfilePage() {
         locationProfile.qrCode ||
         locationProfile.databaseId;
       const nextAddress = editForm.address.trim();
+      const addressChanged = nextAddress !== locationProfile.address.trim();
       const geocoded = nextAddress ? await geocodeAddress(nextAddress) : null;
       const updates: Record<string, unknown> = {
         client_id: editForm.clientId,
@@ -6702,6 +6703,13 @@ export default function LocationProfilePage() {
         updates.longitude = geocoded.longitude;
         updates.geocoded_address = geocoded.displayName;
         updates.geocoded_at = new Date().toISOString();
+      } else if (addressChanged) {
+        // Never keep a marker for the previous address. The dashboard will
+        // retry geocoding locations that have no coordinates.
+        updates.latitude = null;
+        updates.longitude = null;
+        updates.geocoded_address = null;
+        updates.geocoded_at = null;
       }
       const { data, error } = await supabase
         .from("locations")

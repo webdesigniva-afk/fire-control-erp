@@ -35,6 +35,16 @@ type GeocodeOptions = {
 
 export type { GeocodeOptions };
 
+const NOMINATIM_HEADERS = {
+  Accept: "application/json",
+  "Accept-Language": "bg,en;q=0.8",
+  // Nominatim rejects anonymous programmatic requests. This may be replaced
+  // with a contactable identifier in the server environment when deployed.
+  "User-Agent":
+    process.env.GEOCODING_USER_AGENT ??
+    "FireControlCRM/1.0 (address-geocoding)",
+};
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
@@ -121,8 +131,12 @@ function parseAddressParts(address: string) {
   const street = streetMatch?.[1]?.trim() || fallbackStreetMatch?.[1]?.trim() || streetPart;
   const number = streetMatch?.[2]?.trim() || fallbackStreetMatch?.[2]?.trim() || "";
 
+  const city = normalizeBulgarianAddress(cityPart)
+    .replace(/\s+(?:център|center)$/i, "")
+    .trim();
+
   return {
-    city: normalizeBulgarianAddress(cityPart),
+    city,
     street: normalizeBulgarianAddress(`${street} ${number}`),
     streetName: normalizeBulgarianAddress(street),
     number,
@@ -147,14 +161,14 @@ function addressQueries(address: string) {
   const latinNumberFirst = transliterateBg(numberFirst);
 
   return uniqueValues([
-    query,
-    `${query}, България`,
-    normalized,
-    `${normalized}, България`,
     structured,
     `${structured}, България`,
     reversedStructured,
     `${reversedStructured}, България`,
+    query,
+    `${query}, България`,
+    normalized,
+    `${normalized}, България`,
     numberFirst,
     `${numberFirst}, България`,
     streetOnly,
@@ -187,9 +201,8 @@ async function requestNominatim(
   const response = await fetchWithTimeout(
     `https://nominatim.openstreetmap.org/search?${params.toString()}`,
     {
-      headers: {
-        Accept: "application/json",
-      },
+      headers: NOMINATIM_HEADERS,
+      cache: "no-store",
     },
     timeoutMs
   );
@@ -231,9 +244,8 @@ async function requestNominatimStructured(
   const response = await fetchWithTimeout(
     `https://nominatim.openstreetmap.org/search?${params.toString()}`,
     {
-      headers: {
-        Accept: "application/json",
-      },
+      headers: NOMINATIM_HEADERS,
+      cache: "no-store",
     },
     timeoutMs
   );
@@ -318,14 +330,14 @@ export async function geocodeAddress(
   }
 
   const requestTimeoutMs = options.requestTimeoutMs ?? 2500;
-  const nominatimQueryLimit = options.nominatimQueryLimit ?? 4;
+  const nominatimQueryLimit = options.nominatimQueryLimit ?? 2;
   const queries = addressQueries(address).slice(0, options.maxQueries);
   if (!queries.length) return null;
 
-  const photonResults = await Promise.all(
-    queries.map((query) => requestPhoton(query, requestTimeoutMs).catch(() => null))
-  );
-  for (const result of photonResults) {
+  for (const query of queries.slice(0, nominatimQueryLimit)) {
+    const result = await requestNominatim(query, requestTimeoutMs).catch(
+      () => null
+    );
     if (result) return result;
   }
 
@@ -335,14 +347,10 @@ export async function geocodeAddress(
   ).catch(() => null);
   if (structured) return structured;
 
-  const nominatimResults = await Promise.all(
-    queries
-      .slice(0, nominatimQueryLimit)
-      .map((query) => requestNominatim(query, requestTimeoutMs).catch(() => null))
+  const photonResult = await requestPhoton(queries[0], requestTimeoutMs).catch(
+    () => null
   );
-  for (const result of nominatimResults) {
-    if (result) return result;
-  }
+  if (photonResult) return photonResult;
 
   return null;
 }

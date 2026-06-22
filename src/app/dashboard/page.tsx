@@ -964,9 +964,15 @@ function TechniciansCard({ technicians }: { technicians: TechnicianSummary[] }) 
   );
 }
 
-function MapOperationsCard({ objects }: { objects: DashboardMapObject[] }) {
+function MapOperationsCard({
+  objects,
+  totalObjects,
+}: {
+  objects: DashboardMapObject[];
+  totalObjects: number;
+}) {
   return (
-    <DashboardMap objects={objects} />
+    <DashboardMap objects={objects} totalObjects={totalObjects} />
   );
 }
 
@@ -1384,7 +1390,10 @@ export default function DashboardPage() {
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(320px,1.05fr)_minmax(420px,1.25fr)_minmax(300px,0.9fr)]">
           <AttentionCard items={derived.attentionItems} />
-          <MapOperationsCard objects={derived.mapObjects} />
+          <MapOperationsCard
+            objects={derived.mapObjects}
+            totalObjects={data.locations.length}
+          />
           <TodayTasksCard tasks={derived.dayTasks} />
         </section>
 

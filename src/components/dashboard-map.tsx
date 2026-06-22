@@ -21,6 +21,7 @@ const mapLegendItems = [
 
 type DashboardMapProps = {
   objects: DashboardMapObject[];
+  totalObjects?: number;
   showOpenMapLink?: boolean;
   prominent?: boolean;
 };
@@ -39,6 +40,7 @@ const DashboardMapLeaflet = dynamic(
 
 export function DashboardMap({
   objects,
+  totalObjects = objects.length,
   showOpenMapLink = true,
   prominent = false,
 }: DashboardMapProps) {
@@ -50,7 +52,12 @@ export function DashboardMap({
     >
       <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-black">Карта на обектите</h2>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <h2 className="text-lg font-black">Карта на обектите</h2>
+            <span className="text-xs font-medium text-slate-400">
+              {objects.length}/{totalObjects} обекта показани
+            </span>
+          </div>
           <p className="text-sm text-slate-500">
             Реални обекти с въведени координати
           </p>
