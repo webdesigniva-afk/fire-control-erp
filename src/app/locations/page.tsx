@@ -72,7 +72,13 @@ function uniqueValues(values: string[]) {
 
 function isMissingRelationError(error: { message?: string; code?: string } | null | undefined) {
   const message = error?.message?.toLowerCase() ?? "";
-  return error?.code === "42P01" || message.includes("does not exist") || message.includes("not found");
+  return (
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    message.includes("does not exist") ||
+    message.includes("not found") ||
+    message.includes("could not find the")
+  );
 }
 
 async function assertDeleteResult(
@@ -368,9 +374,12 @@ export default function LocationsPage() {
         })
       );
       setLoadState("ready");
-    } catch {
-      setErrorMessage("Грешка при връзка със Supabase");
-      setLoadState("error");
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error && error.message
+          ? `Обектът не беше изтрит: ${error.message}`
+          : "Обектът не беше изтрит поради грешка при връзка със Supabase."
+      );
     }
   }
 
@@ -664,7 +673,7 @@ export default function LocationsPage() {
       ) : null}
 
       <Card className="mt-6 overflow-hidden">
-        <div className="hidden grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_minmax(220px,1.2fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_110px] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-black uppercase text-slate-400 xl:grid">
+        <div className="hidden grid-cols-[minmax(170px,1.15fr)_minmax(140px,0.9fr)_minmax(240px,1.55fr)_minmax(110px,0.65fr)_minmax(125px,0.75fr)_minmax(105px,0.6fr)_104px] gap-x-3 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-black uppercase text-slate-400 xl:grid">
           <div>Име на обекта</div>
           <div>Клиент</div>
           <div>Адрес</div>
@@ -700,7 +709,7 @@ export default function LocationsPage() {
           return (
             <div
               key={location.id}
-              className="grid grid-cols-1 gap-4 border-b border-slate-100 px-5 py-4 last:border-b-0 xl:grid-cols-[minmax(220px,1.4fr)_minmax(160px,1fr)_minmax(220px,1.2fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_minmax(150px,0.8fr)_110px] xl:items-center"
+              className="grid grid-cols-1 gap-4 border-b border-slate-100 px-5 py-4 last:border-b-0 xl:grid-cols-[minmax(170px,1.15fr)_minmax(140px,0.9fr)_minmax(240px,1.55fr)_minmax(110px,0.65fr)_minmax(125px,0.75fr)_minmax(105px,0.6fr)_104px] xl:gap-x-3 xl:gap-y-4 xl:items-center"
             >
               <div className="min-w-0">
                 <div className="flex items-start gap-3">
@@ -728,9 +737,11 @@ export default function LocationsPage() {
                 {location.client || "Няма свързан клиент"}
               </div>
 
-              <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-slate-500">
+              <div className="flex min-w-0 items-start gap-2 text-xs font-medium leading-5 text-slate-500">
                 <MapPin size={16} className="shrink-0 text-slate-400" />
-                <span className="truncate">{location.address || "Няма адрес"}</span>
+                <span className="line-clamp-2 break-words">
+                  {location.address || "Няма адрес"}
+                </span>
               </div>
 
               <div>

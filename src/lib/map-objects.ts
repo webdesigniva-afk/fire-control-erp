@@ -148,6 +148,17 @@ function hasUsableBulgariaCoordinates(location: MapLocationItem) {
 
   if (!location.geocodedAddress) return false;
 
+  return hasCoordinatesInBulgaria(location);
+}
+
+function hasCoordinatesInBulgaria(location: MapLocationItem) {
+  if (
+    typeof location.latitude !== "number" ||
+    typeof location.longitude !== "number"
+  ) {
+    return false;
+  }
+
   return (
     location.latitude >= 41.0 &&
     location.latitude <= 44.5 &&
@@ -329,11 +340,7 @@ export function buildMapObjectsData(
   let upcomingVisitCount = 0;
 
   const mapObjects = locations
-    .filter(
-      (location) =>
-        typeof location.latitude === "number" &&
-        typeof location.longitude === "number"
-    )
+    .filter(hasCoordinatesInBulgaria)
     .map((location) => {
       const locationTasks = plannedTasks.filter((task) =>
         taskMatchesLocation(task, location)
@@ -376,9 +383,7 @@ export function buildMapObjectsData(
     locations,
     mapObjects,
     missingCoordinates: locations.filter(
-      (location) =>
-        typeof location.latitude !== "number" ||
-        typeof location.longitude !== "number"
+      (location) => !hasCoordinatesInBulgaria(location)
     ),
     upcomingVisitCount,
   };

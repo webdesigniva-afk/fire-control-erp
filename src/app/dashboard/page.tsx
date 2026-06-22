@@ -553,6 +553,30 @@ async function selectRows(table: string) {
   return ((data as DataRecord[]) ?? []);
 }
 
+function resolveDashboardRequest<T>(
+  request: PromiseLike<T>,
+  fallback: T,
+  label: string,
+  timeoutMs = 5000
+): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => {
+      console.warn(`[dashboard] ${label} load timed out`);
+      resolve(fallback);
+    }, timeoutMs);
+
+    Promise.resolve(request)
+      .then((result) => {
+        window.clearTimeout(timer);
+        resolve(result);
+      })
+      .catch(() => {
+        window.clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
+}
+
 async function loadDashboardData(): Promise<DashboardData> {
   const supabase = createSupabaseBrowserClient();
   const [
@@ -565,42 +589,47 @@ async function loadDashboardData(): Promise<DashboardData> {
     contractRows,
     technicianRows,
   ] = await Promise.all([
-    selectRows("locations"),
-    selectRows("equipment"),
-    selectRows("service_tasks"),
-    selectSalesFollowUpRows(),
-    selectRows("problems"),
-    selectRows("protocols"),
-    supabase
-      .from("saved_documents")
-      .select("id,number,client,object,payload,updated_at")
-      .eq("kind", "contract")
-      .then(({ data, error }) => {
-        if (error) {
-          console.warn("[dashboard] contracts load failed", error.message);
-          return [];
-        }
-        return ((data as DataRecord[]) ?? []);
-      }),
-    supabase
-      .from("team_members")
-      .select("id,name,photo_url,is_active,role")
-      .eq("role", "Техник")
-      .eq("is_active", true)
-      .order("name", { ascending: true })
-      .then(({ data, error }) => {
-        if (error) {
-          console.warn("[dashboard] team_members load failed", error.message);
-          return [];
-        }
-        return ((data as DataRecord[]) ?? []);
-      }),
+    resolveDashboardRequest(selectRows("locations"), [], "locations"),
+    resolveDashboardRequest(selectRows("equipment"), [], "equipment"),
+    resolveDashboardRequest(selectRows("service_tasks"), [], "service tasks"),
+    resolveDashboardRequest(selectSalesFollowUpRows(), [], "sales follow-ups"),
+    resolveDashboardRequest(selectRows("problems"), [], "problems"),
+    resolveDashboardRequest(selectRows("protocols"), [], "protocols"),
+    resolveDashboardRequest(
+      supabase
+        .from("saved_documents")
+        .select("id,number,client,object,payload,updated_at")
+        .eq("kind", "contract")
+        .then(({ data, error }) => {
+          if (error) {
+            console.warn("[dashboard] contracts load failed", error.message);
+            return [];
+          }
+          return ((data as DataRecord[]) ?? []);
+        }),
+      [],
+      "contracts"
+    ),
+    resolveDashboardRequest(
+      supabase
+        .from("team_members")
+        .select("id,name,photo_url,is_active,role")
+        .eq("role", "Техник")
+        .eq("is_active", true)
+        .order("name", { ascending: true })
+        .then(({ data, error }) => {
+          if (error) {
+            console.warn("[dashboard] team members load failed", error.message);
+            return [];
+          }
+          return ((data as DataRecord[]) ?? []);
+        }),
+      [],
+      "team members"
+    ),
   ]);
 
-  const locations = await geocodeMissingLocationCoordinates(
-    locationRows.map(mapLocation),
-    { limit: 5, refreshExisting: true }
-  );
+  const locations = locationRows.map(mapLocation);
 
   return {
     locations,
@@ -954,6 +983,18 @@ export default function DashboardPage() {
       const nextData = await loadDashboardData();
       setData(nextData);
       setLoadState("ready");
+
+      void geocodeMissingLocationCoordinates(nextData.locations, {
+        limit: 2,
+        refreshExisting: false,
+      })
+        .then((locationsWithCoordinates) => {
+          setData((current) => ({
+            ...current,
+            locations: locationsWithCoordinates,
+          }));
+        })
+        .catch(() => undefined);
     } catch (error) {
       setLoadState("error");
       setErrorMessage(

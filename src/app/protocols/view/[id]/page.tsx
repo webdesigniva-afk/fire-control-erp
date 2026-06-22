@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Download, Frown, Meh, PenLine, Printer, Smile, Trash2 } from "lucide-react";
 import { Badge } from "../../../../components/ui/badge";
 import { Button } from "../../../../components/ui/button";
@@ -363,11 +363,17 @@ const fallbackProtocol: StoredProtocol = {
 
 export default function ProtocolViewPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const printFrameRef = useRef<HTMLIFrameElement>(null);
   const params = useParams<{ id: string }>();
   const protocolNumber = decodeURIComponent(
     Array.isArray(params?.id) ? params.id[0] : params?.id ?? ""
   );
+  const rawReturnTo = searchParams.get("returnTo") || "";
+  const backHref =
+    rawReturnTo.startsWith("/") && !rawReturnTo.startsWith("//")
+      ? rawReturnTo
+      : "/protocols";
 
   const [protocol, setProtocol] = useState<StoredProtocol | null>(null);
   const [protocolPhotos, setProtocolPhotos] = useState<ProtocolPreviewPhoto[]>([]);
@@ -492,7 +498,7 @@ export default function ProtocolViewPage() {
     try {
       await deleteProtocolByNumber(protocol.number);
       setDeleteDialog(null);
-      router.push("/protocols");
+      router.push(backHref);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Неуспешно изтриване от базата.");
     } finally {
@@ -536,7 +542,7 @@ export default function ProtocolViewPage() {
             е да е изтрит или да не е бил запазен на това устройство.
           </p>
           <Link
-            href="/protocols"
+            href={backHref}
             className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md"
           >
             <ArrowLeft size={18} />
@@ -553,7 +559,7 @@ export default function ProtocolViewPage() {
         <div className="mx-auto max-w-6xl">
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <Link
-              href="/protocols"
+              href={backHref}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
             >
               <ArrowLeft size={18} />
@@ -641,7 +647,7 @@ export default function ProtocolViewPage() {
         ) : null}
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Link
-            href="/protocols"
+            href={backHref}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
           >
             <ArrowLeft size={18} />

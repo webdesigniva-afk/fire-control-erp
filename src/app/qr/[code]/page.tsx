@@ -436,12 +436,12 @@ function getEquipmentOverview(equipment: PassportEquipment[]): EquipmentOverview
       iconClassName: "text-slate-600",
     },
     {
-      label: "Евак. планове",
+      label: "Евакуационни планове",
       value: String(count("евакуационен план", "evacuation-plan")),
       icon: ClipboardList,
       iconClassName: "text-emerald-600",
     },
-  ];
+  ].filter((item) => numericValue(item.value) > 0);
 }
 
 function getAttentionItems(
@@ -579,22 +579,22 @@ function AccessHeader() {
   }).format(new Date());
 
   return (
-    <header className="bg-slate-950 px-4 py-4 text-white sm:px-6">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
+    <header className="border-b border-slate-200 bg-white px-4 py-4 text-slate-950 sm:px-6">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
         <div>
           <div className="text-xl font-black tracking-tight">
-            FireControl <span className="text-orange-400">Pass</span>
+            FireControl <span className="text-orange-500">Pass</span>
           </div>
-          <div className="mt-1 text-xs font-black uppercase text-slate-400">
+          <div className="mt-1 text-xs font-black uppercase text-slate-500">
             Вътрешен паспорт на обект
           </div>
         </div>
         <div className="text-right">
-          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-black text-emerald-200">
+          <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700 ring-1 ring-emerald-200">
             <CheckCircle2 size={14} />
             Достъп разрешен
           </div>
-          <div className="mt-1 text-xs font-bold text-slate-400" suppressHydrationWarning>
+          <div className="mt-1 text-xs font-bold text-slate-500" suppressHydrationWarning>
             {accessTime}
           </div>
         </div>
@@ -603,85 +603,17 @@ function AccessHeader() {
   );
 }
 
-function DesktopRail({
-  location,
-  attentionCount,
-}: {
-  location: PassportLocation;
-  attentionCount: number;
-}) {
-  return (
-    <aside className="hidden bg-slate-950 text-white lg:flex lg:min-h-screen lg:flex-col">
-      <div className="px-6 py-7">
-        <div className="flex h-16 w-16 items-center justify-center rounded-3xl border border-white/20 bg-white/5">
-          <ShieldCheck size={34} className="text-white" />
-        </div>
-        <div className="mt-5 text-xl font-black tracking-tight">
-          FIRECONTROL PASS
-        </div>
-        <div className="mt-1 text-xs font-black uppercase text-slate-400">
-          Инструмент на техника
-        </div>
-      </div>
-
-      <nav className="space-y-1 px-3">
-        {[
-          ["Обект", MapPin],
-          ["Действия", AlertTriangle],
-          ["Системи", Wrench],
-          ["Документи", FileText],
-        ].map(([label, Icon], index) => {
-          const NavIcon = Icon as LucideIcon;
-          return (
-            <div
-              key={label as string}
-              className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-black ${
-                index === 0
-                  ? "bg-white/12 text-white"
-                  : "text-slate-300"
-              }`}
-            >
-              <NavIcon size={18} />
-              {label as string}
-              {label === "Действия" && attentionCount > 0 ? (
-                <span className="ml-auto rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">
-                  {attentionCount}
-                </span>
-              ) : null}
-            </div>
-          );
-        })}
-      </nav>
-
-      <div className="mt-auto border-t border-white/10 p-4">
-        <div className="rounded-2xl bg-white/5 p-4">
-          <div className="text-xs font-black uppercase text-slate-400">
-            Обект
-          </div>
-          <div className="mt-2 line-clamp-2 text-sm font-black">
-            {location.name}
-          </div>
-          <div className="mt-3 flex items-center gap-2 text-xs font-bold text-emerald-300">
-            <CheckCircle2 size={14} />
-            Синхронизирано
-          </div>
-        </div>
-      </div>
-    </aside>
-  );
-}
-
 function ServiceMetricCard({ item }: { item: EquipmentOverviewItem }) {
   const Icon = item.icon;
 
   return (
-    <div className="flex items-center gap-2 rounded-xl border border-slate-100 bg-white px-3 py-2 shadow-sm">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50">
+    <div className="flex min-h-20 items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-slate-50 ring-1 ring-slate-100">
         <Icon size={16} className={item.iconClassName} />
       </div>
       <div className="min-w-0">
         <div className="text-base font-black leading-none text-slate-950">{item.value}</div>
-        <div className="mt-1 truncate text-[11px] font-black uppercase text-slate-400">
+        <div className="mt-1 whitespace-normal break-words text-[11px] font-black uppercase leading-4 text-slate-500">
           {item.label}
         </div>
       </div>
@@ -694,10 +626,10 @@ function PublicPassport({ data }: { data: PassportData }) {
   const publicPhone = maintenanceCompany.phone || location.phone;
 
   return (
-    <main className="min-h-screen bg-[#f7f8fb] px-4 py-5 text-slate-900 sm:px-6">
-      <div className="mx-auto w-full max-w-xl space-y-4">
-        <Card className="p-6">
-          <div className="text-2xl font-black tracking-tight text-slate-900">
+    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-900 sm:px-6">
+      <div className="mx-auto w-full max-w-2xl space-y-4">
+        <Card className="rounded-lg p-6">
+          <div className="text-xl font-black tracking-tight text-slate-900">
             FIRE<span className="text-orange-500">Control</span>
           </div>
           <div className="mt-8">
@@ -705,7 +637,7 @@ function PublicPassport({ data }: { data: PassportData }) {
               <ShieldCheck size={14} />
               Активна поддръжка
             </Badge>
-            <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-900">
+            <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-900 sm:text-4xl">
               {location.name}
             </h1>
             <p className="mt-3 text-sm leading-6 text-slate-500">
@@ -715,10 +647,10 @@ function PublicPassport({ data }: { data: PassportData }) {
           </div>
         </Card>
 
-        <Card className="p-5">
+        <Card className="rounded-lg p-5">
           <h2 className="text-lg font-black">Базови данни</h2>
           <div className="mt-4 space-y-3">
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-black uppercase text-slate-400">Обект</div>
               <div className="mt-1 text-base font-black text-slate-900">
                 {location.name}
@@ -729,7 +661,7 @@ function PublicPassport({ data }: { data: PassportData }) {
                 </div>
               ) : null}
             </div>
-            <div className="rounded-2xl bg-slate-50 p-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="text-xs font-black uppercase text-slate-400">
                 Поддържаща фирма
               </div>
@@ -745,11 +677,11 @@ function PublicPassport({ data }: { data: PassportData }) {
           </div>
         </Card>
 
-        <Card className="p-5">
+        <Card className="rounded-lg p-5">
           <h2 className="text-lg font-black">Контакт при нужда</h2>
           <a
             href={publicPhone ? `tel:${publicPhone}` : undefined}
-            className="mt-4 flex items-center gap-3 rounded-2xl bg-slate-50 p-4 transition hover:bg-orange-50"
+            className="mt-4 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 transition hover:bg-orange-50"
           >
             <Phone className="text-orange-500" size={18} />
             <span className="font-bold text-slate-800">
@@ -757,13 +689,24 @@ function PublicPassport({ data }: { data: PassportData }) {
             </span>
           </a>
           {maintenanceCompany.email ? (
-            <div className="mt-3 rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-700">
+            <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-700">
               {maintenanceCompany.email}
             </div>
           ) : null}
         </Card>
       </div>
     </main>
+  );
+}
+
+function PassportFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border-b border-slate-200 px-4 py-3 last:border-b-0 sm:border-r sm:last:border-r-0 lg:border-b-0">
+      <div className="text-xs font-black uppercase text-slate-500">{label}</div>
+      <div className="mt-1 break-words text-sm font-black text-slate-950">
+        {value}
+      </div>
+    </div>
   );
 }
 
@@ -789,12 +732,12 @@ function InternalPassport({ data }: { data: PassportData }) {
   const visibleActions = showAllActions ? openTasks : openTasks.slice(0, 3);
   const newProtocolHref = `/protocols/new?object=${encodeURIComponent(location.id)}`;
   const profileHref = `/locations/${encodeURIComponent(location.id)}`;
+  const passportReturnHref = `/qr/${encodeURIComponent(location.id)}?mode=erp`;
   const objectStatus = objectStatusLabel(
     attentionItems.length,
     location.nextCheck,
     location.status
   );
-  const heroImage = media.find((item) => item.fileUrl)?.fileUrl;
   const nextAction = openTasks[0];
   const problemEquipment = equipment.filter(
     (item) => hasProblemStatus(item.status) || isBeforeToday(item.nextCheckDate)
@@ -825,116 +768,98 @@ function InternalPassport({ data }: { data: PassportData }) {
       : "Няма активни проблеми или задачи. Отвори нов протокол за текущата проверка.";
 
   return (
-    <main className="min-h-screen bg-[#eef2f6] text-slate-900">
-      <div className="lg:grid lg:min-h-screen lg:grid-cols-[230px_1fr]">
-        <DesktopRail location={location} attentionCount={attentionItems.length} />
-        <div className="min-w-0 pb-28 md:pb-10">
-          <div className="lg:hidden">
-            <AccessHeader />
-          </div>
-
-          <div className="mx-auto w-full max-w-6xl space-y-3 px-4 py-3 sm:px-6">
-        <section className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
-          <Card className="border-l-4 border-l-orange-500 p-4 shadow-sm">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="text-xs font-black uppercase text-orange-600">
-                  Какво трябва да направя тук днес?
-                </div>
-                <h1 className="mt-2 text-2xl font-black tracking-tight text-slate-950">
-                  {todayTitle}
-                </h1>
-                <p className="mt-2 text-sm font-bold leading-5 text-slate-600">
-                  {todayDetail}
-                </p>
+    <main className="min-h-screen bg-slate-50 text-slate-900">
+      <AccessHeader />
+      <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-5 pb-28 sm:px-6 lg:py-8">
+        <section className="border-b border-slate-200 pb-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="text-xs font-black uppercase text-orange-600">
+                Дигитален паспорт
               </div>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950 sm:text-4xl">
+                {location.name}
+              </h1>
+              <p className="mt-3 flex items-start gap-2 text-sm font-bold leading-6 text-slate-600">
+                <MapPin size={16} className="mt-1 shrink-0 text-slate-400" />
+                <span>{location.address || "Адресът не е зададен"}</span>
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2 lg:justify-end">
               <Badge variant={statusBadgeVariant(objectStatus)}>
                 {attentionItems.length ? <AlertTriangle size={14} /> : <CheckCircle2 size={14} />}
                 {objectStatus}
               </Badge>
+              <Badge variant="neutral">QR {location.id}</Badge>
             </div>
-            {focusLocations.length > 0 ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {focusLocations.map((name) => (
-                  <span
-                    key={name}
-                    className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-800"
-                  >
-                    {name}
-                  </span>
-                ))}
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 border-y border-slate-200 bg-white sm:grid-cols-2 lg:grid-cols-4">
+            <PassportFact label="Последна проверка" value={displayDate(location.lastCheck)} />
+            <PassportFact label="Следваща проверка" value={displayDate(location.nextCheck)} />
+            <PassportFact label="Контакт" value={location.contact || "Не е зададен"} />
+            <PassportFact label="Телефон" value={location.phone || "Не е зададен"} />
+          </div>
+
+          <div className="mt-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="text-xs font-black uppercase text-slate-500">
+                Фокус при посещението
               </div>
-            ) : null}
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="mt-1 text-lg font-black text-slate-950">
+                {todayTitle}
+              </div>
+              <p className="mt-1 max-w-3xl text-sm font-bold leading-6 text-slate-600">
+                {todayDetail}
+              </p>
+              {focusLocations.length > 0 ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {focusLocations.map((name) => (
+                    <span
+                      key={name}
+                      className="rounded-full bg-orange-50 px-3 py-1 text-xs font-black text-orange-800 ring-1 ring-orange-100"
+                    >
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:min-w-[520px]">
               <Link
                 href={newProtocolHref}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-4 text-sm font-black text-white shadow-sm transition hover:shadow-md"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-orange-600 px-4 text-sm font-black text-white shadow-sm transition hover:bg-orange-700"
               >
                 <FileText size={17} />
                 Нов протокол
               </Link>
               <a
                 href={location.phone ? `tel:${location.phone}` : undefined}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 shadow-sm transition hover:bg-orange-50 hover:text-orange-700"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 shadow-sm transition hover:bg-orange-50 hover:text-orange-700"
               >
                 <Phone size={17} />
                 Обади се
               </a>
               <Link
                 href={profileHref}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 shadow-sm transition hover:bg-orange-50 hover:text-orange-700"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-800 shadow-sm transition hover:bg-orange-50 hover:text-orange-700"
               >
                 <ExternalLink size={17} />
                 Пълен профил
               </Link>
             </div>
-          </Card>
-
-          <Card className="overflow-hidden p-0 shadow-sm">
-            <div className="flex gap-3 p-4">
-              {heroImage ? (
-                <div className="hidden h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-200 sm:block">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={heroImage}
-                    alt={location.name}
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-              ) : null}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xl font-black text-slate-950">{location.name}</div>
-                <div className="mt-2 flex items-start gap-2 text-sm font-bold text-slate-500">
-                  <MapPin size={16} className="mt-0.5 shrink-0" />
-                  <span className="line-clamp-2">{location.address || "Адресът не е зададен"}</span>
-                </div>
-                <div className="mt-3 rounded-xl bg-slate-50 p-3">
-                  <div className="text-xs font-black uppercase text-slate-400">Контакт</div>
-                  <div className="mt-1 font-black text-slate-900">
-                    {location.contact || "Контакт не е зададен"}
-                  </div>
-                  <a
-                    href={location.phone ? `tel:${location.phone}` : undefined}
-                    className="mt-1 inline-flex items-center gap-2 text-sm font-black text-orange-700"
-                  >
-                    <Phone size={15} />
-                    {location.phone || "Телефон не е зададен"}
-                  </a>
-                </div>
-              </div>
-            </div>
-          </Card>
+          </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
-          <Card className="p-5">
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+          <Card className="rounded-lg p-5">
             <h2 className="flex items-center gap-2 text-xl font-black">
               <AlertTriangle className="text-orange-500" size={20} />
               Изисква внимание
             </h2>
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
               {attentionItems.length === 0 ? (
-                <div className="inline-flex items-center gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
+                <div className="flex items-center gap-3 py-4 text-sm font-black text-emerald-800">
                   <CheckCircle2 size={20} />
                   Няма активни проблеми
                 </div>
@@ -942,10 +867,10 @@ function InternalPassport({ data }: { data: PassportData }) {
                 attentionItems.map((item) => (
                   <div
                     key={item.id}
-                    className={`rounded-2xl border p-4 ${
+                    className={`py-4 ${
                       item.tone === "danger"
-                        ? "border-red-100 bg-red-50 text-red-900"
-                        : "border-orange-100 bg-orange-50 text-orange-900"
+                        ? "text-red-900"
+                        : "text-orange-900"
                     }`}
                   >
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -966,37 +891,23 @@ function InternalPassport({ data }: { data: PassportData }) {
             </div>
           </Card>
 
-          <Card className="p-5">
+          <Card className="rounded-lg p-5">
             <h2 className="text-xl font-black">Проверки</h2>
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <div className="text-xs font-black uppercase text-slate-400">
-                  Последна проверка
-                </div>
-                <div className="mt-2 text-lg font-black text-slate-900">
-                  {displayDate(location.lastCheck)}
-                </div>
+            <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
+              <div className="py-4">
+                <div className="text-xs font-black uppercase text-slate-500">Последна проверка</div>
+                <div className="mt-1 text-lg font-black text-slate-950">{displayDate(location.lastCheck)}</div>
               </div>
-              <div
-                className={`rounded-2xl p-4 ${
-                  isBeforeToday(location.nextCheck)
-                    ? "bg-orange-50 text-orange-900"
-                    : "bg-slate-50 text-slate-900"
-                }`}
-              >
-                <div className="text-xs font-black uppercase opacity-70">
-                  Следваща проверка
-                </div>
-                <div className="mt-2 text-lg font-black">
-                  {displayDate(location.nextCheck)}
-                </div>
+              <div className={`py-4 ${isBeforeToday(location.nextCheck) ? "text-orange-900" : "text-slate-950"}`}>
+                <div className="text-xs font-black uppercase text-slate-500">Следваща проверка</div>
+                <div className="mt-1 text-lg font-black">{displayDate(location.nextCheck)}</div>
               </div>
             </div>
           </Card>
         </section>
 
         {openTasks.length > 0 ? (
-          <Card className="p-5">
+          <Card className="rounded-lg p-5">
             <div className="flex items-center justify-between gap-3">
               <h2 className="text-xl font-black">Предстоящи действия</h2>
               {openTasks.length > 3 ? (
@@ -1009,9 +920,9 @@ function InternalPassport({ data }: { data: PassportData }) {
                 </button>
               ) : null}
             </div>
-            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
               {visibleActions.map((task) => (
-                <div key={task.id} className="rounded-2xl bg-slate-50 p-4">
+                <div key={task.id} className="py-4">
                   <div className="text-xs font-black uppercase text-slate-400">
                     {task.dueDate ? displayDate(task.dueDate) : "Без дата"}
                   </div>
@@ -1021,12 +932,12 @@ function InternalPassport({ data }: { data: PassportData }) {
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-black">
                     {task.dueDate ? (
-                      <span className="rounded-full bg-white px-2 py-1 text-slate-600">
+                      <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
                         {daysUntil(task.dueDate)}
                       </span>
                     ) : null}
                     {task.assignedTo ? (
-                      <span className="rounded-full bg-white px-2 py-1 text-slate-600">
+                      <span className="rounded-full bg-white px-2 py-1 text-slate-600 ring-1 ring-slate-200">
                         {task.assignedTo}
                       </span>
                     ) : null}
@@ -1037,23 +948,25 @@ function InternalPassport({ data }: { data: PassportData }) {
           </Card>
         ) : null}
 
-        <Card className="p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-base font-black text-slate-950">Системи на обекта</h2>
-              <p className="mt-1 text-xs font-bold text-slate-500">
-                Бърз обхват преди обхода по локации.
-              </p>
+        {equipmentOverview.length > 0 ? (
+          <section className="border-y border-slate-200 bg-white px-4 py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+              <div className="lg:w-56 lg:shrink-0">
+                <h2 className="text-base font-black text-slate-950">Системи на обекта</h2>
+                <p className="mt-1 text-xs font-bold leading-5 text-slate-500">
+                  Бърз обхват преди обхода по локации.
+                </p>
+              </div>
+              <div className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
+                {equipmentOverview.map((item) => (
+                  <ServiceMetricCard key={item.label} item={item} />
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-              {equipmentOverview.map((item) => (
-                <ServiceMetricCard key={item.label} item={item} />
-              ))}
-            </div>
-          </div>
-        </Card>
+          </section>
+        ) : null}
 
-        <Card className="p-5">
+        <Card className="rounded-lg p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-xl font-black">
               <Wrench className="text-orange-500" size={20} />
@@ -1061,19 +974,19 @@ function InternalPassport({ data }: { data: PassportData }) {
             </h2>
             <Badge variant="neutral">{equipment.length}</Badge>
           </div>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
             {visibleEquipmentGroups.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">
+              <div className="py-8 text-center text-sm font-bold text-slate-500">
                 Няма въведено оборудване за този обект.
               </div>
             ) : (
               visibleEquipmentGroups.map(([groupName, items]) => (
-                <div key={groupName} className="rounded-2xl bg-slate-50 p-4">
+                <div key={groupName} className="py-4">
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-black text-slate-950">{groupName}</div>
                     <Badge variant="neutral">{items.length}</Badge>
                   </div>
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-3 divide-y divide-slate-100">
                     {items.map((item) => {
                       const Icon = equipmentIcon(item);
                       const detail = equipmentDetail(item);
@@ -1081,9 +994,9 @@ function InternalPassport({ data }: { data: PassportData }) {
                       return (
                         <div
                           key={item.id}
-                          className="flex items-start gap-3 rounded-xl border border-slate-100 bg-white p-3"
+                          className="flex items-start gap-3 py-3"
                         >
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-orange-600">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-50 text-orange-600 ring-1 ring-slate-100">
                             <Icon size={18} />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -1117,7 +1030,7 @@ function InternalPassport({ data }: { data: PassportData }) {
             <button
               type="button"
               onClick={() => setShowAllLocations((current) => !current)}
-              className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+              className="mt-4 inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
             >
               {showAllLocations ? "Покажи по-малко" : "Виж всички локации"}
               <ArrowRight size={15} />
@@ -1125,7 +1038,7 @@ function InternalPassport({ data }: { data: PassportData }) {
           ) : null}
         </Card>
 
-        <Card className="p-5">
+        <Card className="rounded-lg p-5">
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-xl font-black">
               <ClipboardList className="text-orange-500" size={20} />
@@ -1141,21 +1054,25 @@ function InternalPassport({ data }: { data: PassportData }) {
               </button>
             ) : null}
           </div>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 divide-y divide-slate-200 border-y border-slate-200">
             {visibleProtocols.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm font-bold text-slate-500">
+              <div className="py-8 text-center text-sm font-bold text-slate-500">
                 Няма записани протоколи за този обект.
               </div>
             ) : (
               visibleProtocols.map((protocol) => (
-                <ProtocolRow key={protocol.id || protocol.number} protocol={protocol} />
+                <ProtocolRow
+                  key={protocol.id || protocol.number}
+                  protocol={protocol}
+                  returnTo={passportReturnHref}
+                />
               ))
             )}
           </div>
         </Card>
 
         {media.length > 0 || documentCount > 0 ? (
-          <Card className="p-5">
+          <Card className="rounded-lg p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="flex items-center gap-2 text-xl font-black">
@@ -1169,7 +1086,7 @@ function InternalPassport({ data }: { data: PassportData }) {
               </div>
               <Link
                 href={profileHref}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
               >
                 <FileImage size={17} />
                 Отвори
@@ -1183,38 +1100,46 @@ function InternalPassport({ data }: { data: PassportData }) {
         <div className="grid grid-cols-2 gap-2">
           <a
             href={location.phone ? `tel:${location.phone}` : undefined}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-700"
           >
             <Phone size={17} />
             Обади се
           </a>
           <Link
             href={profileHref}
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-black text-slate-700"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-700"
           >
             <ExternalLink size={17} />
             Профил
           </Link>
           <Link
             href={newProtocolHref}
-            className="col-span-2 inline-flex h-13 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-red-500 to-orange-400 px-5 py-3 text-base font-black text-white shadow-lg shadow-orange-500/25"
+            className="col-span-2 inline-flex h-13 items-center justify-center gap-2 rounded-lg bg-orange-600 px-5 py-3 text-base font-black text-white shadow-lg shadow-orange-500/20"
           >
             <FileText size={20} />
             Нов протокол
           </Link>
         </div>
       </div>
-        </div>
-      </div>
     </main>
   );
 }
 
-function ProtocolRow({ protocol }: { protocol: PassportProtocol }) {
+function ProtocolRow({
+  protocol,
+  returnTo,
+}: {
+  protocol: PassportProtocol;
+  returnTo: string;
+}) {
+  const protocolHref = `/protocols/view/${encodeURIComponent(
+    protocol.number
+  )}?returnTo=${encodeURIComponent(returnTo)}`;
+
   return (
     <Link
-      href={`/protocols/view/${encodeURIComponent(protocol.number)}`}
-      className="block rounded-2xl border border-slate-100 bg-slate-50 p-4 transition hover:border-orange-200 hover:bg-orange-50"
+      href={protocolHref}
+      className="block py-4 transition hover:bg-orange-50"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>

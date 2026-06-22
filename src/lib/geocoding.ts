@@ -2,6 +2,7 @@ export type GeocodedAddress = {
   latitude: number;
   longitude: number;
   displayName: string;
+  precision?: "exact" | "approximate";
 };
 
 type NominatimResult = {
@@ -26,6 +27,32 @@ type PhotonResult = {
   features?: PhotonFeature[];
 };
 
+type GeocodeOptions = {
+  maxQueries?: number;
+  nominatimQueryLimit?: number;
+  requestTimeoutMs?: number;
+};
+
+export type { GeocodeOptions };
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number
+) {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
+}
+
 function uniqueValues(values: string[]) {
   const seen = new Set<string>();
   return values
@@ -48,6 +75,8 @@ function normalizeBulgarianAddress(address: string) {
     .replace(/\bбулевард\s+/gi, "")
     .replace(/№/g, " ")
     .replace(/No\.?/gi, " ")
+    .replace(/[„“"]/g, "")
+    .replace(/\b(?:вх\.?|вход|ет\.?|етаж|ап\.?|апартамент|офис)\s*[A-Za-zА-Яа-я0-9-]+/gi, "")
     .replace(/\s+/g, " ")
     .replace(/\s*,\s*/g, ", ")
     .trim();
@@ -70,16 +99,34 @@ function transliterateBg(value: string) {
 }
 
 function parseAddressParts(address: string) {
-  const clean = address.trim();
-  const cityMatch = clean.match(/(?:^|,\s*)(?:гр\.?|град)?\s*([А-ЯA-Z][^,0-9]+)/i);
-  const streetMatch = clean.match(/(?:ул\.?|улица|бул\.?|булевард)?\s*([^,\d№]+?)\s*(?:№\s*)?(\d+[A-Za-zА-Яа-я]?)/i);
-  const city = cityMatch?.[1]?.trim() ?? "";
-  const street = streetMatch?.[1]?.trim() ?? "";
-  const number = streetMatch?.[2]?.trim() ?? "";
+  const clean = normalizeBulgarianAddress(address);
+  const rawParts = address
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const normalizedParts = rawParts.map(normalizeBulgarianAddress).filter(Boolean);
+  const cityPart =
+    rawParts.find((part) => /\b(?:гр\.?|град)\s+/i.test(part)) ??
+    normalizedParts.find((part) => !/\d/.test(part) && part.length <= 40) ??
+    normalizedParts[0] ??
+    "";
+  const streetPart =
+    rawParts.find((part) => /\b(?:ул\.?|улица|бул\.?|булевард)\s+/i.test(part)) ??
+    normalizedParts.find((part) => /\d/.test(part)) ??
+    "";
+  const streetMatch = streetPart.match(/(.+?)\s*(?:№\s*)?(\d+[A-Za-zА-Яа-я]?)(?:\b|$)/i);
+  const fallbackStreetMatch = address.match(
+    /(?:ул\.?|улица|бул\.?|булевард)?\s*([^,\d№]+?)\s*(?:№\s*)?(\d+[A-Za-zА-Яа-я]?)(?:\b|$)/i
+  );
+  const street = streetMatch?.[1]?.trim() || fallbackStreetMatch?.[1]?.trim() || streetPart;
+  const number = streetMatch?.[2]?.trim() || fallbackStreetMatch?.[2]?.trim() || "";
 
   return {
-    city: normalizeBulgarianAddress(city),
+    city: normalizeBulgarianAddress(cityPart),
     street: normalizeBulgarianAddress(`${street} ${number}`),
+    streetName: normalizeBulgarianAddress(street),
+    number,
+    normalized: clean,
   };
 }
 
@@ -88,8 +135,16 @@ function addressQueries(address: string) {
   const normalized = normalizeBulgarianAddress(query);
   const parts = parseAddressParts(query);
   const structured = parts.city && parts.street ? `${parts.street}, ${parts.city}` : "";
+  const streetOnly = parts.city && parts.streetName ? `${parts.streetName}, ${parts.city}` : "";
+  const reversedStructured = parts.city && parts.street ? `${parts.city}, ${parts.street}` : "";
+  const numberFirst =
+    parts.city && parts.streetName && parts.number
+      ? `${parts.number} ${parts.streetName}, ${parts.city}`
+      : "";
   const latin = transliterateBg(normalized);
   const latinStructured = transliterateBg(structured);
+  const latinStreetOnly = transliterateBg(streetOnly);
+  const latinNumberFirst = transliterateBg(numberFirst);
 
   return uniqueValues([
     query,
@@ -98,16 +153,29 @@ function addressQueries(address: string) {
     `${normalized}, България`,
     structured,
     `${structured}, България`,
+    reversedStructured,
+    `${reversedStructured}, България`,
+    numberFirst,
+    `${numberFirst}, България`,
+    streetOnly,
+    `${streetOnly}, България`,
     latin,
     `${latin}, Bulgaria`,
     latinStructured,
     `${latinStructured}, Bulgaria`,
+    latinNumberFirst,
+    `${latinNumberFirst}, Bulgaria`,
+    latinStreetOnly,
+    `${latinStreetOnly}, Bulgaria`,
     query.replace(/№/g, "").replace(/\s+/g, " "),
     `${query.replace(/№/g, "").replace(/\s+/g, " ")}, Bulgaria`,
   ]);
 }
 
-async function requestNominatim(query: string): Promise<GeocodedAddress | null> {
+async function requestNominatim(
+  query: string,
+  timeoutMs: number
+): Promise<GeocodedAddress | null> {
   const params = new URLSearchParams({
     format: "jsonv2",
     limit: "1",
@@ -116,18 +184,17 @@ async function requestNominatim(query: string): Promise<GeocodedAddress | null> 
     q: query,
   });
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://nominatim.openstreetmap.org/search?${params.toString()}`,
     {
       headers: {
         Accept: "application/json",
       },
-    }
+    },
+    timeoutMs
   );
 
-  if (!response.ok) {
-    throw new Error("Адресът не можа да бъде проверен в картната услуга.");
-  }
+  if (!response.ok) return null;
 
   const results = (await response.json()) as NominatimResult[];
   const first = results[0];
@@ -144,7 +211,10 @@ async function requestNominatim(query: string): Promise<GeocodedAddress | null> 
   };
 }
 
-async function requestNominatimStructured(address: string): Promise<GeocodedAddress | null> {
+async function requestNominatimStructured(
+  address: string,
+  timeoutMs: number
+): Promise<GeocodedAddress | null> {
   const parts = parseAddressParts(address);
   if (!parts.city || !parts.street) return null;
 
@@ -158,13 +228,14 @@ async function requestNominatimStructured(address: string): Promise<GeocodedAddr
     country: "България",
   });
 
-  const response = await fetch(
+  const response = await fetchWithTimeout(
     `https://nominatim.openstreetmap.org/search?${params.toString()}`,
     {
       headers: {
         Accept: "application/json",
       },
-    }
+    },
+    timeoutMs
   );
 
   if (!response.ok) return null;
@@ -184,7 +255,10 @@ async function requestNominatimStructured(address: string): Promise<GeocodedAddr
   };
 }
 
-async function requestPhoton(query: string): Promise<GeocodedAddress | null> {
+async function requestPhoton(
+  query: string,
+  timeoutMs: number
+): Promise<GeocodedAddress | null> {
   const params = new URLSearchParams({
     q: query,
     limit: "1",
@@ -192,9 +266,13 @@ async function requestPhoton(query: string): Promise<GeocodedAddress | null> {
     osm_tag: "!place:country",
   });
 
-  const response = await fetch(`https://photon.komoot.io/api/?${params.toString()}`, {
-    headers: { Accept: "application/json" },
-  });
+  const response = await fetchWithTimeout(
+    `https://photon.komoot.io/api/?${params.toString()}`,
+    {
+      headers: { Accept: "application/json" },
+    },
+    timeoutMs
+  );
 
   if (!response.ok) return null;
 
@@ -218,21 +296,51 @@ async function requestPhoton(query: string): Promise<GeocodedAddress | null> {
 }
 
 export async function geocodeAddress(
-  address: string
+  address: string,
+  options: GeocodeOptions = {}
 ): Promise<GeocodedAddress | null> {
-  const queries = addressQueries(address);
+  if (typeof window !== "undefined") {
+    const response = await fetch("/api/geocode", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ address, options }),
+    });
+
+    if (!response.ok) return null;
+
+    const payload = (await response.json()) as {
+      result?: GeocodedAddress | null;
+    };
+
+    return payload.result ?? null;
+  }
+
+  const requestTimeoutMs = options.requestTimeoutMs ?? 2500;
+  const nominatimQueryLimit = options.nominatimQueryLimit ?? 4;
+  const queries = addressQueries(address).slice(0, options.maxQueries);
   if (!queries.length) return null;
 
-  const structured = await requestNominatimStructured(address);
-  if (structured) return structured;
-
-  for (const query of queries) {
-    const result = await requestNominatim(query);
+  const photonResults = await Promise.all(
+    queries.map((query) => requestPhoton(query, requestTimeoutMs).catch(() => null))
+  );
+  for (const result of photonResults) {
     if (result) return result;
   }
 
-  for (const query of queries) {
-    const result = await requestPhoton(query);
+  const structured = await requestNominatimStructured(
+    address,
+    requestTimeoutMs
+  ).catch(() => null);
+  if (structured) return structured;
+
+  const nominatimResults = await Promise.all(
+    queries
+      .slice(0, nominatimQueryLimit)
+      .map((query) => requestNominatim(query, requestTimeoutMs).catch(() => null))
+  );
+  for (const result of nominatimResults) {
     if (result) return result;
   }
 

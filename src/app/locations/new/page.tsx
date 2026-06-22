@@ -42,6 +42,10 @@ type ClientOption = {
   id: string;
   name: string;
   bulstat: string;
+  contactPerson: string;
+  phone: string;
+  email: string;
+  address: string;
   clientType: "corporate" | "private";
 };
 
@@ -101,7 +105,6 @@ function objectTypeOptions(settings: ProtocolSettings, selectedValue = "") {
 }
 
 const ADD_OBJECT_TYPE_VALUE = "__add_object_type__";
-
 const privateObjectTypes = [
   "Апартамент",
   "Къща",
@@ -156,6 +159,25 @@ function locationColumnError(error: Error) {
   return error.message;
 }
 
+function ClientSummaryRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  if (!value.trim()) return null;
+
+  return (
+    <div className="border-t border-slate-200 py-3 first:border-t-0 first:pt-0 last:pb-0">
+      <div className="text-xs font-black uppercase text-slate-400">{label}</div>
+      <div className="mt-1 break-words text-sm font-bold leading-5 text-slate-700">
+        {value}
+      </div>
+    </div>
+  );
+}
+
 function NewLocationContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -171,7 +193,7 @@ function NewLocationContent() {
     "loading"
   );
   const [saveState, setSaveState] = useState<
-    "idle" | "geocoding" | "saving" | "error"
+    "idle" | "saving" | "error"
   >("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -246,6 +268,15 @@ function NewLocationContent() {
           id: textValue(client, ["id"]),
           name: textValue(client, ["name", "organization", "company_name"]),
           bulstat: textValue(client, ["bulstat", "eik", "vat_number"]),
+          contactPerson: textValue(client, [
+            "contact_person",
+            "contact",
+            "representative",
+            "person",
+          ]),
+          phone: textValue(client, ["phone", "telephone", "mobile"]),
+          email: textValue(client, ["email"]),
+          address: textValue(client, ["address", "full_address"]),
           clientType:
             textValue(client, ["client_type", "clientType"]) === "private"
               ? "private"
@@ -272,7 +303,7 @@ function NewLocationContent() {
             : current.clientId &&
                 mappedClients.some((client) => client.id === current.clientId)
               ? current.clientId
-              : mappedClients[0]?.id ?? "",
+              : "",
       }));
       setLoadState("ready");
     } catch {
@@ -309,15 +340,6 @@ function NewLocationContent() {
         ? form.objectType.trim()
         : form.name.trim();
 
-      setSaveState(address ? "geocoding" : "saving");
-      const geocoded = address ? await geocodeAddress(address) : null;
-
-      if (address && !geocoded) {
-        throw new Error(
-          "Адресът не беше намерен на картата. Добавете град, улица и номер и опитайте отново."
-        );
-      }
-
       setSaveState("saving");
       const { data: locationRow, error: locationError } = await supabase
         .from("locations")
@@ -329,16 +351,38 @@ function NewLocationContent() {
           address,
           region: "",
           status: "изряден",
-          latitude: geocoded?.latitude ?? null,
-          longitude: geocoded?.longitude ?? null,
-          geocoded_address: geocoded?.displayName ?? null,
-          geocoded_at: geocoded ? new Date().toISOString() : null,
+          latitude: null,
+          longitude: null,
+          geocoded_address: null,
+          geocoded_at: null,
         })
         .select("*")
         .single();
 
       if (locationError || !locationRow) {
         throw new Error(locationError?.message || "Обектът не беше записан");
+      }
+
+      if (address) {
+        void geocodeAddress(address, {
+          maxQueries: 8,
+          nominatimQueryLimit: 3,
+          requestTimeoutMs: 3000,
+        })
+          .then(async (geocoded) => {
+            if (!geocoded) return;
+
+            await supabase
+              .from("locations")
+              .update({
+                latitude: geocoded.latitude,
+                longitude: geocoded.longitude,
+                geocoded_address: geocoded.displayName,
+                geocoded_at: new Date().toISOString(),
+              })
+              .eq("id", textValue(locationRow as DataRecord, ["id"]));
+          })
+          .catch(() => undefined);
       }
 
       router.push(`/locations/${qrCode}`);
@@ -352,7 +396,7 @@ function NewLocationContent() {
     }
   }
 
-  const isSaving = saveState === "saving" || saveState === "geocoding";
+  const isSaving = saveState === "saving";
 
   return (
     <AppShell
@@ -361,19 +405,45 @@ function NewLocationContent() {
     >
       <PageHeader
         title="Нов обект"
-        description="Адресът се проверява на реална карта и координатите се записват в Supabase."
         actions={
-          <Link
-            href="/locations"
-            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
-          >
-            <ArrowLeft size={17} />
-            Назад
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/locations"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+            >
+              <ArrowLeft size={17} />
+              Назад
+            </Link>
+            <Link
+              href="/locations"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+            >
+              Отказ
+            </Link>
+            <Button
+              type="submit"
+              form="new-location-form"
+              disabled={
+                isSaving ||
+                loadState === "loading" ||
+                !form.clientId ||
+                !form.objectType.trim() ||
+                (!isPrivateClient && !form.name.trim())
+              }
+            >
+              {isSaving ? (
+                <RefreshCw size={17} className="animate-spin" />
+              ) : (
+                <Save size={17} />
+              )}
+              {saveState === "saving" ? "Записване..." : "Запази обект"}
+            </Button>
+          </div>
         }
       />
 
       <form
+        id="new-location-form"
         onSubmit={handleSubmit}
         className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[1fr_360px]"
       >
@@ -392,18 +462,6 @@ function NewLocationContent() {
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {!isPrivateClient ? (
-                <FormField label="Име на обект">
-                  <Input
-                    required
-                    value={form.name}
-                    onChange={(event) => updateForm("name", event.target.value)}
-                    placeholder="Напр. Склад Север"
-                    className="w-full"
-                  />
-                </FormField>
-              ) : null}
-
               <FormField
                 label="Клиент"
                 hint={
@@ -427,6 +485,18 @@ function NewLocationContent() {
                   ))}
                 </select>
               </FormField>
+
+              {!isPrivateClient ? (
+                <FormField label="Име на обект">
+                  <Input
+                    required
+                    value={form.name}
+                    onChange={(event) => updateForm("name", event.target.value)}
+                    placeholder="Напр. Склад Север"
+                    className="w-full"
+                  />
+                </FormField>
+              ) : null}
 
               <FormField label="Тип обект">
                 <div className="flex gap-2">
@@ -497,14 +567,36 @@ function NewLocationContent() {
               Избран клиент
             </div>
             <div className="mt-4 rounded-2xl bg-slate-50 p-4">
-              <div className="font-black text-slate-900">
-                {selectedClient?.name || "Няма избран клиент"}
-              </div>
-              {selectedClient?.clientType === "corporate" ? (
-                <div className="mt-1 text-sm font-bold text-slate-500">
-                  {selectedClient.bulstat || "ЕИК / БУЛСТАТ не е попълнен"}
+              {selectedClient ? (
+                <>
+                  <div className="font-black text-slate-900">
+                    {selectedClient.name}
+                  </div>
+                  <div className="mt-1 text-xs font-black uppercase text-slate-400">
+                    {selectedClient.clientType === "private"
+                      ? "Частен клиент"
+                      : "Корпоративен клиент"}
+                  </div>
+
+                  <div className="mt-4">
+                    <ClientSummaryRow
+                      label="ЕИК / Булстат"
+                      value={selectedClient.clientType === "corporate" ? selectedClient.bulstat : ""}
+                    />
+                    <ClientSummaryRow
+                      label="Контактно лице"
+                      value={selectedClient.contactPerson}
+                    />
+                    <ClientSummaryRow label="Телефон" value={selectedClient.phone} />
+                    <ClientSummaryRow label="Имейл" value={selectedClient.email} />
+                    <ClientSummaryRow label="Адрес" value={selectedClient.address} />
+                  </div>
+                </>
+              ) : (
+                <div className="font-black text-slate-900">
+                  Няма избран клиент
                 </div>
-              ) : null}
+              )}
             </div>
           </Card>
 
@@ -513,9 +605,8 @@ function NewLocationContent() {
               <MapPin size={17} />
               Позиция на картата
             </div>
-            <p className="mt-3 text-sm font-medium text-slate-500">
-              При запис адресът ще бъде намерен чрез OpenStreetMap и
-              координатите ще се пазят към обекта.
+            <p className="mt-3 text-sm font-medium leading-6 text-slate-500">
+              Координатите на обекта се добавят автоматично, когато картовата услуга отговори.
             </p>
 
             {errorMessage ? (
@@ -525,29 +616,6 @@ function NewLocationContent() {
             ) : null}
 
             <div className="mt-5 flex flex-col gap-2">
-              <Button
-                type="submit"
-                disabled={
-                  isSaving ||
-                  loadState === "loading" ||
-                  !form.clientId ||
-                  !form.objectType.trim() ||
-                  (!isPrivateClient && !form.name.trim())
-                }
-                className="w-full"
-              >
-                {isSaving ? (
-                  <RefreshCw size={17} className="animate-spin" />
-                ) : (
-                  <Save size={17} />
-                )}
-                {saveState === "geocoding"
-                  ? "Проверка на адрес..."
-                  : saveState === "saving"
-                    ? "Записване..."
-                    : "Запази обект"}
-              </Button>
-
               {clients.length === 0 && loadState !== "loading" ? (
                 <Link
                   href="/clients"
