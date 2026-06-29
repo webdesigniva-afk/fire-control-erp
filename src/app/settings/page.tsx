@@ -5,7 +5,9 @@ import {
   FileText,
   FolderOpen,
   Loader2,
+  Mail,
   PenLine,
+  Phone,
   Plus,
   Save,
   Trash2,
@@ -188,6 +190,37 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm font-bold text-slate-500">
       {children}
+    </div>
+  );
+}
+
+function ServiceContactInfo({
+  phone,
+  email,
+  className = "",
+  framed = true,
+}: {
+  phone: string;
+  email: string;
+  className?: string;
+  framed?: boolean;
+}) {
+  return (
+    <div
+      className={`grid gap-2 text-sm font-bold text-slate-600 ${
+        framed
+          ? "rounded-xl border border-slate-200 bg-white px-3 py-2.5"
+          : ""
+      } ${className}`}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <Phone size={15} className="shrink-0 text-orange-500" />
+        <span className="truncate">{phone || "Без телефон"}</span>
+      </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <Mail size={15} className="shrink-0 text-orange-500" />
+        <span className="truncate">{email || "Без email"}</span>
+      </div>
     </div>
   );
 }
@@ -733,7 +766,7 @@ export default function SettingsPage() {
           {loadState !== "loading" && activeSection === "service-centers" ? (
             <Card className="p-5">
               <SectionHeader title="Сервизи" description="Сервизи A, B и C за избор при създаване на протоколи." />
-              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
                 {activeServiceCenters.length ? (
                   activeServiceCenters.map((serviceCenter) => {
                     const editing = editingServiceCenterId === serviceCenter.id;
@@ -797,9 +830,11 @@ export default function SettingsPage() {
                   </Field>
                 </div>
                 {newServiceCenter.manager ? (
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600">
-                    {newServiceCenter.phone || "Без телефон"} · {newServiceCenter.email || "Без email"}
-                  </div>
+                  <ServiceContactInfo
+                    className="mt-3"
+                    phone={newServiceCenter.phone}
+                    email={newServiceCenter.email}
+                  />
                 ) : null}
                 <div className="mt-4 flex justify-end">
                   <Button type="submit" disabled={saving}><Plus size={16} />Добави сервиз</Button>
@@ -1013,18 +1048,23 @@ function PersonCard({
   }
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="font-black text-slate-900">{title}</div>
-          <div className="mt-1 text-sm font-bold text-slate-500">{subtitle}</div>
-          <div className="mt-2 text-sm font-bold text-slate-700">{phone || "Без телефон"}</div>
-          <div className="mt-1 text-sm font-bold text-slate-500">{email || "Без email"}</div>
+    <div className="flex h-full flex-col rounded-2xl border border-slate-100 bg-slate-50 p-4">
+      <div className="flex flex-1 flex-col gap-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-lg font-black text-slate-900">{title}</div>
+            <div className="mt-1 truncate text-sm font-bold text-slate-500">{subtitle}</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button type="button" variant="outline" size="icon" onClick={onEdit} aria-label="Редактирай" title="Редактирай">
+              <PenLine size={14} />
+            </Button>
+            <Button type="button" variant="danger" size="icon" onClick={onDelete} aria-label="Изтрий" title="Изтрий">
+              <Trash2 size={16} />
+            </Button>
+          </div>
         </div>
-      </div>
-      <div className="mt-4 flex gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={onEdit}><PenLine size={14} />Редактирай</Button>
-        <Button type="button" variant="ghost" size="icon" onClick={onDelete} aria-label="Изтрий"><Trash2 size={16} /></Button>
+        <ServiceContactInfo framed={false} phone={phone} email={email} />
       </div>
     </div>
   );
@@ -1064,9 +1104,7 @@ function EditableServiceCenter({
         </select>
       </Field>
       {serviceCenter.manager ? (
-        <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-600">
-          {serviceCenter.phone || "Без телефон"} · {serviceCenter.email || "Без email"}
-        </div>
+        <ServiceContactInfo phone={serviceCenter.phone} email={serviceCenter.email} />
       ) : null}
       <div className="flex justify-end"><Button type="button" onClick={onSave}><Save size={15} />Запази</Button></div>
     </div>

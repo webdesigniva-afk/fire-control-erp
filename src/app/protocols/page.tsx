@@ -487,6 +487,7 @@ export default function ProtocolsPage() {
     <AppShell
       title="Протоколи"
       description="Сервизни протоколи, проверки и история на обслужване"
+      showSearch={false}
     >
       {actionError ? (
         <Card className="mb-4 border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">

@@ -202,21 +202,6 @@ function ClientField({
   );
 }
 
-function StatPill({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
-  return (
-    <div className="rounded-2xl bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200">
-      <div className="text-xs font-bold uppercase text-slate-400">{label}</div>
-      <div className="mt-1 text-xl font-black text-slate-900">{value}</div>
-    </div>
-  );
-}
-
 export default function ClientsPage() {
   const [clients, setClients] = useState<ClientProfile[]>([]);
   const [form, setForm] = useState<ClientFormState>(emptyForm);
@@ -533,14 +518,15 @@ export default function ClientsPage() {
       description="Управление на клиенти и свързаните им обекти"
     >
       <div className="space-y-5">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <StatPill label="Клиенти" value={clients.length} />
-          <StatPill label="Обекти" value={totalLocations} />
-          <StatPill label="Показани" value={filteredClients.length} />
-        </div>
-
         <Card className="p-4">
           <div className="flex flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center">
+            <div className="w-full text-sm font-bold text-slate-500">
+              Клиенти <span className="font-black text-slate-900">{clients.length}</span>
+              <span className="mx-2 text-slate-300">/</span>
+              Обекти <span className="font-black text-slate-900">{totalLocations}</span>
+              <span className="mx-2 text-slate-300">/</span>
+              Показани <span className="font-black text-slate-900">{filteredClients.length}</span>
+            </div>
             <div className="flex min-w-0 flex-1 flex-col gap-3 xl:flex-row xl:flex-wrap xl:items-center">
               <div className="relative w-full min-w-0 xl:min-w-[360px] xl:flex-1">
                 <Search
@@ -801,7 +787,7 @@ export default function ClientsPage() {
                       </>
                     ) : null}
                     <th className="px-4 py-3 text-center">Обекти</th>
-                    <th className="px-4 py-3 text-right">Действия</th>
+                    <th className="px-4 py-3 text-center">Действия</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -880,7 +866,7 @@ export default function ClientsPage() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex justify-end gap-2">
+                          <div className="flex justify-center gap-2">
                             <Button
                               type="button"
                               variant="outline"

@@ -22,7 +22,7 @@ type ContractListItem = {
   status: "accepted" | "draft";
   createdAt: string;
   expiresAt: string;
-  total: string;
+  serviceCount: number;
 };
 
 function isRecord(value: unknown): value is DataRecord {
@@ -67,6 +67,16 @@ function formatDateValue(value: string) {
 
   const [year, month, day] = value.slice(0, 10).split("-");
   return day && month && year ? `${day}.${month}.${year}` : value;
+}
+
+function countContractServices(contract: DataRecord) {
+  const lines = contract["lines"];
+  return Array.isArray(lines) ? lines.length : 0;
+}
+
+function servicesCountLabel(count: number) {
+  if (count === 1) return "1 услуга";
+  return `${count} услуги`;
 }
 
 function daysBetween(fromKey: string, toKey: string) {
@@ -130,7 +140,7 @@ function mapContract(row: DataRecord): ContractListItem {
     status: payload.status === "accepted" ? "accepted" : "draft",
     createdAt,
     expiresAt: addYearsToDateValue(createdAt, 1),
-    total: textValue(row, ["total"]) || textValue(payload, ["total"]),
+    serviceCount: countContractServices(contract),
   };
 }
 
@@ -179,7 +189,7 @@ export default function ContractsPage() {
         contract.client,
         contract.objectName,
         contract.offerNumber,
-        contract.total,
+        String(contract.serviceCount),
       ].some((value) => value.toLowerCase().includes(normalized))
     );
   }, [contracts, query]);
@@ -188,6 +198,7 @@ export default function ContractsPage() {
     <AppShell
       title="Договори"
       description="Всички договори, срокове и свързани обекти"
+      showSearch={false}
     >
       <div className="space-y-5">
         <Card className="p-5">
@@ -253,8 +264,8 @@ export default function ContractsPage() {
                         <div className="mt-1 text-sm text-slate-800">{formatDateValue(contract.expiresAt)}</div>
                       </div>
                       <div>
-                        <div className="uppercase text-slate-400">Стойност</div>
-                        <div className="mt-1 text-sm text-slate-800">{contract.total || "—"}</div>
+                        <div className="uppercase text-slate-400">Услуги</div>
+                        <div className="mt-1 text-sm text-slate-800">{servicesCountLabel(contract.serviceCount)}</div>
                       </div>
                       <div>
                         <div className="uppercase text-slate-400">Оферта към договора</div>

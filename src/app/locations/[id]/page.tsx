@@ -98,9 +98,11 @@ type LocationProfile = {
   address: string;
   region: string;
   client: string;
+  clientType: string;
   contact: string;
   phone: string;
   qrUrl: string;
+  createdAt: string;
 };
 
 type EquipmentItem = {
@@ -292,9 +294,11 @@ const emptyLocation: LocationProfile = {
   address: "",
   region: "",
   client: "",
+  clientType: "",
   contact: "",
   phone: "",
   qrUrl: "/qr/",
+  createdAt: "",
 };
 
 const LocationProfileContext = createContext<LocationProfileContextValue>({
@@ -1443,6 +1447,7 @@ function mapLocation(
     address: textValue(locationRow, ["address", "full_address"]),
     region: textValue(locationRow, ["region", "area"]),
     client: textValue(clientRow, ["name", "organization", "company_name"]),
+    clientType: textValue(clientRow, ["client_type", "clientType"]),
     contact: textValue(clientRow, [
       "contact_person",
       "contact",
@@ -1451,6 +1456,7 @@ function mapLocation(
     ]),
     phone: textValue(clientRow, ["phone", "telephone", "mobile"]),
     qrUrl: `/qr/${qrCode || id}`,
+    createdAt: textValue(locationRow, ["created_at", "createdAt"]),
   };
 }
 
@@ -2335,11 +2341,20 @@ function OverviewTab() {
               label="Тип обект"
               value={location.objectType || "—"}
             />
-            <InfoRow
-              icon={UserRound}
-              label="Лице за контакт"
-              value={location.contact}
-            />
+            {location.createdAt ? (
+              <InfoRow
+                icon={CalendarDays}
+                label="Добавен"
+                value={formatDateValue(location.createdAt)}
+              />
+            ) : null}
+            {location.contact || location.clientType !== "private" ? (
+              <InfoRow
+                icon={UserRound}
+                label="Лице за контакт"
+                value={location.contact}
+              />
+            ) : null}
             <InfoRow icon={Phone} label="Телефон" value={location.phone} />
           </div>
         </Card>

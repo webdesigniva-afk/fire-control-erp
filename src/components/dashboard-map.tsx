@@ -65,7 +65,7 @@ export function DashboardMap({
         {showOpenMapLink ? (
           <Link
             href="/map"
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700 hover:shadow-md"
+            className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-3 text-sm font-bold text-slate-600 transition hover:bg-orange-50 hover:text-orange-700"
           >
             Отвори карта
           </Link>
