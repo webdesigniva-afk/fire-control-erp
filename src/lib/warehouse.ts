@@ -221,17 +221,73 @@ function mapMovement(row: DataRecord): WarehouseMovement {
   };
 }
 
-export async function readWarehouseLocations() {
+export async function readWarehouseLocations(includeInactive = false) {
   const supabase = createSupabaseBrowserClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("warehouse_locations")
     .select("*")
-    .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
 
+  if (!includeInactive) {
+    query = query.eq("is_active", true);
+  }
+
+  const { data, error } = await query;
   if (error) throwWarehouseError(error.message);
   return ((data as DataRecord[] | null) ?? []).map(mapLocation);
+}
+
+export async function saveWarehouseLocation(
+  location: Partial<WarehouseLocation> & { name: string }
+) {
+  const supabase = createSupabaseBrowserClient();
+  const payload = {
+    name: location.name.trim(),
+    code: location.code?.trim() || "",
+    sort_order: location.sortOrder ?? 0,
+    is_active: location.isActive ?? true,
+    updated_at: new Date().toISOString(),
+  };
+
+  const result = location.id
+    ? await supabase.from("warehouse_locations").update(payload).eq("id", location.id)
+    : await supabase.from("warehouse_locations").insert(payload);
+
+  if (result.error) throwWarehouseError(result.error.message);
+}
+
+export async function archiveWarehouseLocation(id: string) {
+  const supabase = createSupabaseBrowserClient();
+  const { error } = await supabase
+    .from("warehouse_locations")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) throwWarehouseError(error.message);
+}
+
+export async function ensureDefaultWarehouseLocations() {
+  const defaults = [
+    { name: "Склад 1", code: "warehouse-1", sortOrder: 10 },
+    { name: "Склад 2", code: "warehouse-2", sortOrder: 20 },
+    { name: "Офис/Сервиз", code: "office-service", sortOrder: 30 },
+  ];
+
+  const existing = await readWarehouseLocations(true);
+  const existingCodes = new Set(existing.map((location) => location.code.toLowerCase()));
+  const existingNames = new Set(existing.map((location) => location.name.toLowerCase()));
+
+  for (const location of defaults) {
+    if (
+      existingCodes.has(location.code.toLowerCase()) ||
+      existingNames.has(location.name.toLowerCase())
+    ) {
+      continue;
+    }
+
+    await saveWarehouseLocation({ ...location, isActive: true });
+  }
 }
 
 export async function readWarehouseItems(includeInactive = false) {

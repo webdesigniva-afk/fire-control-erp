@@ -345,20 +345,32 @@ export function buildMapObjectsData(
       const locationTasks = plannedTasks.filter((task) =>
         taskMatchesLocation(task, location)
       );
+      const plannedDates = locationTasks
+        .map((task) => task.dueDate)
+        .filter((date) => date && dateFromIso(date))
+        .sort((first, second) => first.localeCompare(second));
       const futureDates = locationTasks
         .map((task) => task.dueDate)
         .filter((date) => date && date >= todayKey)
         .sort((first, second) => first.localeCompare(second));
-      const overdueOrUrgentDates = locationTasks
-        .map((task) => task.dueDate)
-        .filter(
-          (date) => date && dateFromIso(date) && daysBetween(todayKey, date) <= 7
-        );
-      const hasUrgent = overdueOrUrgentDates.length > 0;
-      const hasUpcoming = futureDates.some((date) => {
-        const days = daysBetween(todayKey, date);
-        return days > 7 && days <= 30;
-      });
+      const pastDates = plannedDates.filter((date) => date < todayKey);
+      const nextFutureDate = futureDates[0] || "";
+      const latestPastDate = pastDates[pastDates.length - 1] || "";
+      const displayedInspectionDate = nextFutureDate || latestPastDate;
+      const daysToDisplayedInspection = displayedInspectionDate
+        ? daysBetween(todayKey, displayedInspectionDate)
+        : 0;
+      const hasUrgent = Boolean(
+        displayedInspectionDate &&
+          (nextFutureDate
+            ? daysToDisplayedInspection >= 0 && daysToDisplayedInspection <= 7
+            : latestPastDate)
+      );
+      const hasUpcoming = Boolean(
+        nextFutureDate &&
+          daysToDisplayedInspection > 7 &&
+          daysToDisplayedInspection <= 30
+      );
 
       if (hasUrgent || hasUpcoming) upcomingVisitCount += 1;
 
@@ -370,7 +382,7 @@ export function buildMapObjectsData(
           : hasUpcoming
             ? OBJECT_STATUS_UPCOMING
             : OBJECT_STATUS_OK,
-        nextInspection: futureDates[0] ? formatDate(futureDates[0]) : "",
+        nextInspection: displayedInspectionDate ? formatDate(displayedInspectionDate) : "",
         position: [
           location.latitude as number,
           location.longitude as number,

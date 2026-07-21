@@ -12,6 +12,7 @@ import {
   Save,
   Trash2,
   UserRound,
+  Warehouse,
   Wrench,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
@@ -41,10 +42,17 @@ import {
   writeServiceCentersToSupabase,
 } from "../../lib/settings";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
+import {
+  archiveWarehouseLocation,
+  ensureDefaultWarehouseLocations,
+  readWarehouseLocations,
+  saveWarehouseLocation,
+  type WarehouseLocation,
+} from "../../lib/warehouse";
 
 type DataRecord = Record<string, unknown>;
 type LoadState = "loading" | "ready" | "error";
-type SectionId = "service-centers" | "services" | "protocols" | "documents";
+type SectionId = "service-centers" | "warehouses" | "services" | "protocols" | "documents";
 type CatalogKey =
   | "objectTypes"
   | "extinguisherBrands"
@@ -79,6 +87,7 @@ type TeamMemberOption = {
 
 const sections: Array<{ id: SectionId; label: string; icon: typeof UserRound }> = [
   { id: "service-centers", label: "Сервизи", icon: UserRound },
+  { id: "warehouses", label: "Складове", icon: Warehouse },
   { id: "services", label: "Услуги", icon: Wrench },
   { id: "protocols", label: "Протоколи", icon: FolderOpen },
   { id: "documents", label: "Документи", icon: FileText },
@@ -112,6 +121,10 @@ const emptyServiceCenter: ServiceCenterSetting = {
   active: true,
 };
 
+const emptyWarehouseLocation = {
+  name: "",
+};
+
 function createId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `${prefix}-${crypto.randomUUID()}`;
@@ -142,6 +155,17 @@ function uniqueValues(values: string[]) {
       seen.add(key);
       return true;
     });
+}
+
+function warehouseCodeFromName(name: string) {
+  const fallback = `warehouse-${Date.now()}`;
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9а-яё]+/gi, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || fallback;
 }
 
 function assertSupabaseResult(
@@ -239,6 +263,10 @@ export default function SettingsPage() {
   const [editingServiceCenterId, setEditingServiceCenterId] = useState("");
   const [teamMembers, setTeamMembers] = useState<TeamMemberOption[]>([]);
 
+  const [warehouseLocations, setWarehouseLocations] = useState<WarehouseLocation[]>([]);
+  const [newWarehouseLocation, setNewWarehouseLocation] = useState(emptyWarehouseLocation);
+  const [editingWarehouseLocationId, setEditingWarehouseLocationId] = useState("");
+
   const [services, setServices] = useState<ServiceSetting[]>([]);
   const [newServiceName, setNewServiceName] = useState("");
   const [newSubServiceNames, setNewSubServiceNames] = useState<Record<string, string>>({});
@@ -298,10 +326,12 @@ export default function SettingsPage() {
         setProtocols(dbProtocols);
         setCompany(dbCompany);
         setTeamMembers(dbTeamMembers);
+        await loadWarehouseLocations();
         await loadServices();
         setLoadState("ready");
       } catch (error) {
         if (!mounted) return;
+        await loadWarehouseLocations().catch(() => undefined);
         await loadServices();
         setTeamMembers(await readTeamMemberOptions().catch(() => []));
         setLoadState("error");
@@ -361,6 +391,11 @@ export default function SettingsPage() {
         };
       })
     );
+  }
+
+  async function loadWarehouseLocations() {
+    await ensureDefaultWarehouseLocations();
+    setWarehouseLocations(await readWarehouseLocations());
   }
 
   async function readTeamMemberOptions() {
@@ -480,6 +515,76 @@ export default function SettingsPage() {
       onConfirm: () => confirmDeleteServiceCenter(id),
     });
   }
+
+  async function addWarehouseLocation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = newWarehouseLocation.name.trim();
+    if (!name) return;
+
+    setSaving(true);
+    try {
+      await saveWarehouseLocation({
+        name,
+        code: warehouseCodeFromName(name),
+        sortOrder: (warehouseLocations.length + 1) * 10,
+        isActive: true,
+      });
+      setNewWarehouseLocation(emptyWarehouseLocation);
+      await loadWarehouseLocations();
+      showToast("Складът е добавен.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Грешка при запис на склад.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveWarehouseLocationName(location: WarehouseLocation) {
+    const name = location.name.trim();
+    if (!name) return;
+
+    setSaving(true);
+    try {
+      await saveWarehouseLocation({
+        ...location,
+        name,
+        code: location.code.trim() || warehouseCodeFromName(name),
+        sortOrder: location.sortOrder || 0,
+      });
+      setEditingWarehouseLocationId("");
+      await loadWarehouseLocations();
+      showToast("Складът е обновен.");
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Грешка при обновяване на склад.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmDeleteWarehouseLocation(id: string) {
+    setSaving(true);
+    try {
+      await archiveWarehouseLocation(id);
+      await loadWarehouseLocations();
+      showToast("Складът е изтрит от активните складове.");
+      setDeleteDialog(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Грешка при изтриване на склад.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function deleteWarehouseLocation(location: WarehouseLocation) {
+    setDeleteDialog({
+      title: "Изтриване на склад",
+      itemLabel: `склада ${location.name}`,
+      details:
+        "Складът ще бъде деактивиран, за да се запази историята на наличности и движения.",
+      onConfirm: () => confirmDeleteWarehouseLocation(location.id),
+    });
+  }
+
   async function addService(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const name = newServiceName.trim();
@@ -838,6 +943,114 @@ export default function SettingsPage() {
                 ) : null}
                 <div className="mt-4 flex justify-end">
                   <Button type="submit" disabled={saving}><Plus size={16} />Добави сервиз</Button>
+                </div>
+              </form>
+            </Card>
+          ) : null}
+
+          {loadState !== "loading" && activeSection === "warehouses" ? (
+            <Card className="p-5">
+              <SectionHeader
+                title="Складове"
+                description="Активни складови локации за наличности, доставки, трансфери и изписване по протоколи."
+              />
+              <div className="mt-5 space-y-3">
+                {warehouseLocations.length ? (
+                  warehouseLocations.map((location) => {
+                    const editing = editingWarehouseLocationId === location.id;
+
+                    return (
+                      <div
+                        key={location.id}
+                        className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                      >
+                        {editing ? (
+                          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                            <Field label="Име">
+                              <Input
+                                value={location.name}
+                                onChange={(event) =>
+                                  setWarehouseLocations((items) =>
+                                    items.map((item) =>
+                                      item.id === location.id
+                                        ? { ...item, name: event.target.value }
+                                        : item
+                                    )
+                                  )
+                                }
+                              />
+                            </Field>
+                            <Button
+                              type="button"
+                              onClick={() => saveWarehouseLocationName(location)}
+                              disabled={saving}
+                            >
+                              <Save size={15} />
+                              Запази
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-lg font-black text-slate-900">
+                                  {location.name}
+                                </div>
+                                <Badge variant="success">активен</Badge>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setEditingWarehouseLocationId(location.id)}
+                              >
+                                <PenLine size={14} />
+                                Редактирай
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="danger"
+                                size="icon"
+                                onClick={() => deleteWarehouseLocation(location)}
+                                aria-label="Изтрий"
+                                title="Изтрий"
+                              >
+                                <Trash2 size={16} />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <EmptyState>Няма активни складове.</EmptyState>
+                )}
+              </div>
+
+              <form
+                onSubmit={addWarehouseLocation}
+                className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4"
+              >
+                <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <Field label="Име на нов склад">
+                    <Input
+                      value={newWarehouseLocation.name}
+                      onChange={(event) =>
+                        setNewWarehouseLocation((item) => ({
+                          ...item,
+                          name: event.target.value,
+                        }))
+                      }
+                      placeholder="Напр. Склад Север"
+                    />
+                  </Field>
+                  <Button type="submit" disabled={saving}>
+                    <Plus size={16} />
+                    Добави склад
+                  </Button>
                 </div>
               </form>
             </Card>

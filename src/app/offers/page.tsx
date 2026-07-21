@@ -9,7 +9,7 @@ const offers: PipelineItem[] = [
     status: "Изпратена",
     statusVariant: "orange",
     action: "Създай поръчка",
-    meta: <div className="text-xl font-black text-slate-950">4 850 лв.</div>,
+    meta: <div className="text-xl font-black text-slate-950">4 850 €</div>,
     fields: [
       { label: "Клиент", value: "Шумен Ритейл Груп АД" },
       { label: "Обект", value: "МОЛ Шумен" },
@@ -24,7 +24,7 @@ const offers: PipelineItem[] = [
     status: "Чернова",
     statusVariant: "neutral",
     action: "Създай поръчка",
-    meta: <div className="text-xl font-black text-slate-950">2 320 лв.</div>,
+    meta: <div className="text-xl font-black text-slate-950">2 320 €</div>,
     fields: [
       { label: "Клиент", value: "Север Логистик ЕООД" },
       { label: "Обект", value: "Склад Север" },
@@ -39,7 +39,7 @@ const offers: PipelineItem[] = [
     status: "Приета",
     statusVariant: "success",
     action: "Създай поръчка",
-    meta: <div className="text-xl font-black text-slate-950">7 900 лв.</div>,
+    meta: <div className="text-xl font-black text-slate-950">7 900 €</div>,
     fields: [
       { label: "Клиент", value: "Централ Хотелс ООД" },
       { label: "Обект", value: "Хотел Централ" },
@@ -54,7 +54,7 @@ const offers: PipelineItem[] = [
     status: "Отказана",
     statusVariant: "danger",
     action: "Създай поръчка",
-    meta: <div className="text-xl font-black text-slate-950">1 640 лв.</div>,
+    meta: <div className="text-xl font-black text-slate-950">1 640 €</div>,
     fields: [
       { label: "Клиент", value: "Север Инвест АД" },
       { label: "Обект", value: "Офис сграда Център" },

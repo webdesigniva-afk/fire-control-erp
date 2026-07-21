@@ -8,6 +8,8 @@ import {
   CalendarCheck,
   ChartNoAxesColumnIncreasing,
   ClipboardCheck,
+  ReceiptText,
+  Truck,
   Warehouse,
   FileText,
   Handshake,
@@ -34,6 +36,8 @@ const sidebarStorageKey = "firecontrol-sidebar-mode";
 const menu: MenuItem[] = [
   { label: "Дашборд", href: "/dashboard", icon: LayoutDashboard },
   { label: "Продажби", href: "/sales", icon: ChartNoAxesColumnIncreasing },
+  { label: "Финанси", href: "/finance", icon: ReceiptText },
+  { label: "Доставки", href: "/supply", icon: Truck },
   { label: "Задачи", href: "/tasks", icon: CalendarCheck },
   { label: "Протоколи", href: "/protocols", icon: ClipboardCheck },
   { label: "Склад", href: "/warehouse", icon: Warehouse },
