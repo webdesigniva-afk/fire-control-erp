@@ -13,6 +13,7 @@ type OfferLine = {
   id: string;
   name: string;
   description: string;
+  period: string;
   quantity: number;
   unitPrice: number;
 };
@@ -82,7 +83,29 @@ function fakePriceFor(index: number) {
 function serviceLabel(row: { service_category?: string | null; service_name?: string | null }) {
   const category = String(row.service_category ?? "").trim();
   const name = String(row.service_name ?? "").trim();
-  return category ? `${category} - ${name}` : name || "Услуга";
+  return category && category !== name ? `${category} - ${name}` : name || category || "Услуга";
+}
+
+function defaultPeriodFor(serviceName: string) {
+  const normalized = serviceName.toLowerCase();
+  if (normalized.includes("годиш") || normalized.includes("периодич")) return "12 месеца";
+  if (normalized.includes("абонамент")) return "месечно";
+  if (normalized.includes("поддръж") || normalized.includes("обслуж")) return "еднократно";
+  if (normalized.includes("презареж")) return "еднократно";
+  if (normalized.includes("провер")) return "еднократно";
+  return "по заявка";
+}
+
+function normalizeLine(line: Partial<OfferLine>, index: number): OfferLine {
+  const name = String(line.name || "Услуга");
+  return {
+    id: String(line.id || `line-${index}-${name}`),
+    name,
+    description: String(line.description || "Услуга по пожарна безопасност според избрания обхват."),
+    period: String(line.period || defaultPeriodFor(name)),
+    quantity: Number(line.quantity) || 1,
+    unitPrice: Number(line.unitPrice) || 0,
+  };
 }
 
 function nextOfferNumber(id: string) {
@@ -271,6 +294,7 @@ export default function SalesOfferEditorPage() {
               id: `${index}-${serviceLabel(row)}`,
               name: serviceLabel(row),
               description: "Услуга по пожарна безопасност според избрания обхват.",
+              period: defaultPeriodFor(serviceLabel(row)),
               quantity: 1,
               unitPrice: fakePriceFor(index),
             }))
@@ -278,6 +302,7 @@ export default function SalesOfferEditorPage() {
               id: "default-service",
               name: "Пожарна безопасност",
               description: "Уточняване на обхват, оглед и последващо обслужване.",
+              period: "по заявка",
               quantity: 1,
               unitPrice: 180,
             }];
@@ -309,7 +334,7 @@ export default function SalesOfferEditorPage() {
           opportunityId,
           acceptedSignatureUrl: draftOffer?.acceptedSignatureUrl || "",
           lines: Array.isArray(draftOffer?.lines) && draftOffer.lines.length
-            ? draftOffer.lines as OfferLine[]
+            ? draftOffer.lines.map((line, index) => normalizeLine(line, index))
             : defaultOffer.lines,
         });
         setLoadState("ready");
@@ -350,6 +375,7 @@ export default function SalesOfferEditorPage() {
           id: `line-${Date.now()}`,
           name: "Нова услуга",
           description: "",
+          period: "по заявка",
           quantity: 1,
           unitPrice: 0,
         },
@@ -477,7 +503,7 @@ export default function SalesOfferEditorPage() {
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:p-0">
-      <div className="no-print mx-auto mb-4 flex w-full max-w-5xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="no-print mx-auto mb-4 flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link href={`/sales/${offer.opportunityId}`} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm">
           <ArrowLeft size={18} />
           Назад
@@ -503,111 +529,168 @@ export default function SalesOfferEditorPage() {
       </div>
 
       {saveState === "error" ? (
-        <div className="no-print mx-auto mb-4 max-w-5xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+        <div className="no-print mx-auto mb-4 max-w-6xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           Офертата не беше запазена.
         </div>
       ) : null}
       {acceptState === "error" ? (
-        <div className="no-print mx-auto mb-4 max-w-5xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+        <div className="no-print mx-auto mb-4 max-w-6xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
           Офертата не беше маркирана като приета.
         </div>
       ) : null}
       {acceptState === "accepted" ? (
-        <div className="no-print mx-auto mb-4 max-w-5xl rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
+        <div className="no-print mx-auto mb-4 max-w-6xl rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
           Офертата е маркирана като приета и сделката е преместена към Поръчки.
         </div>
       ) : null}
 
-      <article className="mx-auto w-full max-w-5xl bg-white p-8 shadow-sm print:max-w-none print:p-0 print:shadow-none">
-        <header className="grid gap-6 border-b-2 border-slate-900 pb-6 md:grid-cols-[1fr_auto]">
-          <div>
+      <article className="mx-auto w-full max-w-6xl rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200 print:max-w-none print:rounded-none print:p-0 print:shadow-none print:ring-0">
+        <header className="grid gap-8 border-b border-slate-200 pb-8 md:grid-cols-[1fr_auto]">
+          <div className="pt-1">
             <div className="text-3xl font-black tracking-tight">
               FIRE<span className="text-orange-600 print:text-black">Control</span>
             </div>
-            <p className="mt-1 text-xs font-bold uppercase tracking-wide text-slate-500">
+            <p className="mt-2 max-w-xl text-xs font-black uppercase tracking-wide text-slate-500">
               Пожарна безопасност, сервиз и абонаментно обслужване
             </p>
+            <div className="mt-6 h-1 w-20 rounded-full bg-gradient-to-r from-red-600 to-orange-400 print:bg-slate-900" />
           </div>
-          <div className="min-w-72">
-            <h1 className="text-3xl font-black uppercase">Оферта</h1>
-            <div className="mt-3 grid grid-cols-[110px_1fr] overflow-hidden rounded-xl border border-slate-300 text-sm print:rounded-none">
-              <div className="border-b border-r border-slate-300 bg-slate-50 px-3 py-2 font-bold">Номер</div>
-              <Input value={offer.number} onChange={(event) => updateOffer("number", event.target.value)} className="rounded-none border-0 shadow-none" />
-              <div className="border-b border-r border-slate-300 bg-slate-50 px-3 py-2 font-bold">Дата</div>
-              <input type="date" value={offer.date} onChange={(event) => updateOffer("date", event.target.value)} className="border-0 px-3 py-2 text-sm font-medium outline-none" />
-              <div className="border-r border-slate-300 bg-slate-50 px-3 py-2 font-bold">Валидна до</div>
-              <input type="date" value={offer.validUntil} onChange={(event) => updateOffer("validUntil", event.target.value)} className="border-0 px-3 py-2 text-sm font-medium outline-none" />
+          <div className="min-w-80 rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
+            <h1 className="text-3xl font-black uppercase leading-none">Оферта</h1>
+            <div className="mt-5 space-y-3 text-sm">
+              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
+                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Номер</span>
+                <Input value={offer.number} onChange={(event) => updateOffer("number", event.target.value)} className="h-10 border-slate-200 bg-white shadow-sm" />
+              </label>
+              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
+                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Дата</span>
+                <input type="date" value={offer.date} onChange={(event) => updateOffer("date", event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100" />
+              </label>
+              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
+                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Валидна до</span>
+                <input type="date" value={offer.validUntil} onChange={(event) => updateOffer("validUntil", event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100" />
+              </label>
             </div>
           </div>
         </header>
 
-        <section className="mt-6 grid gap-4 md:grid-cols-2">
-          <div className="rounded-xl border border-slate-300 p-4 print:rounded-none">
-            <h2 className="mb-3 text-sm font-black uppercase text-slate-500">Клиент</h2>
-            <div className="space-y-3">
-              <Input value={offer.client} onChange={(event) => updateOffer("client", event.target.value)} placeholder="Фирма" />
-              <Input value={offer.contact} onChange={(event) => updateOffer("contact", event.target.value)} placeholder="Лице за контакт" />
-              <Input value={offer.phone} onChange={(event) => updateOffer("phone", event.target.value)} placeholder="Телефон" />
-              <Input value={offer.email} onChange={(event) => updateOffer("email", event.target.value)} placeholder="Email" />
+        <section className="mt-7 grid gap-8 border-b border-slate-200 pb-7 md:grid-cols-2">
+          <div>
+            <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">До</h2>
+            <div className="mt-3 space-y-1.5">
+              <input value={offer.client} onChange={(event) => updateOffer("client", event.target.value)} placeholder="Фирма" className="w-full bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
+              <input value={offer.contact} onChange={(event) => updateOffer("contact", event.target.value)} placeholder="Лице за контакт" className="w-full bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
+              <input value={offer.phone} onChange={(event) => updateOffer("phone", event.target.value)} placeholder="Телефон" className="w-full bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
+              <input value={offer.email} onChange={(event) => updateOffer("email", event.target.value)} placeholder="Email" className="w-full bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
             </div>
           </div>
-          <div className="rounded-xl border border-slate-300 p-4 print:rounded-none">
-            <h2 className="mb-3 text-sm font-black uppercase text-slate-500">Обект и предмет</h2>
-            <div className="space-y-3">
-              <Input value={offer.object} onChange={(event) => updateOffer("object", event.target.value)} placeholder="Обект" />
-              <Input value={offer.address} onChange={(event) => updateOffer("address", event.target.value)} placeholder="Адрес" />
-              <textarea value={offer.subject} onChange={(event) => updateOffer("subject", event.target.value)} rows={3} className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm font-medium outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100" />
+          <div>
+            <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">Обект и предмет</h2>
+            <div className="mt-3 space-y-1.5">
+              <input value={offer.object} onChange={(event) => updateOffer("object", event.target.value)} placeholder="Обект" className="w-full bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
+              <input value={offer.address} onChange={(event) => updateOffer("address", event.target.value)} placeholder="Адрес" className="w-full bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
+              <textarea value={offer.subject} onChange={(event) => updateOffer("subject", event.target.value)} rows={3} className="mt-2 w-full resize-none bg-transparent text-sm font-medium leading-6 text-slate-600 outline-none" />
             </div>
           </div>
         </section>
 
         <section className="mt-6">
-          <div className="no-print mb-3 flex justify-end">
-            <Button type="button" variant="outline" onClick={addLine}>
-              <Plus size={17} />
-              Добави ред
-            </Button>
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-lg font-black">Офертни позиции</h2>
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Услуги, период на изпълнение и ориентировъчни цени
+              </p>
+            </div>
+            <div className="no-print">
+              <Button type="button" variant="outline" onClick={addLine}>
+                <Plus size={17} />
+                Добави ред
+              </Button>
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] border-collapse text-sm">
-            <thead>
-              <tr className="bg-slate-100">
-                <th className="w-10 border border-slate-300 px-2 py-2">№</th>
-                <th className="border border-slate-300 px-2 py-2 text-left">Услуга</th>
-                <th className="border border-slate-300 px-2 py-2 text-left">Описание</th>
-                <th className="w-28 border border-slate-300 px-2 py-2">Количество</th>
-                <th className="w-28 border border-slate-300 px-2 py-2">Ед. цена (€)</th>
-                <th className="w-28 border border-slate-300 px-2 py-2 text-right">Общо</th>
-                <th className="no-print w-10 border border-slate-300 px-2 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {offer.lines.map((line, index) => (
-                <tr key={line.id}>
-                  <td className="border border-slate-300 px-2 py-2 text-center font-bold">{index + 1}</td>
-                  <td className="border border-slate-300 px-2 py-2">
-                    <input value={line.name} onChange={(event) => updateLine(line.id, { name: event.target.value })} className="w-full bg-transparent font-bold outline-none" />
-                  </td>
-                  <td className="border border-slate-300 px-2 py-2">
-                    <textarea value={line.description} onChange={(event) => updateLine(line.id, { description: event.target.value })} rows={2} className="w-full resize-none bg-transparent outline-none" />
-                  </td>
-                  <td className="border border-slate-300 px-2 py-2">
-                    <input type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })} className="w-full bg-transparent text-center outline-none" />
-                  </td>
-                  <td className="border border-slate-300 px-2 py-2">
-                    <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) || 0 })} className="w-full bg-transparent text-right outline-none" />
-                  </td>
-                  <td className="border border-slate-300 px-2 py-2 text-right font-bold">
-                    {money(line.quantity * line.unitPrice)}
-                  </td>
-                  <td className="no-print border border-slate-300 px-2 py-2 text-center">
-                    <button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600">
-                      <Trash2 size={15} />
-                    </button>
-                  </td>
+          <div className="overflow-hidden rounded-2xl border border-slate-200">
+            <table className="w-full table-fixed border-collapse text-sm">
+              <colgroup>
+                <col className="w-[4%]" />
+                <col className="w-[31%]" />
+                <col className="w-[25%]" />
+                <col className="w-[13%]" />
+                <col className="w-[7%]" />
+                <col className="w-[9%]" />
+                <col className="w-[10%]" />
+                <col className="no-print w-[4%]" />
+              </colgroup>
+              <thead>
+                <tr className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-3 text-left">№</th>
+                  <th className="px-3 py-3 text-left">Услуга</th>
+                  <th className="px-3 py-3 text-left">Описание</th>
+                  <th className="px-3 py-3 text-left">Период</th>
+                  <th className="px-3 py-3 text-center">Бр.</th>
+                  <th className="px-3 py-3 text-right">Ед. цена</th>
+                  <th className="px-3 py-3 text-right">Общо</th>
+                  <th className="no-print px-2 py-3" />
                 </tr>
-              ))}
-            </tbody>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {offer.lines.map((line, index) => (
+                  <tr key={line.id} className="align-top">
+                    <td className="px-3 py-4 font-black text-slate-400">{index + 1}</td>
+                    <td className="px-3 py-4">
+                      <textarea
+                        value={line.name}
+                        onChange={(event) => updateLine(line.id, { name: event.target.value })}
+                        rows={3}
+                        className="w-full resize-none overflow-hidden bg-transparent text-sm font-black leading-5 text-slate-950 outline-none"
+                      />
+                    </td>
+                    <td className="px-3 py-4">
+                      <textarea
+                        value={line.description}
+                        onChange={(event) => updateLine(line.id, { description: event.target.value })}
+                        rows={3}
+                        className="w-full resize-none overflow-hidden bg-transparent text-sm font-medium leading-5 text-slate-600 outline-none"
+                      />
+                    </td>
+                    <td className="px-3 py-4">
+                      <input
+                        value={line.period}
+                        onChange={(event) => updateLine(line.id, { period: event.target.value })}
+                        className="w-full bg-transparent text-sm font-bold leading-5 text-slate-700 outline-none"
+                      />
+                    </td>
+                    <td className="px-3 py-4 text-center">
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={line.quantity}
+                        onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })}
+                        className="w-full bg-transparent text-center text-sm font-bold outline-none"
+                      />
+                    </td>
+                    <td className="px-3 py-4">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={line.unitPrice}
+                        onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) || 0 })}
+                        className="w-full bg-transparent text-right text-sm font-bold outline-none"
+                      />
+                    </td>
+                    <td className="px-3 py-4 text-right font-black text-slate-950">
+                      {money(line.quantity * line.unitPrice)}
+                    </td>
+                    <td className="no-print px-2 py-3 text-center">
+                      <button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600">
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         </section>
