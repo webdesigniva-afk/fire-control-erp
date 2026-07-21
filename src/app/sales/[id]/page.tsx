@@ -194,11 +194,15 @@ function mapOpportunityService(row: { service_category?: string | null; service_
 }
 
 function serviceFormValue(service: OpportunityService): string {
-  return service.category ? `${service.category} / ${service.name}` : service.name;
+  return service.category && service.category !== service.name
+    ? `${service.category} / ${service.name}`
+    : service.name;
 }
 
 function serviceDisplayName(service: OpportunityService): string {
-  return service.category ? `${service.category} - ${service.name}` : service.name;
+  return service.category && service.category !== service.name
+    ? `${service.category} - ${service.name}`
+    : service.name;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -252,14 +256,6 @@ function opportunityClientPayload(opportunity: Opportunity) {
     bulstat: "",
     eik: "",
   };
-}
-
-function groupServicesByCategory(services: OpportunityService[]) {
-  return services.reduce<Record<string, string[]>>((groups, service) => {
-    const category = service.category || "Други";
-    groups[category] = [...(groups[category] ?? []), service.name];
-    return groups;
-  }, {});
 }
 
 function displayOpportunityStatus(opportunity: Opportunity) {
@@ -915,7 +911,7 @@ export default function SalesDealPage() {
 
   const nextStage = NEXT_STAGE[opportunity.stage];
   const isContract = opportunity.stage === "contract";
-  const servicesByCategory = groupServicesByCategory(opportunity.services);
+  const serviceLabels = Array.from(new Set(opportunity.services.map(serviceDisplayName)));
   const visibleStatus = displayOpportunityStatus(opportunity);
   const opportunityTitle = opportunityClientName(opportunity);
 
@@ -1044,19 +1040,22 @@ export default function SalesDealPage() {
           </Card>
         </div>
 
-        {opportunity.services.length > 0 && (
+        {serviceLabels.length > 0 && (
           <Card className="p-5">
-            <h2 className="text-lg font-black">Услуги</h2>
-            <div className="mt-4 space-y-3">
-              {Object.entries(servicesByCategory).map(([category, services]) => (
-                <div key={category} className="rounded-2xl bg-slate-50 p-4">
-                  <div className="text-xs font-black uppercase tracking-wide text-slate-400">{category}</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {services.map((service) => (
-                      <ServiceTag key={`${category}-${service}`} name={service} />
-                    ))}
-                  </div>
-                </div>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-lg font-black">Интерес / услуги</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  Заявени направления по лийда
+                </p>
+              </div>
+              <span className="text-xs font-black uppercase tracking-wide text-slate-400">
+                {serviceLabels.length} {serviceLabels.length === 1 ? "услуга" : "услуги"}
+              </span>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {serviceLabels.map((service) => (
+                <ServiceTag key={service} name={service} />
               ))}
             </div>
           </Card>

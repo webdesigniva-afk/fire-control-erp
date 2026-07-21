@@ -394,29 +394,37 @@ export default function TasksPage() {
           <div className="space-y-3">
             {plannedTasks.map((task) => {
               const isCompleted = isCompletedTask(task);
+              const activities = task.activities?.length
+                ? task.activities
+                : [{ title: task.title }];
+              const activityTitles = activities
+                .map((activity) => activity.title.trim())
+                .filter(Boolean);
+              const visibleActivities = activityTitles.slice(0, 3);
+              const hiddenActivities = Math.max(activityTitles.length - 3, 0);
 
               if (isSalesTask(task)) {
                 return (
-                  <Card key={task.id} className="p-5" hover>
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <Card key={task.id} className="p-0" hover>
+                    <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
                       <div className="flex min-w-0 items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
                           <ClipboardCheck size={18} />
                         </div>
                         <div className="min-w-0">
-                          <div className="text-xs font-black uppercase tracking-wide text-slate-400">
-                            Лийд
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-black text-slate-950">
+                              {task.activities[0]?.title || task.taskType || "Следващо действие"}
+                            </h3>
+                            <Badge variant="warning">Лийд</Badge>
                           </div>
-                          <h3 className="mt-1 font-black text-slate-950">
-                            {task.activities[0]?.title || task.taskType || "Следващо действие"}
-                          </h3>
-                          <p className="mt-1 text-sm font-semibold text-slate-500">
+                          <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
                             {task.client || task.objectName || "Без фирма"}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <div className="flex flex-wrap items-center gap-2 xl:justify-end">
                         <Badge variant="warning">{formatTaskDate(task.dueDate)}</Badge>
                         {task.href ? (
                           <Link
@@ -433,55 +441,56 @@ export default function TasksPage() {
               }
 
               return (
-                <Card key={task.id} className="p-5" hover>
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
-                          <ClipboardCheck size={18} />
-                        </div>
-                        <div>
-                          <h3 className="font-black text-slate-950">
+                <Card key={task.id} className="overflow-hidden p-0" hover>
+                  <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600 sm:flex">
+                        <ClipboardCheck size={18} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <h3 className="text-base font-black leading-6 text-slate-950">
                             {taskDisplayTitle(task)}
                           </h3>
-                          <div className="mt-1 flex flex-wrap items-center gap-2">
-                            <Badge variant={isProblemTask(task) ? "danger" : "neutral"}>
-                              {taskTypeLabel(task)}
-                            </Badge>
-                          </div>
-                          <p className="mt-1 text-sm font-black text-slate-600">
-                            Дейности: {task.activities?.length || 1}
-                          </p>
-                          <ul className="mt-2 space-y-1 text-sm font-medium leading-6 text-slate-500">
-                            {(task.activities?.length
-                              ? task.activities
-                              : [{ title: task.title }]
-                            ).map((activity, index) => (
-                              <li key={`${task.id}-${index}`} className="flex gap-2">
-                                <span className="text-orange-500">•</span>
-                                <span>{activity.title}</span>
-                              </li>
-                            ))}
-                          </ul>
-                          <p className="mt-2 text-sm font-medium text-slate-500">
+                          <Badge variant={isProblemTask(task) ? "danger" : "neutral"}>
+                            {taskTypeLabel(task)}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold leading-6 text-slate-500">
+                          <span>
                             {task.objectName || "Обект"} · {task.client || "Клиент"}
-                          </p>
+                          </span>
                           {task.sourceLabel || task.sourceProtocolNumber ? (
-                            <p className="mt-1 text-xs font-black uppercase text-slate-400">
+                            <span className="text-xs font-black uppercase leading-5 text-slate-400">
                               {task.sourceLabel ||
                                 `Протокол №${task.sourceProtocolNumber}`}
-                            </p>
+                            </span>
                           ) : null}
                         </div>
+                        {visibleActivities.length ? (
+                          <div className="mt-2 space-y-1 text-sm font-medium leading-6 text-slate-500">
+                            {visibleActivities.map((activity, index) => (
+                              <div key={`${task.id}-activity-${index}`} className="flex gap-2">
+                                <span className="mt-[9px] h-1 w-1 shrink-0 rounded-full bg-orange-500" />
+                                <span>{activity}</span>
+                              </div>
+                            ))}
+                            {hiddenActivities ? (
+                              <div className="pl-3 text-xs font-black text-slate-400">
+                                + още {hiddenActivities} дейности
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="flex flex-wrap items-center gap-2 xl:min-w-[330px] xl:justify-end">
                       <Badge variant="warning">{formatTaskDate(task.dueDate)}</Badge>
                       {task.objectCode ? (
                         <Link
                           href={`/locations/${encodeURIComponent(task.objectCode)}`}
-                          className="inline-flex h-10 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                          className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
                         >
                           Отвори обект
                         </Link>
@@ -490,6 +499,7 @@ export default function TasksPage() {
                         <Button
                           type="button"
                           variant="outline"
+                          size="sm"
                           onClick={() => completeTask(task.id)}
                         >
                           <CheckCircle2 size={17} />

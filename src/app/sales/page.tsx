@@ -35,6 +35,9 @@ import {
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import { geocodeAddress } from "../../lib/geocoding";
 import { createObjectQrCode } from "../../lib/object-qr";
+import {
+  readActiveServiceGroupsFromSupabase,
+} from "../../lib/services";
 import { serviceTasksUpdatedEvent } from "../../lib/tasks";
 
 // Types
@@ -163,7 +166,6 @@ const DEFAULT_OBJECT_TYPES = [
 ];
 
 const ADD_OBJECT_TYPE_VALUE = "__add_object_type__";
-const ADD_SERVICE_VALUE = "__add_service__";
 const SALES_LEAD_SETTINGS_KEY = "firecontrol:sales:lead-catalogs";
 
 type LeadServiceCatalog = Record<string, string[]>;
@@ -237,32 +239,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function compactServiceCategory(category: string): string {
-  const normalized = category.trim().toLowerCase();
-  if (normalized === "противопожарно оборудване и сервиз") return "ПОС";
-  if (normalized === "пожароизвестителни системи") return "ПС";
-  return category;
-}
-
-function groupedServiceLabels(services: OpportunityService[]): string[] {
-  const grouped = services.reduce<Record<string, string[]>>((acc, service) => {
-    if (!service.category) {
-      acc[service.name] = acc[service.name] ?? [];
-      return acc;
-    }
-
-    const category = compactServiceCategory(service.category);
-    acc[category] = uniqueValues([...(acc[category] ?? []), service.name]);
-    return acc;
-  }, {});
-
-  return Object.entries(grouped).map(([category, names]) =>
-    names.length > 0 ? `${category} - ${names.join(", ")}` : category
-  );
-}
-
 function serviceDisplayName(service: OpportunityService): string {
-  return service.category ? `${service.category} - ${service.name}` : service.name;
+  return service.category && service.category !== service.name
+    ? `${service.category} - ${service.name}`
+    : service.name;
+}
+
+function leadServiceLabel(service: LeadSelectedService): string {
+  return service.category && service.category !== service.service
+    ? `${service.category} - ${service.service}`
+    : service.service;
 }
 
 function statusVariant(status: string): BadgeVariant {
@@ -358,6 +344,18 @@ function opportunityClientPayload(opportunity: Opportunity) {
 
 async function readLeadServiceCatalogFromSupabase(): Promise<LeadServiceCatalog> {
   const supabase = createSupabaseBrowserClient();
+  const groups = await readActiveServiceGroupsFromSupabase(supabase);
+
+  if (groups.length) {
+    return groups.reduce<LeadServiceCatalog>((catalog, group) => {
+      const category = group.service.name;
+      catalog[category] = group.children.length
+        ? group.children.map((service) => service.name)
+        : [];
+      return catalog;
+    }, {});
+  }
+
   const { data, error } = await supabase
     .from("app_settings")
     .select("value")
@@ -377,20 +375,6 @@ async function readLeadServiceCatalogFromSupabase(): Promise<LeadServiceCatalog>
   return merged;
 }
 
-async function writeLeadServiceCatalogToSupabase(catalog: LeadServiceCatalog) {
-  const supabase = createSupabaseBrowserClient();
-  const { error } = await supabase.from("app_settings").upsert(
-    {
-      key: SALES_LEAD_SETTINGS_KEY,
-      value: catalog,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "key" }
-  );
-
-  if (error) throw new Error(error.message);
-}
-
 // Sub-components
 function EmptyState({ stage }: { stage: Stage }) {
   const label =
@@ -400,14 +384,6 @@ function EmptyState({ stage }: { stage: Stage }) {
     <div className="rounded-3xl border border-dashed border-slate-300 bg-white/70 p-6 text-center text-sm font-bold text-slate-400">
       {label}
     </div>
-  );
-}
-
-function ServiceTag({ name }: { name: string }) {
-  return (
-    <span className="inline-block rounded-lg bg-orange-50 px-2 py-0.5 text-xs font-bold text-orange-700 ring-1 ring-orange-100">
-      {name}
-    </span>
   );
 }
 
@@ -463,14 +439,14 @@ function PipelineCard({
   const visibleStatus = displayOpportunityStatus(item);
   const shouldShowStatus = !(item.stage === "offer" && item.status === "Изпратена оферта" && !item.hasOfferDraft);
   return (
-    <Card hover className="p-4">
-      <div className="flex items-start justify-between gap-2 min-w-0">
-        <div className="min-w-0">
-          <h3 className="font-black text-slate-950 leading-5">{item.company_name}</h3>
+    <Card hover className="flex h-full flex-col p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h3 className="break-words text-lg font-black leading-6 text-slate-950">{item.company_name}</h3>
           {shouldShowStatus ? (
-          <div className="mt-2">
-            <Badge variant={statusVariant(visibleStatus)}>{visibleStatus}</Badge>
-          </div>
+            <div className="mt-2">
+              <Badge variant={statusVariant(visibleStatus)}>{visibleStatus}</Badge>
+            </div>
           ) : null}
         </div>
         <button
@@ -482,43 +458,31 @@ function PipelineCard({
           <Archive size={13} />
         </button>
       </div>
-      <div className="mt-4 space-y-2 text-sm">
+      <div className="mt-4 space-y-2.5 text-sm">
         {item.contact_name && (
-          <div className="flex items-center gap-2 text-slate-600">
-            <UserRound size={14} className="shrink-0 text-orange-500" />
-            <span className="font-bold truncate">{item.contact_name}</span>
+          <div className="grid grid-cols-[18px_1fr] items-start gap-2 text-slate-600">
+            <UserRound size={15} className="mt-0.5 text-orange-500" />
+            <span className="break-words font-bold leading-5">{item.contact_name}</span>
           </div>
         )}
         {item.phone && (
-          <div className="flex items-center gap-2 text-slate-600">
-            <Phone size={14} className="shrink-0 text-orange-500" />
-            <span className="font-bold">{item.phone}</span>
+          <div className="grid grid-cols-[18px_1fr] items-start gap-2 text-slate-600">
+            <Phone size={15} className="mt-0.5 text-orange-500" />
+            <span className="break-words font-bold leading-5">{item.phone}</span>
           </div>
         )}
         {item.object_name && (
-          <div className="flex items-center gap-2 text-slate-600">
-            <Building2 size={14} className="shrink-0 text-orange-500" />
-            <span className="font-bold truncate">{item.object_name}</span>
+          <div className="grid grid-cols-[18px_1fr] items-start gap-2 text-slate-600">
+            <Building2 size={15} className="mt-0.5 text-orange-500" />
+            <span className="break-words font-bold leading-5">{item.object_name}</span>
           </div>
         )}
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <CalendarClock size={13} className="shrink-0" />
-          <span className="font-semibold">Създаден: {formatDate(item.created_at)}</span>
+        <div className="grid grid-cols-[18px_1fr] items-start gap-2 text-xs text-slate-400">
+          <CalendarClock size={14} className="mt-0.5" />
+          <span className="font-semibold leading-5">Създаден: {formatDate(item.created_at)}</span>
         </div>
       </div>
-      {item.services.length > 0 && (
-        <div className="mt-3 rounded-2xl bg-slate-50 p-3">
-          <div className="mb-1.5 text-xs font-black uppercase tracking-wide text-slate-400">
-            Услуги
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {groupedServiceLabels(item.services).map((label) => (
-              <ServiceTag key={label} name={label} />
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="mt-3 rounded-2xl bg-orange-50 px-3 py-2.5">
+      <div className="mt-4 rounded-2xl bg-orange-50 px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-black text-orange-700">
           <span className="inline-flex items-center gap-1">
             <CalendarClock size={12} />
@@ -534,7 +498,7 @@ function PipelineCard({
           Последна активност: {formatRelative(item.last_activity_at)}
         </div>
       </div>
-      <div className="mt-3 grid grid-cols-1 gap-2">
+      <div className="mt-auto grid grid-cols-1 gap-2 pt-3">
         <Link
           href={`/sales/${item.id}`}
           className="inline-flex h-9 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
@@ -715,12 +679,45 @@ function NewLeadModal({ open, onClose, onCreated }: {
   const [addingObjectType, setAddingObjectType] = useState(false);
   const [newObjectType, setNewObjectType] = useState("");
   const [savingObjectType, setSavingObjectType] = useState(false);
-  const [addingServiceCategory, setAddingServiceCategory] = useState("");
-  const [newService, setNewService] = useState("");
   const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
   const [duplicateAcknowledged, setDuplicateAcknowledged] = useState(false);
   const serviceCategories = Object.keys(serviceCatalog);
   const availableObjectTypes = objectTypeOptions(protocolSettings, form.object_type);
+
+  function alignFormServicesWithCatalog(catalog: LeadServiceCatalog) {
+    const categories = Object.keys(catalog);
+    setForm((current) => {
+      const selectedCategories = current.service_categories.filter((category) =>
+        categories.includes(category)
+      );
+      const nextCategories = selectedCategories.length
+        ? selectedCategories
+        : categories[0]
+          ? [categories[0]]
+          : [];
+      const alignedServices = current.services.filter(
+        (item) =>
+          nextCategories.includes(item.category) &&
+          ((catalog[item.category] ?? []).includes(item.service) ||
+            (!(catalog[item.category] ?? []).length && item.service === item.category))
+      );
+
+      for (const category of nextCategories) {
+        if (
+          !(catalog[category] ?? []).length &&
+          !alignedServices.some((item) => item.category === category && item.service === category)
+        ) {
+          alignedServices.push({ category, service: category });
+        }
+      }
+
+      return {
+        ...current,
+        service_categories: nextCategories,
+        services: alignedServices,
+      };
+    });
+  }
 
   useEffect(() => {
     if (open) {
@@ -731,8 +728,6 @@ function NewLeadModal({ open, onClose, onCreated }: {
       setDuplicateAcknowledged(false);
       setAddingObjectType(false);
       setSavingObjectType(false);
-      setAddingServiceCategory("");
-      setNewService("");
     }
   }, [open]);
 
@@ -753,8 +748,12 @@ function NewLeadModal({ open, onClose, onCreated }: {
         if (!isMounted) return;
         setProtocolSettings(dbSettings);
         setServiceCatalog(dbCatalog);
+        alignFormServicesWithCatalog(dbCatalog);
       } catch {
-        if (isMounted) setServiceCatalog(DEFAULT_SERVICE_CATALOG);
+        if (isMounted) {
+          setServiceCatalog(DEFAULT_SERVICE_CATALOG);
+          alignFormServicesWithCatalog(DEFAULT_SERVICE_CATALOG);
+        }
       }
     }
 
@@ -787,14 +786,21 @@ function NewLeadModal({ open, onClose, onCreated }: {
   function toggleServiceCategory(category: string) {
     setForm((current) => {
       const selected = current.service_categories.includes(category);
+      const categoryOptions = serviceCatalog[category] ?? [];
+      const nextServices = selected
+        ? current.services.filter((item) => item.category !== category)
+        : categoryOptions.length
+          ? current.services
+          : current.services.some((item) => item.category === category && item.service === category)
+            ? current.services
+            : [...current.services, { category, service: category }];
+
       return {
         ...current,
         service_categories: selected
           ? current.service_categories.filter((item) => item !== category)
           : [...current.service_categories, category],
-        services: selected
-          ? current.services.filter((item) => item.category !== category)
-          : current.services,
+        services: nextServices,
       };
     });
   }
@@ -836,31 +842,6 @@ function NewLeadModal({ open, onClose, onCreated }: {
       setError(err instanceof Error ? err.message : "Грешка при запис на типа обект.");
     } finally {
       setSavingObjectType(false);
-    }
-  }
-
-  async function addService() {
-    const value = newService.trim();
-    if (!value || !addingServiceCategory) return;
-
-    const nextCatalog = {
-      ...serviceCatalog,
-      [addingServiceCategory]: uniqueValues([...(serviceCatalog[addingServiceCategory] ?? []), value]),
-    };
-
-    try {
-      await writeLeadServiceCatalogToSupabase(nextCatalog);
-      setServiceCatalog(nextCatalog);
-      setForm((current) => ({
-        ...current,
-        services: current.services.some((item) => item.category === addingServiceCategory && item.service === value)
-          ? current.services
-          : [...current.services, { category: addingServiceCategory, service: value }],
-      }));
-      setNewService("");
-      setAddingServiceCategory("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Грешка при запис на услугата.");
     }
   }
 
@@ -914,7 +895,7 @@ function NewLeadModal({ open, onClose, onCreated }: {
       form.contact_name.trim() ? `Контакт: ${form.contact_name.trim()}` : "",
       form.phone.trim() ? `Телефон: ${form.phone.trim()}` : "",
       form.services.length
-        ? `Интерес: ${form.services.map((item) => `${item.category} → ${item.service}`).join(", ")}`
+        ? `Интерес: ${form.services.map(leadServiceLabel).join(", ")}`
         : "",
     ].filter(Boolean).join("\n");
 
@@ -1067,22 +1048,26 @@ function NewLeadModal({ open, onClose, onCreated }: {
             </FormField>
 
             {form.lead_client_type === "corporate" ? (
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                <FormField label="Име на фирма *">
-                  <Input autoFocus required value={form.company_name} onChange={(e) => updateForm("company_name", e.target.value)} placeholder="Алфа Ритейл ООД" />
-                </FormField>
-                <FormField label="ЕИК / Булстат">
-                  <Input value={form.company_eik} onChange={(e) => updateForm("company_eik", e.target.value)} placeholder="123456789" />
-                </FormField>
-                <FormField label="Контактно лице">
-                  <Input value={form.contact_name} onChange={(e) => updateForm("contact_name", e.target.value)} placeholder="Иван Иванов" />
-                </FormField>
-                <FormField label="Телефон *">
-                  <Input required type="tel" value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="+359 88 ..." />
-                </FormField>
-                <FormField label="Email">
-                  <Input type="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} placeholder="office@firma.bg" />
-                </FormField>
+              <div className="mt-4 space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                  <FormField label="Име на фирма *">
+                    <Input autoFocus required value={form.company_name} onChange={(e) => updateForm("company_name", e.target.value)} placeholder="Алфа Ритейл ООД" />
+                  </FormField>
+                  <FormField label="ЕИК / Булстат">
+                    <Input value={form.company_eik} onChange={(e) => updateForm("company_eik", e.target.value)} placeholder="123456789" />
+                  </FormField>
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,0.9fr)_210px_minmax(260px,1.15fr)]">
+                  <FormField label="Контактно лице">
+                    <Input value={form.contact_name} onChange={(e) => updateForm("contact_name", e.target.value)} placeholder="Иван Иванов" />
+                  </FormField>
+                  <FormField label="Телефон *">
+                    <Input required type="tel" value={form.phone} onChange={(e) => updateForm("phone", e.target.value)} placeholder="+359 88 ..." />
+                  </FormField>
+                  <FormField label="Email">
+                    <Input type="email" value={form.email} onChange={(e) => updateForm("email", e.target.value)} placeholder="office@firma.bg" />
+                  </FormField>
+                </div>
               </div>
             ) : (
               <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1198,52 +1183,24 @@ function NewLeadModal({ open, onClose, onCreated }: {
             <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               {form.service_categories.map((category) => {
                 const options = serviceCatalog[category] ?? [];
+                if (!options.length) return null;
+
                 return (
                   <FormField key={category} label={category}>
                     <select
                       value=""
                       onChange={(e) => {
-                        if (e.target.value === ADD_SERVICE_VALUE) {
-                          setAddingServiceCategory(category);
-                          setNewService("");
-                          return;
-                        }
                         if (e.target.value) toggleService(category, e.target.value);
                       }}
                       className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-medium text-slate-800 shadow-sm transition hover:border-slate-300 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
                     >
                       <option value="">Изберете услуга</option>
                       {options.map((service) => <option key={service} value={service}>{service}</option>)}
-                      <option value={ADD_SERVICE_VALUE}>+ Добави</option>
                     </select>
-                    {addingServiceCategory === category && (
-                      <div className="mt-2 flex gap-2">
-                        <Input value={newService} onChange={(e) => setNewService(e.target.value)} placeholder="Нова услуга" />
-                        <Button type="button" variant="outline" onClick={addService} disabled={!newService.trim()}>Добави</Button>
-                      </div>
-                    )}
                   </FormField>
                 );
               })}
             </div>
-            {form.services.length > 0 && (
-              <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
-                <div className="mb-2 text-xs font-black uppercase tracking-wide text-slate-400">Избрани услуги</div>
-                <div className="flex flex-wrap gap-2">
-                {form.services.map(({ category, service }) => (
-                  <button
-                    key={`${category}-${service}`}
-                    type="button"
-                    onClick={() => toggleService(category, service)}
-                    className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-orange-200 bg-orange-50 px-3 text-xs font-black text-orange-700"
-                  >
-                    <Flame size={13} />
-                    {category} → {service}
-                  </button>
-                ))}
-                </div>
-              </div>
-            )}
           </section>
           <section>
             <SectionHeader icon={<CalendarClock size={17} />} title="Следващо действие" subtitle="Планиране" />

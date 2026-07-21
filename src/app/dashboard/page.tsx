@@ -10,6 +10,7 @@ import {
   Clock3,
   FileText,
   Loader2,
+  PackageOpen,
   QrCode,
   RefreshCw,
   ShieldAlert,
@@ -32,6 +33,13 @@ import {
 } from "../../lib/map-objects";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import { getTeamMemberInitials } from "../../lib/team-members";
+import {
+  readWarehouseItems,
+  readWarehouseStock,
+  totalStock,
+  type WarehouseItem,
+  type WarehouseStock,
+} from "../../lib/warehouse";
 
 type DataRecord = Record<string, unknown>;
 type LoadState = "loading" | "ready" | "error";
@@ -131,6 +139,8 @@ type DashboardData = {
   protocols: ProtocolItem[];
   contracts: ContractItem[];
   technicians: TechnicianItem[];
+  warehouseItems: WarehouseItem[];
+  warehouseStock: WarehouseStock[];
 };
 
 type Kpi = {
@@ -187,6 +197,15 @@ type TechnicianSummary = {
   status: TechnicianStatus;
 };
 
+type StockRiskItem = {
+  id: string;
+  name: string;
+  category: string;
+  currentQuantity: number;
+  minimumQuantity: number;
+  unit: string;
+};
+
 const emptyDashboardData: DashboardData = {
   locations: [],
   equipment: [],
@@ -195,6 +214,8 @@ const emptyDashboardData: DashboardData = {
   protocols: [],
   contracts: [],
   technicians: [],
+  warehouseItems: [],
+  warehouseStock: [],
 };
 
 const quickActions = [
@@ -588,6 +609,8 @@ async function loadDashboardData(): Promise<DashboardData> {
     protocolRows,
     contractRows,
     technicianRows,
+    warehouseItems,
+    warehouseStock,
   ] = await Promise.all([
     resolveDashboardRequest(selectRows("locations"), [], "locations"),
     resolveDashboardRequest(selectRows("equipment"), [], "equipment"),
@@ -627,6 +650,8 @@ async function loadDashboardData(): Promise<DashboardData> {
       [],
       "team members"
     ),
+    resolveDashboardRequest(readWarehouseItems(), [], "warehouse items"),
+    resolveDashboardRequest(readWarehouseStock(), [], "warehouse stock"),
   ]);
 
   const locations = locationRows.map(mapLocation);
@@ -644,6 +669,8 @@ async function loadDashboardData(): Promise<DashboardData> {
     protocols: protocolRows.map(mapProtocol),
     contracts: contractRows.map(mapContract),
     technicians: technicianRows.map(mapTechnicianMember).filter((item) => item.name && item.active),
+    warehouseItems,
+    warehouseStock,
   };
 }
 
@@ -1310,6 +1337,25 @@ export default function DashboardPage() {
       plannedTasks,
       todayKey
     ).mapObjects;
+    const stockRiskItems: StockRiskItem[] = data.warehouseItems
+      .map((item) => ({
+        id: item.id,
+        name: item.name,
+        category: item.category,
+        currentQuantity: totalStock(data.warehouseStock, item.id),
+        minimumQuantity: item.minimumQuantity,
+        unit: item.unit,
+      }))
+      .filter(
+        (item) =>
+          item.minimumQuantity > 0 &&
+          item.currentQuantity <= item.minimumQuantity
+      )
+      .sort(
+        (first, second) =>
+          first.currentQuantity / first.minimumQuantity -
+          second.currentQuantity / second.minimumQuantity
+      );
     const attentionCount = attentionItems.length;
     const overdueCount = overdueEquipment.length + overdueTasks.length;
     const kpis: Kpi[] = [
@@ -1340,6 +1386,13 @@ export default function DashboardPage() {
         note: expiringContracts.length ? "следващи 30 дни" : "Няма изтичащи",
         tone: expiringContracts.length ? "warning" : "neutral",
         icon: FileText,
+      },
+      {
+        label: "Складов риск",
+        value: String(stockRiskItems.length),
+        note: stockRiskItems.length ? "артикули под минимум" : "Наличностите са OK",
+        tone: stockRiskItems.length ? "warning" : "neutral",
+        icon: PackageOpen,
       },
     ];
 
@@ -1382,7 +1435,7 @@ export default function DashboardPage() {
 
         <QuickActionsCard />
 
-        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
           {derived.kpis.map((kpi) => (
             <KpiCard key={kpi.label} kpi={kpi} />
           ))}
