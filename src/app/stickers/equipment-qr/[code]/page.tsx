@@ -4,7 +4,6 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { Flame, Printer, QrCode } from "lucide-react";
 import { generateQRCode } from "../../../../lib/qr";
-import { equipmentQrPath } from "../../../../lib/equipment-qr";
 import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 
 type DataRecord = Record<string, unknown>;
@@ -83,9 +82,7 @@ export default function EquipmentQrStickerPage() {
 
         const equipmentRecord = equipmentRow as DataRecord;
         const nextLabel = mapEquipment(equipmentRecord);
-        const origin = typeof window !== "undefined" ? window.location.origin : "";
-        const target = `${origin}${equipmentQrPath(nextLabel.qrCode)}`;
-        const nextQrImage = await generateQRCode(target);
+        const nextQrImage = await generateQRCode(nextLabel.qrCode);
 
         if (!mounted) return;
 

@@ -2088,7 +2088,7 @@ function GeneratedEquipmentQrCode({
   compact?: boolean;
 }) {
   const [qrImage, setQrImage] = useState<string | null>(null);
-  const sizeClassName = compact ? "h-24 w-24" : "h-44 w-44";
+  const sizeClassName = compact ? "h-40 w-40" : "h-44 w-44";
   const qrCode = item.equipmentQrCode;
 
   useEffect(() => {
@@ -2098,10 +2098,7 @@ function GeneratedEquipmentQrCode({
     }
 
     let isMounted = true;
-    const origin = typeof window !== "undefined" ? window.location.origin : "";
-    const qrTarget = `${origin}${equipmentQrPath(qrCode)}`;
-
-    generateQRCode(qrTarget).then((dataUrl) => {
+    generateQRCode(qrCode).then((dataUrl) => {
       if (isMounted) setQrImage(dataUrl);
     });
 
@@ -2122,8 +2119,8 @@ function GeneratedEquipmentQrCode({
               alt="QR код на оборудването"
               className="h-full w-full object-contain"
             />
-            <div className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-white bg-red-600 text-white shadow-sm">
-              <Flame size={19} fill="currentColor" strokeWidth={2.5} />
+            <div className="absolute left-1/2 top-1/2 flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-[3px] border-white bg-red-600 text-white shadow-sm">
+              <Flame size={15} fill="currentColor" strokeWidth={2.5} />
             </div>
           </>
         ) : (
