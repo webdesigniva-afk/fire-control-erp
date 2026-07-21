@@ -32,6 +32,7 @@ import {
   ExternalLink,
   Fan,
   FileText,
+  Flame,
   FireExtinguisher,
   Globe,
   ImagePlus,
@@ -69,6 +70,7 @@ import { PageHeader } from "../../../components/ui/page-header";
 import { QrScannerButton } from "../../../components/qr-scanner";
 import { TabButton, Tabs } from "../../../components/ui/tabs";
 import { generateQRCode } from "../../../lib/qr";
+import { createEquipmentQrCode, equipmentQrPath } from "../../../lib/equipment-qr";
 import { geocodeAddress } from "../../../lib/geocoding";
 import {
   deleteProtocolPhoto,
@@ -131,6 +133,9 @@ type EquipmentItem = {
   stickerNumber: string;
   stickerGeneratedAt: string;
   stickerPrintedAt: string;
+  equipmentQrCode: string;
+  equipmentQrGeneratedAt: string;
+  equipmentQrPrintedAt: string;
   status: string;
   notes: string;
   createdAt: string;
@@ -1491,6 +1496,9 @@ function mapEquipment(rows: DataRecord[]): EquipmentItem[] {
     stickerNumber: textValue(row, ["sticker_number"]),
     stickerGeneratedAt: textValue(row, ["sticker_generated_at"]),
     stickerPrintedAt: textValue(row, ["sticker_printed_at"]),
+    equipmentQrCode: textValue(row, ["equipment_qr_code"]),
+    equipmentQrGeneratedAt: textValue(row, ["equipment_qr_generated_at"]),
+    equipmentQrPrintedAt: textValue(row, ["equipment_qr_printed_at"]),
     status: textValue(row, ["status"]),
     notes: textValue(row, ["notes", "note"]),
     createdAt: textValue(row, ["created_at"]),
@@ -1818,6 +1826,9 @@ function equipmentDetailRows(item: EquipmentItem) {
   if (item.model) rows.push({ label: "Модел", value: item.model });
   if (item.lastCheckDate) rows.push({ label: "Последна проверка", value: formatDateValue(item.lastCheckDate) });
   if (item.nextCheckDate) rows.push({ label: "Следваща проверка", value: formatDateValue(item.nextCheckDate) });
+  if (item.equipmentQrCode) rows.push({ label: "QR код", value: item.equipmentQrCode });
+  if (item.equipmentQrGeneratedAt) rows.push({ label: "QR генериран", value: formatDateTimeValue(item.equipmentQrGeneratedAt) });
+  if (item.equipmentQrPrintedAt) rows.push({ label: "QR принтиран", value: formatDateTimeValue(item.equipmentQrPrintedAt) });
   if (item.createdAt) rows.push({ label: "Създадено", value: formatDateTimeValue(item.createdAt) });
   if (item.updatedAt) rows.push({ label: "Обновено", value: formatDateTimeValue(item.updatedAt) });
 
@@ -2065,6 +2076,67 @@ function GeneratedQrCode({
           Генериране...
         </div>
       )}
+    </div>
+  );
+}
+
+function GeneratedEquipmentQrCode({
+  item,
+  compact = false,
+}: {
+  item: EquipmentItem;
+  compact?: boolean;
+}) {
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const sizeClassName = compact ? "h-24 w-24" : "h-44 w-44";
+  const qrCode = item.equipmentQrCode;
+
+  useEffect(() => {
+    if (!qrCode) {
+      setQrImage(null);
+      return;
+    }
+
+    let isMounted = true;
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const qrTarget = `${origin}${equipmentQrPath(qrCode)}`;
+
+    generateQRCode(qrTarget).then((dataUrl) => {
+      if (isMounted) setQrImage(dataUrl);
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [qrCode]);
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div
+        className={`relative flex shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white p-3 shadow-sm ${sizeClassName}`}
+      >
+        {qrImage ? (
+          <>
+            <img
+              src={qrImage}
+              alt="QR код на оборудването"
+              className="h-full w-full object-contain"
+            />
+            <div className="absolute left-1/2 top-1/2 flex h-9 w-9 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-4 border-white bg-red-600 text-white shadow-sm">
+              <Flame size={19} fill="currentColor" strokeWidth={2.5} />
+            </div>
+          </>
+        ) : (
+          <div className="text-center text-xs font-bold text-slate-400">
+            Генериране...
+          </div>
+        )}
+      </div>
+      {qrCode ? (
+        <div className="max-w-full break-all text-center font-mono text-[11px] font-black leading-tight text-slate-500">
+          {qrCode}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3492,6 +3564,14 @@ function EquipmentTab() {
         location.databaseId,
         displayName
       );
+      const equipmentQrCode = createEquipmentQrCode();
+      const payloadWithQr = editingEquipmentId
+        ? payload
+        : {
+            ...payload,
+            equipment_qr_code: equipmentQrCode,
+            equipment_qr_generated_at: new Date().toISOString(),
+          };
       const legacyPayload = {
         location_id: location.databaseId,
         name: displayName,
@@ -3503,11 +3583,11 @@ function EquipmentTab() {
       let query = editingEquipmentId
         ? supabase
             .from("equipment")
-            .update(payload)
+            .update(payloadWithQr)
             .eq("id", editingEquipmentId)
         : supabase
             .from("equipment")
-            .insert(payload);
+            .insert(payloadWithQr);
 
       let { data, error } = await query
         .select("*")
@@ -3577,15 +3657,19 @@ function EquipmentTab() {
     try {
       const supabase = createSupabaseBrowserClient();
       const payloads = rowsToSave.map((row) =>
-        buildEquipmentPayload(
-          {
-            ...bulkTemplate,
-            serialNumber: row.serialNumber,
-            location: row.location,
-          },
-          location.databaseId,
-          displayName
-        )
+        ({
+          ...buildEquipmentPayload(
+            {
+              ...bulkTemplate,
+              serialNumber: row.serialNumber,
+              location: row.location,
+            },
+            location.databaseId,
+            displayName
+          ),
+          equipment_qr_code: createEquipmentQrCode(),
+          equipment_qr_generated_at: new Date().toISOString(),
+        })
       );
 
       const { error } = await supabase.from("equipment").insert(payloads);
@@ -4561,6 +4645,61 @@ function EquipmentTab() {
               </Button>
             </div>
 
+            {viewingEquipment.equipmentQrCode ? (
+              <div className="mt-5 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
+                <div className="grid gap-4 md:grid-cols-[190px_1fr] md:items-center">
+                  <div className="flex justify-center md:justify-start">
+                    <GeneratedEquipmentQrCode item={viewingEquipment} compact />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-black uppercase text-slate-400">
+                      Индивидуален QR код
+                    </div>
+                    <div className="mt-1 break-all font-mono text-sm font-black leading-tight text-slate-950">
+                      {viewingEquipment.equipmentQrCode}
+                    </div>
+                    <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <a
+                    href={equipmentQrPath(viewingEquipment.equipmentQrCode)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                  >
+                    <ExternalLink size={16} />
+                    Отвори паспорт
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.open(
+                        `/stickers/equipment-qr/${encodeURIComponent(
+                          viewingEquipment.equipmentQrCode
+                        )}`,
+                        "_blank",
+                        "noopener,noreferrer"
+                      )
+                    }
+                    className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 text-sm font-black text-white shadow-sm transition hover:bg-red-700"
+                  >
+                    <Printer size={16} />
+                    Принтирай QR етикет
+                  </button>
+                    </div>
+                    {viewingEquipment.equipmentQrPrintedAt ? (
+                      <div className="mt-2 text-xs font-bold text-slate-400">
+                        Последно принтиран:{" "}
+                        {formatDateTimeValue(viewingEquipment.equipmentQrPrintedAt)}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
+                Това оборудване няма QR код. Пуснете sql/equipment_qr_stability.sql и презапишете записа при нужда.
+              </div>
+            )}
+
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               {equipmentDetailRows(viewingEquipment).map((row) => (
                 <EquipmentDetailRow key={row.label} label={row.label} value={row.value} />
@@ -4838,6 +4977,9 @@ function EquipmentTab() {
                               {isFireExtinguisherEquipment(item) ? (
                                 <div className="mt-1 space-y-0.5 text-xs font-bold text-slate-500">
                                   {item.serialNumber ? <div>SN: {item.serialNumber}</div> : null}
+                                  {item.equipmentQrCode ? (
+                                    <div>QR: {item.equipmentQrCode}</div>
+                                  ) : null}
                                   <div>
                                     Стикер:{" "}
                                     {item.stickerNumber ? `№${item.stickerNumber}` : "няма"}
@@ -4851,6 +4993,10 @@ function EquipmentTab() {
                               ) : item.serialNumber ? (
                                 <div className="mt-1 text-xs font-bold text-slate-400">
                                   Сериен номер: {item.serialNumber}
+                                </div>
+                              ) : item.equipmentQrCode ? (
+                                <div className="mt-1 text-xs font-bold text-slate-400">
+                                  QR: {item.equipmentQrCode}
                                 </div>
                               ) : null}
                             </div>

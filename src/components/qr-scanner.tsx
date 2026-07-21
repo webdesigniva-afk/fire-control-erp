@@ -4,6 +4,7 @@ import jsQR from "jsqr";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { QrCode, X } from "lucide-react";
 import { Button } from "./ui/button";
+import { isEquipmentQrCode } from "../lib/equipment-qr";
 
 type BarcodeDetectorResult = {
   rawValue?: string;
@@ -37,6 +38,13 @@ function passportUrlFromScan(rawValue: string) {
 
   try {
     const parsed = new URL(trimmed);
+    const equipmentMatch = parsed.pathname.match(/\/equipment\/([^/?#]+)/);
+    if (equipmentMatch?.[1]) {
+      return `/equipment/${encodeURIComponent(
+        decodeURIComponent(equipmentMatch[1])
+      )}?mode=erp`;
+    }
+
     const match = parsed.pathname.match(/\/qr\/([^/?#]+)/);
     if (match?.[1]) {
       return `/qr/${encodeURIComponent(decodeURIComponent(match[1]))}?mode=erp`;
@@ -48,6 +56,17 @@ function passportUrlFromScan(rawValue: string) {
   const pathMatch = trimmed.match(/\/qr\/([^/?#]+)/);
   if (pathMatch?.[1]) {
     return `/qr/${encodeURIComponent(decodeURIComponent(pathMatch[1]))}?mode=erp`;
+  }
+
+  const equipmentPathMatch = trimmed.match(/\/equipment\/([^/?#]+)/);
+  if (equipmentPathMatch?.[1]) {
+    return `/equipment/${encodeURIComponent(
+      decodeURIComponent(equipmentPathMatch[1])
+    )}?mode=erp`;
+  }
+
+  if (isEquipmentQrCode(trimmed)) {
+    return `/equipment/${encodeURIComponent(trimmed)}?mode=erp`;
   }
 
   return `/qr/${encodeURIComponent(trimmed)}?mode=erp`;
