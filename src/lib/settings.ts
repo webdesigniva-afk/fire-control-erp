@@ -125,9 +125,9 @@ export const defaultProtocolSettings: ProtocolSettings = {
   extinguishingAgentTypes: ["прах", "CO2", "пяна", "вода"],
   extinguishingAgentTradeNames: ["ABC 40", "AFFF"],
   extinguisherServiceTypes: [
-    "техническо обслужване",
-    "презареждане",
-    "хидростатично изпитване на устойчивост на налягане",
+    "Техническо обслужване",
+    "Презареждане",
+    "Хидростатичен тест",
   ],
   fireAlarmPanelBrands: [
     "Teletek",

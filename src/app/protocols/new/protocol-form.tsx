@@ -25,8 +25,11 @@ import {
   ImagePlus,
   Loader2,
   MapPin,
+  PackagePlus,
   Printer,
+  Plus,
   Tags,
+  Trash2,
   X,
   PenLine,
   RotateCcw,
@@ -67,6 +70,17 @@ import {
   upsertDefectTask,
   upsertServiceTask,
 } from "../../../lib/tasks";
+import {
+  finalizeProtocolUsedWarehouseItems,
+  readWarehouseItems,
+  readWarehouseLocations,
+  readWarehouseStock,
+  stockQuantity,
+  type UsedWarehouseItemInput,
+  type WarehouseItem,
+  type WarehouseLocation,
+  type WarehouseStock,
+} from "../../../lib/warehouse";
 
 const PROTOCOLS_STORAGE_KEY = "firecontrol:protocols";
 const PROTOCOLS_UPDATED_EVENT = "firecontrol:protocols-updated";
@@ -109,6 +123,7 @@ type StoredProtocol = {
   clientSignatureDataUrl: string;
   extinguisherRows: ExtinguisherProtocolRow[];
   selectedEquipmentIds?: string[];
+  usedWarehouseItems?: UsedWarehouseItemInput[];
   checks: Record<string, CheckValue>;
   savedAt: number;
   completedAt?: number;
@@ -899,6 +914,9 @@ function mapDbRowToStoredProtocol(row: DataRecord): StoredProtocol {
     selectedEquipmentIds: Array.isArray(payload.selectedEquipmentIds)
       ? payload.selectedEquipmentIds
       : [],
+    usedWarehouseItems: Array.isArray(payload.usedWarehouseItems)
+      ? (payload.usedWarehouseItems as UsedWarehouseItemInput[])
+      : [],
     checks: payload.checks || {},
     savedAt:
       typeof payload.savedAt === "number"
@@ -1081,10 +1099,38 @@ function isTechnicalExtinguisherService(serviceType: string) {
     .includes("\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435");
 }
 
-function nextServiceDateForTechnicalService(
+function isRechargeExtinguisherService(serviceType: string) {
+  return serviceType.trim().toLowerCase().includes("презареждане");
+}
+
+function isHydrostaticExtinguisherService(serviceType: string) {
+  const normalized = serviceType.trim().toLowerCase();
+  return (
+    normalized.includes("хидростатичен тест") ||
+    normalized.includes("хидростатично изпитване")
+  );
+}
+
+function needsAutoNextServiceDate(serviceType: string) {
+  return (
+    isTechnicalExtinguisherService(serviceType) ||
+    isRechargeExtinguisherService(serviceType) ||
+    isHydrostaticExtinguisherService(serviceType)
+  );
+}
+
+function nextServiceDateForExtinguisherService(
   serviceType: string,
   serviceDate: string
 ) {
+  if (isRechargeExtinguisherService(serviceType)) {
+    return addYearsToInputDate(todayInputValue(), 5);
+  }
+
+  if (isHydrostaticExtinguisherService(serviceType)) {
+    return addYearsToInputDate(todayInputValue(), 10);
+  }
+
   if (!serviceDate || !isTechnicalExtinguisherService(serviceType)) return "";
   return addYearsToInputDate(serviceDate, 1);
 }
@@ -1113,7 +1159,7 @@ function extinguisherRowsFromEquipment(
     resultStatus: "",
     problemNote: "",
     serviceDate,
-    nextServiceDate: nextServiceDateForTechnicalService(
+    nextServiceDate: nextServiceDateForExtinguisherService(
       "техническо обслужване",
       serviceDate
     ),
@@ -2440,14 +2486,14 @@ function ExtinguisherProtocolSection({
     key: "serviceType" | "resultStatus",
     value: string
   ) {
-    const previousAutoNextServiceDate = nextServiceDateForTechnicalService(
+    const previousAutoNextServiceDate = nextServiceDateForExtinguisherService(
       row.serviceType,
       row.serviceDate
     );
     const nextRow = { ...row, [key]: value };
 
     if (key === "serviceType") {
-      const nextAutoServiceDate = nextServiceDateForTechnicalService(
+      const nextAutoServiceDate = nextServiceDateForExtinguisherService(
         nextRow.serviceType,
         nextRow.serviceDate
       );
@@ -2510,14 +2556,14 @@ function ExtinguisherProtocolSection({
       current.map((row) => {
         if (row.id !== rowId) return row;
 
-        const previousAutoNextServiceDate = nextServiceDateForTechnicalService(
+        const previousAutoNextServiceDate = nextServiceDateForExtinguisherService(
           row.serviceType,
           row.serviceDate
         );
         const nextRow = { ...row, [key]: value };
 
         if (key === "serviceType" || key === "serviceDate") {
-          const nextAutoServiceDate = nextServiceDateForTechnicalService(
+          const nextAutoServiceDate = nextServiceDateForExtinguisherService(
             nextRow.serviceType,
             nextRow.serviceDate
           );
@@ -2647,7 +2693,7 @@ function ExtinguisherProtocolSection({
       serviceDate: row.serviceDate || protocolDate,
       nextServiceDate:
         row.nextServiceDate ||
-        nextServiceDateForTechnicalService(
+        nextServiceDateForExtinguisherService(
           row.serviceType,
           row.serviceDate || protocolDate
         ),
@@ -2740,7 +2786,7 @@ function ExtinguisherProtocolSection({
         problemNote: "",
         serviceType: "техническо обслужване",
         serviceDate: protocolDate,
-        nextServiceDate: nextServiceDateForTechnicalService(
+        nextServiceDate: nextServiceDateForExtinguisherService(
           "техническо обслужване",
           protocolDate
         ),
@@ -2760,7 +2806,7 @@ function ExtinguisherProtocolSection({
         serviceDate: protocolDate,
         nextServiceDate:
           row.nextServiceDate ||
-          nextServiceDateForTechnicalService(
+          nextServiceDateForExtinguisherService(
             "техническо обслужване",
             protocolDate
           ),
@@ -3630,6 +3676,197 @@ function SignaturesSection({
   );
 }
 
+function createUsedWarehouseItem(): UsedWarehouseItemInput {
+  return {
+    itemId: "",
+    locationId: "",
+    quantity: 1,
+    note: "",
+  };
+}
+
+function formatWarehouseQuantity(value: number) {
+  return Number.isInteger(value)
+    ? String(value)
+    : value.toLocaleString("bg-BG", { maximumFractionDigits: 3 });
+}
+
+function UsedWarehouseItemsSection({
+  rows,
+  setRows,
+  items,
+  locations,
+  stock,
+}: {
+  rows: UsedWarehouseItemInput[];
+  setRows: Dispatch<SetStateAction<UsedWarehouseItemInput[]>>;
+  items: WarehouseItem[];
+  locations: WarehouseLocation[];
+  stock: WarehouseStock[];
+}) {
+  function updateRow(
+    index: number,
+    patch: Partial<UsedWarehouseItemInput>
+  ) {
+    setRows((current) =>
+      current.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, ...patch } : row
+      )
+    );
+  }
+
+  function addRow() {
+    setRows((current) => [
+      ...current,
+      {
+        ...createUsedWarehouseItem(),
+        locationId: locations[0]?.id || "",
+      },
+    ]);
+  }
+
+  function removeRow(index: number) {
+    setRows((current) => current.filter((_, rowIndex) => rowIndex !== index));
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-orange-50 text-orange-600">
+            <PackagePlus size={20} />
+          </div>
+          <div>
+            <h2 className="text-lg font-black">Използвани артикули</h2>
+            <p className="mt-1 text-sm font-medium text-slate-500">
+              Тези артикули ще се изпишат от склада при завършване на протокола.
+            </p>
+          </div>
+        </div>
+        <Button type="button" variant="secondary" onClick={addRow}>
+          <Plus size={16} />
+          Добави артикул
+        </Button>
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm font-bold text-slate-400">
+          Няма добавени използвани артикули.
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {rows.map((row, index) => {
+            const available =
+              row.itemId && row.locationId
+                ? stockQuantity(stock, row.itemId, row.locationId)
+                : 0;
+            const selectedItem = items.find((item) => item.id === row.itemId);
+
+            return (
+              <div
+                key={`${index}-${row.itemId}-${row.locationId}`}
+                className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+              >
+                <div className="grid gap-3 lg:grid-cols-[1fr_1fr_140px_1fr_44px]">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black uppercase text-slate-400">
+                      Локация
+                    </label>
+                    <select
+                      value={row.locationId}
+                      onChange={(event) =>
+                        updateRow(index, { locationId: event.target.value })
+                      }
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    >
+                      <option value="">Избери</option>
+                      {locations.map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {location.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black uppercase text-slate-400">
+                      Артикул
+                    </label>
+                    <select
+                      value={row.itemId}
+                      onChange={(event) =>
+                        updateRow(index, { itemId: event.target.value })
+                      }
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    >
+                      <option value="">Избери</option>
+                      {items.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black uppercase text-slate-400">
+                      Количество
+                    </label>
+                    <Input
+                      type="number"
+                      min="0.001"
+                      step="0.001"
+                      value={String(row.quantity || "")}
+                      onChange={(event) =>
+                        updateRow(index, {
+                          quantity: Number(event.target.value) || 0,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-black uppercase text-slate-400">
+                      Бележка
+                    </label>
+                    <Input
+                      value={row.note || ""}
+                      onChange={(event) =>
+                        updateRow(index, { note: event.target.value })
+                      }
+                      placeholder="Напр. смяна на манометър"
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <Button
+                      type="button"
+                      variant="danger"
+                      size="icon"
+                      onClick={() => removeRow(index)}
+                      aria-label="Премахни артикул"
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-3 text-xs font-bold text-slate-500">
+                  Наличност в избраната локация:{" "}
+                  <span className="font-black text-slate-900">
+                    {formatWarehouseQuantity(available)}
+                    {selectedItem ? ` ${selectedItem.unit}` : ""}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 export function ProtocolForm({
   draftNumber,
   qrObject,
@@ -3711,6 +3948,14 @@ export function ProtocolForm({
   const [selectedEquipmentIds, setSelectedEquipmentIds] = useState<string[]>(
     []
   );
+  const [warehouseItems, setWarehouseItems] = useState<WarehouseItem[]>([]);
+  const [warehouseLocations, setWarehouseLocations] = useState<
+    WarehouseLocation[]
+  >([]);
+  const [warehouseStock, setWarehouseStock] = useState<WarehouseStock[]>([]);
+  const [usedWarehouseItems, setUsedWarehouseItems] = useState<
+    UsedWarehouseItemInput[]
+  >([]);
   const activeChecklist = protocolType ? checklistByType[protocolType] : [];
   const [checks, setChecks] = useState<Record<string, CheckValue>>({});
 
@@ -3720,6 +3965,36 @@ export function ProtocolForm({
       setTechnicianSignatureDataUrl(savedSignature);
     }
   }, [selectedTechnician, technicianSignatures]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadWarehouseOptions() {
+      try {
+        const [items, locations, stock] = await Promise.all([
+          readWarehouseItems(),
+          readWarehouseLocations(),
+          readWarehouseStock(),
+        ]);
+
+        if (!mounted) return;
+        setWarehouseItems(items);
+        setWarehouseLocations(locations);
+        setWarehouseStock(stock);
+      } catch {
+        if (!mounted) return;
+        setWarehouseItems([]);
+        setWarehouseLocations([]);
+        setWarehouseStock([]);
+      }
+    }
+
+    void loadWarehouseOptions();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -4206,6 +4481,7 @@ export function ProtocolForm({
     setServiceDeviations(storedDraft.serviceDeviations || "");
     setServiceSystemStatus(storedDraft.serviceSystemStatus || "Изрядна");
     setNextVisitDate(storedDraft.nextVisitDate || "");
+    setUsedWarehouseItems(storedDraft.usedWarehouseItems ?? []);
     setChecks(storedDraft.checks ?? {});
 
     if (storedDraft.extinguisherRows?.length) {
@@ -4420,6 +4696,9 @@ export function ProtocolForm({
       clientSignatureDataUrl,
       extinguisherRows,
       selectedEquipmentIds,
+      usedWarehouseItems: usedWarehouseItems.filter(
+        (item) => item.itemId && item.locationId && item.quantity > 0
+      ),
       checks,
       savedAt: now,
       completedAt: status === "completed" ? now : undefined,
@@ -4560,6 +4839,17 @@ export function ProtocolForm({
     if (!protocolDate.trim()) errors.push("Не е попълнена дата.");
     if (!technicianSignatureDataUrl) errors.push("Липсва подпис на техник.");
     if (!clientSignatureDataUrl) errors.push("Липсва подпис на клиент.");
+    if (
+      usedWarehouseItems.some(
+        (item) =>
+          !item.itemId ||
+          !item.locationId ||
+          !Number.isFinite(Number(item.quantity)) ||
+          Number(item.quantity) <= 0
+      )
+    ) {
+      errors.push("Попълнете артикул, локация и количество за всеки използван складов ред.");
+    }
 
     if (printTemplateSlug === "extinguisher-handover") {
       if (!extinguisherRows.length) {
@@ -4568,7 +4858,7 @@ export function ProtocolForm({
       if (
         extinguisherRows.some(
           (row) =>
-            isTechnicalExtinguisherService(row.serviceType) &&
+            needsAutoNextServiceDate(row.serviceType) &&
             !row.nextServiceDate?.trim()
         )
       ) {
@@ -4958,6 +5248,27 @@ export function ProtocolForm({
         }
       }
 
+      const finalUsedWarehouseItems = usedWarehouseItems.filter(
+        (item) => item.itemId && item.locationId && item.quantity > 0
+      );
+
+      if (finalUsedWarehouseItems.length > 0) {
+        const objectId =
+          selectedObjectDetails?.locationId ||
+          selectedObjectDetails?.code ||
+          selectedObjectCode;
+        const protocolId = await getProtocolDatabaseId(finalNumber);
+
+        await finalizeProtocolUsedWarehouseItems({
+          protocolId: protocolId || undefined,
+          protocolNumber: finalNumber,
+          objectId,
+          objectName: printObjectName,
+          performedBy: selectedTechnician,
+          items: finalUsedWarehouseItems,
+        });
+      }
+
       await saveProtocolRecordToSupabase(
         record,
         selectedObjectDetails?.locationId ?? null
@@ -5244,6 +5555,14 @@ export function ProtocolForm({
             </Card>
           </>
         )}
+
+        <UsedWarehouseItemsSection
+          rows={usedWarehouseItems}
+          setRows={setUsedWarehouseItems}
+          items={warehouseItems}
+          locations={warehouseLocations}
+          stock={warehouseStock}
+        />
 
         {visibleSections.photos && (
           <PhotosSection
