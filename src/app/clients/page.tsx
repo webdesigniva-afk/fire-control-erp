@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Building2,
   Edit3,
+  ExternalLink,
   Eye,
   Mail,
   Phone,
@@ -84,6 +85,27 @@ const emptyForm: ClientFormState = {
   address: "",
   bulstat: "",
 };
+
+function writePortalWindowMessage(portalWindow: Window, title: string, message: string) {
+  portalWindow.document.title = title;
+  portalWindow.document.body.replaceChildren();
+  portalWindow.document.body.style.fontFamily = "Inter, Arial, sans-serif";
+  portalWindow.document.body.style.padding = "32px";
+  portalWindow.document.body.style.color = "#1f2a44";
+
+  const heading = portalWindow.document.createElement("h1");
+  heading.textContent = title;
+  heading.style.fontSize = "22px";
+  heading.style.margin = "0 0 12px";
+
+  const paragraph = portalWindow.document.createElement("p");
+  paragraph.textContent = message;
+  paragraph.style.fontSize = "16px";
+  paragraph.style.lineHeight = "1.5";
+  paragraph.style.maxWidth = "680px";
+
+  portalWindow.document.body.append(heading, paragraph);
+}
 
 function textValue(record: DataRecord | null | undefined, keys: string[]) {
   if (!record) return "";
@@ -217,6 +239,7 @@ export default function ClientsPage() {
   >("loading");
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [portalOpeningClientId, setPortalOpeningClientId] = useState("");
   const [deleteDialog, setDeleteDialog] =
     useState<DeleteConfirmDialogState | null>(null);
 
@@ -293,6 +316,43 @@ export default function ClientsPage() {
     setFormMode("edit");
     setMessage("");
     setErrorMessage("");
+  }
+
+  async function openClientPortal(client: ClientProfile) {
+    setPortalOpeningClientId(client.id);
+    setErrorMessage("");
+    const portalWindow = window.open("", "_blank");
+
+    if (portalWindow) {
+      writePortalWindowMessage(portalWindow, "Клиентски портал", "Отваряне на клиентски портал...");
+    }
+
+    try {
+      const response = await fetch("/api/client-portal/admin-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: client.id }),
+      });
+      const payload = (await response.json()) as { portalPath?: string; error?: string };
+
+      if (!response.ok || !payload.portalPath) {
+        throw new Error(payload.error || "Клиентският портал не може да се отвори.");
+      }
+
+      if (portalWindow) {
+        portalWindow.location.assign(payload.portalPath);
+      } else {
+        window.location.href = payload.portalPath;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Грешка при отваряне на клиентски портал.";
+      if (portalWindow) {
+        writePortalWindowMessage(portalWindow, "Порталът не може да се отвори", message);
+      }
+      setErrorMessage(message);
+    } finally {
+      setPortalOpeningClientId("");
+    }
   }
   async function loadClients() {
     setLoadState("loading");
@@ -1002,6 +1062,28 @@ export default function ClientsPage() {
                         <span className="min-w-0 truncate">{selectedClient.email}</span>
                       </div>
                     ) : null}
+                  </div>
+
+                  <div className="rounded-2xl border border-orange-100 bg-orange-50 p-4">
+                    <div className="text-xs font-black uppercase tracking-wide text-orange-700">
+                      Клиентски портал
+                    </div>
+                    <p className="mt-1 text-sm font-semibold leading-5 text-orange-900/70">
+                      Админ преглед на клиентския портал, документите, обектите и историята.
+                    </p>
+                    <Button
+                      type="button"
+                      className="mt-3 w-full"
+                      onClick={() => openClientPortal(selectedClient)}
+                      disabled={portalOpeningClientId === selectedClient.id}
+                    >
+                      {portalOpeningClientId === selectedClient.id ? (
+                        <RefreshCw size={16} className="animate-spin" />
+                      ) : (
+                        <ExternalLink size={16} />
+                      )}
+                      Клиентски портал
+                    </Button>
                   </div>
 
                   <div>

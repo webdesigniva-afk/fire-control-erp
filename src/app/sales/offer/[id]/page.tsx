@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, Loader2, Mail, Plus, Printer, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ExternalLink, Loader2, Mail, Plus, Printer, Save, Trash2 } from "lucide-react";
 import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
-import { Input } from "../../../../components/ui/input";
+import { publishSavedDocumentToClientPortal } from "../../../../lib/client-portal";
 import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 
 type OfferLine = {
@@ -31,6 +31,9 @@ type OfferData = {
   address: string;
   subject: string;
   notes: string;
+  executionTerm: string;
+  paymentTerms: string;
+  warrantyTerms: string;
   preparedBy: string;
   preparedByRole: string;
   signatureUrl: string;
@@ -43,6 +46,18 @@ type TeamSession = {
   name?: string;
   role?: string;
   signature_url?: string;
+};
+
+type SignatureMethod = "onsite" | "portal" | "paper" | null;
+type SignatureStatus = "draft" | "sent_to_portal" | "signed";
+
+type DocumentSignature = {
+  status: SignatureStatus;
+  method: SignatureMethod;
+  signedAt: string | null;
+  signedByName: string;
+  signatureDataUrl: string;
+  paperNote: string;
 };
 
 const sessionKey = "firecontrol:team-session";
@@ -71,6 +86,8 @@ function formatAmount(value: number) {
     maximumFractionDigits: 2,
   }).format(Number.isFinite(value) ? value : 0);
 }
+
+const vatRate = 0.2;
 
 function money(value: number) {
   return `${formatAmount(value)} €`;
@@ -131,12 +148,67 @@ function readDraftOffer(payload: unknown): Partial<OfferData> | null {
   return payload.offer as Partial<OfferData>;
 }
 
+function defaultDocumentSignature(signedByName = ""): DocumentSignature {
+  return {
+    status: "draft",
+    method: null,
+    signedAt: null,
+    signedByName,
+    signatureDataUrl: "",
+    paperNote: "",
+  };
+}
+
+function readDocumentSignature(payload: unknown, fallbackSignatureDataUrl = "", fallbackName = ""): DocumentSignature {
+  if (isRecord(payload) && isRecord(payload.signature)) {
+    const signature = payload.signature;
+    const status = signature.status === "sent_to_portal" || signature.status === "signed" ? signature.status : "draft";
+    const method =
+      signature.method === "onsite" || signature.method === "portal" || signature.method === "paper"
+        ? signature.method
+        : null;
+
+    return {
+      status,
+      method,
+      signedAt: typeof signature.signedAt === "string" ? signature.signedAt : null,
+      signedByName: String(signature.signedByName || fallbackName),
+      signatureDataUrl: String(signature.signatureDataUrl || fallbackSignatureDataUrl),
+      paperNote: String(signature.paperNote || ""),
+    };
+  }
+
+  if (fallbackSignatureDataUrl) {
+    return {
+      status: "signed",
+      method: "onsite",
+      signedAt: null,
+      signedByName: fallbackName,
+      signatureDataUrl: fallbackSignatureDataUrl,
+      paperNote: "",
+    };
+  }
+
+  return defaultDocumentSignature(fallbackName);
+}
+
+function signatureStatusLabel(signature: DocumentSignature) {
+  if (signature.status === "sent_to_portal") return "Качена в клиентски портал";
+  if (signature.status !== "signed") return "Чернова";
+  if (signature.method === "onsite") return "Подписана на терен";
+  if (signature.method === "portal") return "Подписана през клиентски портал";
+  if (signature.method === "paper") return "Подписана на хартия";
+  return "Подписана";
+}
+
 function SignaturePad({
   value,
   onChange,
+  showClear = true,
 }: {
   value: string;
   onChange: (value: string) => void;
+  showClear?: boolean;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
@@ -226,12 +298,49 @@ function SignaturePad({
         onPointerLeave={() => { drawingRef.current = false; }}
         className="h-32 w-full touch-none rounded-xl border border-dashed border-slate-300 bg-white"
       />
-      <div className="no-print mt-3 flex h-10 justify-end">
-        <Button type="button" variant="outline" onClick={clear}>
-          Изчисти подпис
-        </Button>
-      </div>
+      {showClear ? (
+        <div className="no-print mt-3 flex h-10 justify-end">
+          <Button type="button" variant="outline" onClick={clear}>
+            Изчисти подпис
+          </Button>
+        </div>
+      ) : null}
     </div>
+  );
+}
+
+function AutoResizeTextarea({
+  value,
+  onChange,
+  rows = 1,
+  className = "",
+  placeholder,
+}: {
+  value: string;
+  onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  rows?: number;
+  className?: string;
+  placeholder?: string;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${textarea.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <textarea
+      ref={textareaRef}
+      data-autoresize="true"
+      value={value}
+      onChange={onChange}
+      rows={rows}
+      placeholder={placeholder}
+      className={className}
+    />
   );
 }
 
@@ -242,6 +351,27 @@ export default function SalesOfferEditorPage() {
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [acceptState, setAcceptState] = useState<"idle" | "saving" | "accepted" | "error">("idle");
+  const [portalState, setPortalState] = useState<"idle" | "saving" | "published" | "error">("idle");
+  const [portalPath, setPortalPath] = useState("");
+  const [documentSignature, setDocumentSignature] = useState<DocumentSignature>(() => defaultDocumentSignature());
+
+  useEffect(() => {
+    function resizeDocumentTextareas() {
+      document.querySelectorAll<HTMLTextAreaElement>(".offer-sheet textarea[data-autoresize='true']").forEach((textarea) => {
+        textarea.style.height = "auto";
+        textarea.style.height = `${textarea.scrollHeight}px`;
+      });
+    }
+
+    window.addEventListener("beforeprint", resizeDocumentTextareas);
+    window.addEventListener("resize", resizeDocumentTextareas);
+    resizeDocumentTextareas();
+
+    return () => {
+      window.removeEventListener("beforeprint", resizeDocumentTextareas);
+      window.removeEventListener("resize", resizeDocumentTextareas);
+    };
+  }, [offer]);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,6 +451,9 @@ export default function SalesOfferEditorPage() {
           address: String(data.object_address ?? ""),
           subject: "Оферта за услуги, свързани с пожарна безопасност и сервизно обслужване.",
           notes: "Цените са ориентировъчни и могат да бъдат прецизирани след оглед и потвърждение на обхвата.",
+          executionTerm: "Изпълнението се планира след писмено потвърждение на офертата и уточняване на достъп до обекта.",
+          paymentTerms: "Плащане по банков път след издадена фактура, освен ако страните не договорят друго писмено.",
+          warrantyTerms: "Офертата включва документиране на извършените дейности съгласно приложимите изисквания за пожарна безопасност.",
           preparedBy: preparedBy || "Не е зададен потребител",
           preparedByRole,
           signatureUrl,
@@ -328,15 +461,23 @@ export default function SalesOfferEditorPage() {
           lines,
         };
         const draftOffer = readDraftOffer(draftResult.data?.payload);
+        const loadedSignature = readDocumentSignature(
+          draftResult.data?.payload,
+          draftOffer?.acceptedSignatureUrl || "",
+          draftOffer?.contact || defaultOffer.contact || defaultOffer.client
+        );
         setOffer({
           ...defaultOffer,
           ...draftOffer,
           opportunityId,
-          acceptedSignatureUrl: draftOffer?.acceptedSignatureUrl || "",
+          acceptedSignatureUrl: loadedSignature.signatureDataUrl || draftOffer?.acceptedSignatureUrl || "",
           lines: Array.isArray(draftOffer?.lines) && draftOffer.lines.length
             ? draftOffer.lines.map((line, index) => normalizeLine(line, index))
             : defaultOffer.lines,
         });
+        setDocumentSignature(loadedSignature);
+        setAcceptState(loadedSignature.status === "signed" ? "accepted" : "idle");
+        setPortalState(loadedSignature.status === "sent_to_portal" ? "published" : "idle");
         setLoadState("ready");
       } catch {
         if (!cancelled) setLoadState("error");
@@ -351,7 +492,7 @@ export default function SalesOfferEditorPage() {
 
   const totals = useMemo(() => {
     const subtotal = offer?.lines.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0) ?? 0;
-    const vat = subtotal * 0.2;
+    const vat = subtotal * vatRate;
     return { subtotal, vat, total: subtotal + vat };
   }, [offer]);
 
@@ -402,11 +543,17 @@ export default function SalesOfferEditorPage() {
     reader.readAsDataURL(file);
   }
 
-  async function persistOffer() {
+  async function persistOffer(signatureOverride?: DocumentSignature) {
     if (!offer) throw new Error("Липсва оферта.");
 
     const supabase = createSupabaseBrowserClient();
     const documentId = `offer-${offer.opportunityId}`;
+    const baseSignature = signatureOverride ?? documentSignature;
+    const nextSignature = {
+      ...baseSignature,
+      signatureDataUrl: baseSignature.method === "paper" ? "" : baseSignature.signatureDataUrl || offer.acceptedSignatureUrl,
+      signedByName: baseSignature.signedByName || offer.contact || offer.client,
+    };
     const { error } = await supabase.from("saved_documents").upsert(
       {
         id: documentId,
@@ -417,7 +564,7 @@ export default function SalesOfferEditorPage() {
         object: offer.object,
         href: `/sales/offer/${offer.opportunityId}`,
         total: money(totals.total),
-        payload: { offer, totals },
+        payload: { offer: { ...offer, acceptedSignatureUrl: nextSignature.signatureDataUrl }, totals, signature: nextSignature, status: nextSignature.status === "signed" ? "accepted" : "draft" },
         saved_at_ms: Date.now(),
         updated_at: new Date().toISOString(),
       },
@@ -446,15 +593,26 @@ export default function SalesOfferEditorPage() {
     }
   }
 
-  async function acceptOffer() {
+  async function markOfferSigned(method: Exclude<SignatureMethod, null>) {
     if (!offer) return;
     setAcceptState("saving");
     setSaveState("idle");
     try {
-      await persistOffer();
+      const now = new Date().toISOString();
+      const nextSignature: DocumentSignature = {
+        status: "signed",
+        method,
+        signedAt: now,
+        signedByName: offer.contact || offer.client,
+        signatureDataUrl: method === "paper" ? "" : offer.acceptedSignatureUrl,
+        paperNote: method === "paper" ? "Документът е принтиран и подписан на хартия." : "",
+      };
+      setDocumentSignature(nextSignature);
+      setOffer((current) => current ? { ...current, acceptedSignatureUrl: nextSignature.signatureDataUrl } : current);
+
+      await persistOffer(nextSignature);
 
       const supabase = createSupabaseBrowserClient();
-      const now = new Date().toISOString();
       const { error } = await supabase
         .from("sales_opportunities")
         .update({
@@ -469,14 +627,55 @@ export default function SalesOfferEditorPage() {
       await supabase.from("sales_activity_logs").insert({
         opportunity_id: offer.opportunityId,
         type: "stage_change",
-        title: "Офертата е приета",
-        description: `Оферта ${offer.number} е маркирана като приета и преместена към Поръчки.`,
+        title: "Офертата е подписана",
+        description: `Оферта ${offer.number} е подписана (${signatureStatusLabel(nextSignature)}) и преместена към Поръчки.`,
       });
 
       setAcceptState("accepted");
       setSaveState("saved");
     } catch {
       setAcceptState("error");
+    }
+  }
+
+  async function publishToPortal() {
+    if (!offer) return;
+    setPortalState("saving");
+    try {
+      const nextSignature: DocumentSignature = {
+        ...documentSignature,
+        status: "sent_to_portal",
+        method: "portal",
+        signedByName: documentSignature.signedByName || offer.contact || offer.client,
+      };
+      setDocumentSignature(nextSignature);
+      await persistOffer(nextSignature);
+
+      const supabase = createSupabaseBrowserClient();
+      const portal = await publishSavedDocumentToClientPortal(supabase, {
+        opportunityId: offer.opportunityId,
+        savedDocumentId: `offer-${offer.opportunityId}`,
+        kind: "offer",
+        title: `Оферта ${offer.number}`,
+        clientName: offer.client,
+        contactName: offer.contact,
+        phone: offer.phone,
+        email: offer.email,
+        address: offer.address,
+        objectName: offer.object,
+      });
+      setPortalPath(portal.portalPath);
+      await supabase.from("sales_activity_logs").insert({
+        opportunity_id: offer.opportunityId,
+        type: "portal_publish",
+        title: "Офертата е качена в клиентски портал",
+        description: `Оферта ${offer.number} е подготвена за онлайн подпис през клиентски портал.`,
+      });
+
+      setPortalState("published");
+      setSaveState("saved");
+    } catch {
+      setPortalState("error");
     }
   }
 
@@ -502,7 +701,7 @@ export default function SalesOfferEditorPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:p-0">
+    <main className="offer-page min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:p-0">
       <div className="no-print mx-auto mb-4 flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link href={`/sales/${offer.opportunityId}`} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm">
           <ArrowLeft size={18} />
@@ -513,13 +712,23 @@ export default function SalesOfferEditorPage() {
             {saveState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
             {saveState === "saved" ? "Чернова запазена" : "Запази като чернова"}
           </Button>
-          <Button type="button" onClick={acceptOffer} disabled={acceptState === "saving"}>
-            {acceptState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <CheckCircle2 size={17} />}
-            {acceptState === "accepted" ? "Приета" : "Маркирай като приета"}
+          <Button type="button" variant="outline" onClick={publishToPortal} disabled={portalState === "saving"}>
+            {portalState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <Mail size={17} />}
+            {portalState === "published" ? "Качена в портал" : "Качи в клиентски портал"}
           </Button>
-          <Button type="button" variant="outline" disabled title="Ще бъде активен на следващ етап">
-            <Mail size={17} />
-            Изпрати по имейл
+          {portalPath ? (
+            <Link href={portalPath} target="_blank" className="inline-flex h-10 items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-100">
+              <ExternalLink size={17} />
+              Отвори портал
+            </Link>
+          ) : null}
+          <Button type="button" onClick={() => markOfferSigned("onsite")} disabled={acceptState === "saving" || !offer.acceptedSignatureUrl}>
+            {acceptState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <CheckCircle2 size={17} />}
+            Подпис на терен
+          </Button>
+          <Button type="button" variant="outline" onClick={() => markOfferSigned("paper")} disabled={acceptState === "saving"}>
+            <Printer size={17} />
+            Подписана на хартия
           </Button>
           <Button type="button" onClick={() => window.print()}>
             <Printer size={17} />
@@ -535,71 +744,210 @@ export default function SalesOfferEditorPage() {
       ) : null}
       {acceptState === "error" ? (
         <div className="no-print mx-auto mb-4 max-w-6xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
-          Офертата не беше маркирана като приета.
+          Офертата не беше подписана.
+        </div>
+      ) : null}
+      {portalState === "error" ? (
+        <div className="no-print mx-auto mb-4 max-w-6xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+          Офертата не беше качена в клиентския портал.
         </div>
       ) : null}
       {acceptState === "accepted" ? (
         <div className="no-print mx-auto mb-4 max-w-6xl rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-700">
-          Офертата е маркирана като приета и сделката е преместена към Поръчки.
+          {signatureStatusLabel(documentSignature)}. Сделката е преместена към Поръчки.
+        </div>
+      ) : null}
+      {portalState === "published" && acceptState !== "accepted" ? (
+        <div className="no-print mx-auto mb-4 max-w-6xl rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-700">
+          Офертата е качена в клиентски портал и очаква онлайн подпис.
         </div>
       ) : null}
 
-      <article className="mx-auto w-full max-w-6xl rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200 print:max-w-none print:rounded-none print:p-0 print:shadow-none print:ring-0">
-        <header className="grid gap-8 border-b border-slate-200 pb-8 md:grid-cols-[1fr_auto]">
-          <div className="pt-1">
-            <div className="text-3xl font-black tracking-tight">
+      <style>{`
+        @page {
+          size: A4;
+          margin: 0;
+        }
+
+        .offer-sheet input,
+        .offer-sheet textarea,
+        .offer-field {
+          min-width: 0;
+        }
+
+        @media screen {
+          .offer-field {
+            border-bottom: 1px solid transparent;
+          }
+
+          .offer-field:focus {
+            border-bottom-color: #fb923c;
+          }
+        }
+
+        @media print {
+          html,
+          body {
+            background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          .offer-page {
+            background: #ffffff !important;
+            margin: 0 !important;
+            min-height: auto !important;
+            padding: 0 !important;
+          }
+
+          .no-print {
+            display: none !important;
+          }
+
+          .offer-sheet {
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-sizing: border-box !important;
+            box-shadow: none !important;
+            margin: 0 auto !important;
+            min-height: 297mm !important;
+            overflow: visible !important;
+            padding: 12mm 13mm !important;
+            width: 210mm !important;
+          }
+
+          .offer-sheet input,
+          .offer-sheet textarea {
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: inherit !important;
+            overflow: visible !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+          }
+
+          .offer-sheet canvas {
+            max-width: 100% !important;
+          }
+
+          .offer-print-block {
+            break-inside: avoid;
+          }
+
+          .offer-table tr,
+          .offer-signatures {
+            break-inside: avoid;
+          }
+
+          .offer-table col:nth-child(1) {
+            width: 5% !important;
+          }
+
+          .offer-table col:nth-child(2) {
+            width: 45% !important;
+          }
+
+          .offer-table col:nth-child(3) {
+            width: 14% !important;
+          }
+
+          .offer-table col:nth-child(4) {
+            width: 7% !important;
+          }
+
+          .offer-table col:nth-child(5) {
+            width: 13% !important;
+          }
+
+          .offer-table col:nth-child(6) {
+            width: 16% !important;
+          }
+        }
+      `}</style>
+
+      <article className="offer-sheet mx-auto w-full max-w-[210mm] rounded-[6px] bg-white px-[15mm] py-[14mm] shadow-sm ring-1 ring-slate-200 print:max-w-none print:rounded-none print:ring-0">
+        <header className="grid gap-8 border-b-2 border-slate-900 pb-7 md:grid-cols-[minmax(0,1fr)_64mm]">
+          <div className="min-w-0 pt-1">
+            <div className="text-[28px] font-black leading-none tracking-tight">
               FIRE<span className="text-orange-600 print:text-black">Control</span>
             </div>
-            <p className="mt-2 max-w-xl text-xs font-black uppercase tracking-wide text-slate-500">
+            <p className="mt-2 max-w-[96mm] text-[11px] font-black uppercase leading-4 tracking-wide text-slate-500">
               Пожарна безопасност, сервиз и абонаментно обслужване
             </p>
-            <div className="mt-6 h-1 w-20 rounded-full bg-gradient-to-r from-red-600 to-orange-400 print:bg-slate-900" />
+            <AutoResizeTextarea
+              value={offer.subject}
+              onChange={(event) => updateOffer("subject", event.target.value)}
+              rows={2}
+              className="mt-7 w-full resize-none overflow-hidden bg-transparent text-[13px] font-semibold leading-6 text-slate-700 outline-none"
+            />
           </div>
-          <div className="min-w-80 rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
-            <h1 className="text-3xl font-black uppercase leading-none">Оферта</h1>
-            <div className="mt-5 space-y-3 text-sm">
-              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
-                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Номер</span>
-                <Input value={offer.number} onChange={(event) => updateOffer("number", event.target.value)} className="h-10 border-slate-200 bg-white shadow-sm" />
+
+          <div className="offer-meta min-w-0">
+            <h1 className="text-[34px] font-black uppercase leading-none tracking-tight text-slate-950">Оферта</h1>
+            <div className="mt-6 space-y-2.5 border-l-4 border-orange-500 pl-4">
+              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">Номер</span>
+                <input
+                  value={offer.number}
+                  onChange={(event) => updateOffer("number", event.target.value)}
+                  className="offer-field w-full bg-transparent py-1 text-[13px] font-black text-slate-900 outline-none"
+                />
               </label>
-              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
-                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Дата</span>
-                <input type="date" value={offer.date} onChange={(event) => updateOffer("date", event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100" />
+              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">Дата</span>
+                <input
+                  type="date"
+                  value={offer.date}
+                  onChange={(event) => updateOffer("date", event.target.value)}
+                  className="offer-field w-full bg-transparent py-1 text-[13px] font-bold text-slate-800 outline-none"
+                />
               </label>
-              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
-                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Валидна до</span>
-                <input type="date" value={offer.validUntil} onChange={(event) => updateOffer("validUntil", event.target.value)} className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100" />
+              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">Валидност</span>
+                <input
+                  type="date"
+                  value={offer.validUntil}
+                  onChange={(event) => updateOffer("validUntil", event.target.value)}
+                  className="offer-field w-full bg-transparent py-1 text-[13px] font-bold text-slate-800 outline-none"
+                />
               </label>
             </div>
           </div>
         </header>
 
-        <section className="mt-7 grid gap-8 border-b border-slate-200 pb-7 md:grid-cols-2">
+        <section className="offer-print-block mt-7 grid gap-8 border-b border-slate-200 pb-6 md:grid-cols-2">
           <div>
-            <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">До</h2>
-            <div className="mt-3 space-y-1.5">
-              <input value={offer.client} onChange={(event) => updateOffer("client", event.target.value)} placeholder="Фирма" className="w-full bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
-              <input value={offer.contact} onChange={(event) => updateOffer("contact", event.target.value)} placeholder="Лице за контакт" className="w-full bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
-              <input value={offer.phone} onChange={(event) => updateOffer("phone", event.target.value)} placeholder="Телефон" className="w-full bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
-              <input value={offer.email} onChange={(event) => updateOffer("email", event.target.value)} placeholder="Email" className="w-full bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
+            <h2 className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Клиент</h2>
+            <div className="mt-3 space-y-1">
+              <AutoResizeTextarea value={offer.client} onChange={(event) => updateOffer("client", event.target.value)} rows={1} placeholder="Фирма / име" className="w-full resize-none overflow-hidden bg-transparent text-[18px] font-black leading-6 text-slate-950 outline-none" />
+              <AutoResizeTextarea value={offer.contact} onChange={(event) => updateOffer("contact", event.target.value)} rows={1} placeholder="Лице за контакт" className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-bold leading-5 text-slate-700 outline-none" />
+              <AutoResizeTextarea value={offer.phone} onChange={(event) => updateOffer("phone", event.target.value)} rows={1} placeholder="Телефон" className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-semibold leading-5 text-slate-600 outline-none" />
+              <AutoResizeTextarea value={offer.email} onChange={(event) => updateOffer("email", event.target.value)} rows={1} placeholder="Email" className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-semibold leading-5 text-slate-600 outline-none" />
             </div>
           </div>
           <div>
-            <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">Обект и предмет</h2>
-            <div className="mt-3 space-y-1.5">
-              <input value={offer.object} onChange={(event) => updateOffer("object", event.target.value)} placeholder="Обект" className="w-full bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
-              <input value={offer.address} onChange={(event) => updateOffer("address", event.target.value)} placeholder="Адрес" className="w-full bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
-              <textarea value={offer.subject} onChange={(event) => updateOffer("subject", event.target.value)} rows={3} className="mt-2 w-full resize-none bg-transparent text-sm font-medium leading-6 text-slate-600 outline-none" />
+            <h2 className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">Обект</h2>
+            <div className="mt-3 space-y-1">
+              <AutoResizeTextarea value={offer.object} onChange={(event) => updateOffer("object", event.target.value)} rows={1} placeholder="Име на обект" className="w-full resize-none overflow-hidden bg-transparent text-[18px] font-black leading-6 text-slate-950 outline-none" />
+              <AutoResizeTextarea
+                value={offer.address}
+                onChange={(event) => updateOffer("address", event.target.value)}
+                rows={1}
+                placeholder="Адрес"
+                className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-bold leading-5 text-slate-700 outline-none"
+              />
+              <AutoResizeTextarea value={offer.preparedByRole} onChange={(event) => updateOffer("preparedByRole", event.target.value)} rows={1} placeholder="Роля / отдел" className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-semibold leading-5 text-slate-600 outline-none" />
             </div>
           </div>
         </section>
 
-        <section className="mt-6">
+        <section className="mt-7">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-lg font-black">Офертни позиции</h2>
-              <p className="mt-1 text-sm font-semibold text-slate-500">
-                Услуги, период на изпълнение и ориентировъчни цени
+              <h2 className="text-[18px] font-black leading-none">Офертни позиции</h2>
+              <p className="mt-2 text-[12px] font-semibold text-slate-500">
+                Цените са без включен ДДС, освен ако изрично не е посочено друго.
               </p>
             </div>
             <div className="no-print">
@@ -609,81 +957,80 @@ export default function SalesOfferEditorPage() {
               </Button>
             </div>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-slate-200">
-            <table className="w-full table-fixed border-collapse text-sm">
+
+          <div className="overflow-hidden rounded-xl border border-slate-300">
+            <table className="offer-table w-full table-fixed border-collapse text-[12px]">
               <colgroup>
                 <col className="w-[4%]" />
-                <col className="w-[31%]" />
-                <col className="w-[25%]" />
-                <col className="w-[13%]" />
+                <col className="w-[40%]" />
+                <col className="w-[15%]" />
                 <col className="w-[7%]" />
-                <col className="w-[9%]" />
-                <col className="w-[10%]" />
-                <col className="no-print w-[4%]" />
+                <col className="w-[12%]" />
+                <col className="w-[17%]" />
+                <col className="no-print w-[5%]" />
               </colgroup>
               <thead>
-                <tr className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
-                  <th className="px-3 py-3 text-left">№</th>
-                  <th className="px-3 py-3 text-left">Услуга</th>
-                  <th className="px-3 py-3 text-left">Описание</th>
-                  <th className="px-3 py-3 text-left">Период</th>
-                  <th className="px-3 py-3 text-center">Бр.</th>
-                  <th className="px-3 py-3 text-right">Ед. цена</th>
-                  <th className="px-3 py-3 text-right">Общо</th>
-                  <th className="no-print px-2 py-3" />
+                <tr className="bg-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                  <th className="border-b border-slate-300 px-2 py-2 text-left">№</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-left">Услуга и обхват</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-left">Период</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-center">Бр.</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-right">Ед. цена</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-right">Стойност</th>
+                  <th className="no-print border-b border-slate-300 px-2 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {offer.lines.map((line, index) => (
                   <tr key={line.id} className="align-top">
-                    <td className="px-3 py-4 font-black text-slate-400">{index + 1}</td>
-                    <td className="px-3 py-4">
-                      <textarea
+                    <td className="px-2 py-3 font-black text-slate-400">{index + 1}</td>
+                    <td className="px-2 py-3">
+                      <AutoResizeTextarea
                         value={line.name}
                         onChange={(event) => updateLine(line.id, { name: event.target.value })}
-                        rows={3}
-                        className="w-full resize-none overflow-hidden bg-transparent text-sm font-black leading-5 text-slate-950 outline-none"
+                        rows={1}
+                        className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-black leading-5 text-slate-950 outline-none"
                       />
-                    </td>
-                    <td className="px-3 py-4">
-                      <textarea
+                      <AutoResizeTextarea
                         value={line.description}
                         onChange={(event) => updateLine(line.id, { description: event.target.value })}
-                        rows={3}
-                        className="w-full resize-none overflow-hidden bg-transparent text-sm font-medium leading-5 text-slate-600 outline-none"
+                        rows={2}
+                        placeholder="Описание на обхвата"
+                        className="mt-1 w-full resize-none overflow-hidden bg-transparent text-[11.5px] font-medium leading-5 text-slate-600 outline-none placeholder:text-slate-300"
                       />
                     </td>
-                    <td className="px-3 py-4">
-                      <input
+                    <td className="px-2 py-3">
+                      <AutoResizeTextarea
                         value={line.period}
                         onChange={(event) => updateLine(line.id, { period: event.target.value })}
-                        className="w-full bg-transparent text-sm font-bold leading-5 text-slate-700 outline-none"
+                        rows={1}
+                        className="w-full resize-none overflow-hidden bg-transparent text-[12px] font-bold leading-5 text-slate-700 outline-none"
                       />
                     </td>
-                    <td className="px-3 py-4 text-center">
+                    <td className="px-2 py-3 text-center">
                       <input
                         type="number"
                         min="0"
                         step="1"
                         value={line.quantity}
                         onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })}
-                        className="w-full bg-transparent text-center text-sm font-bold outline-none"
+                        className="w-full bg-transparent text-center text-[12px] font-bold outline-none"
                       />
                     </td>
-                    <td className="px-3 py-4">
+                    <td className="px-2 py-3">
                       <input
                         type="number"
                         min="0"
                         step="0.01"
                         value={line.unitPrice}
                         onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) || 0 })}
-                        className="w-full bg-transparent text-right text-sm font-bold outline-none"
+                        className="w-full bg-transparent text-right text-[12px] font-bold outline-none"
                       />
                     </td>
-                    <td className="px-3 py-4 text-right font-black text-slate-950">
+                    <td className="px-2 py-3 text-right text-[12px] font-black text-slate-950">
                       {money(line.quantity * line.unitPrice)}
                     </td>
-                    <td className="no-print px-2 py-3 text-center">
+                    <td className="no-print px-2 py-2 text-center">
                       <button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600">
                         <Trash2 size={15} />
                       </button>
@@ -695,42 +1042,79 @@ export default function SalesOfferEditorPage() {
           </div>
         </section>
 
-        <section className="mt-6 flex justify-end">
-          <div className="w-full max-w-sm rounded-xl border border-slate-300 text-sm print:rounded-none">
+        <section className="offer-print-block mt-6 grid items-start gap-8 md:grid-cols-[minmax(0,1fr)_58mm]">
+          <div>
+            <h2 className="border-b border-slate-200 pb-2 text-[12px] font-black uppercase tracking-[0.12em] text-slate-500">
+              Условия
+            </h2>
+            <div className="mt-3 space-y-2.5">
+              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Срок на изпълнение</span>
+                <AutoResizeTextarea
+                  value={offer.executionTerm}
+                  onChange={(event) => updateOffer("executionTerm", event.target.value)}
+                  rows={1}
+                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                />
+              </label>
+              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Плащане</span>
+                <AutoResizeTextarea
+                  value={offer.paymentTerms}
+                  onChange={(event) => updateOffer("paymentTerms", event.target.value)}
+                  rows={1}
+                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                />
+              </label>
+              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Документиране</span>
+                <AutoResizeTextarea
+                  value={offer.warrantyTerms}
+                  onChange={(event) => updateOffer("warrantyTerms", event.target.value)}
+                  rows={1}
+                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                />
+              </label>
+              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Допълнителни условия</span>
+                <AutoResizeTextarea
+                  value={offer.notes}
+                  onChange={(event) => updateOffer("notes", event.target.value)}
+                  rows={1}
+                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-slate-300 text-[12px]">
             <div className="grid grid-cols-2 border-b border-slate-300">
-              <div className="border-r border-slate-300 px-3 py-2 font-bold">Междинна сума</div>
-              <div className="px-3 py-2 text-right">{money(totals.subtotal)}</div>
+              <div className="border-r border-slate-300 px-3 py-2 font-bold text-slate-600">Междинна сума</div>
+              <div className="px-3 py-2 text-right font-bold">{money(totals.subtotal)}</div>
             </div>
             <div className="grid grid-cols-2 border-b border-slate-300">
-              <div className="border-r border-slate-300 px-3 py-2 font-bold">ДДС 20%</div>
-              <div className="px-3 py-2 text-right">{money(totals.vat)}</div>
+              <div className="border-r border-slate-300 px-3 py-2 font-bold text-slate-600">ДДС {Math.round(vatRate * 100)}%</div>
+              <div className="px-3 py-2 text-right font-bold">{money(totals.vat)}</div>
             </div>
-            <div className="grid grid-cols-2 text-base font-black">
-              <div className="border-r border-slate-300 px-3 py-2">Общо</div>
-              <div className="px-3 py-2 text-right">{money(totals.total)}</div>
+            <div className="grid grid-cols-2 bg-slate-950 text-white print:bg-slate-900">
+              <div className="border-r border-slate-700 px-3 py-3 text-[13px] font-black uppercase">Общо</div>
+              <div className="px-3 py-3 text-right text-[15px] font-black">{money(totals.total)}</div>
             </div>
+            <p className="border-t border-slate-200 px-3 py-2 text-[10.5px] font-semibold leading-5 text-slate-500">
+              Валидност на офертата: {formatDisplayDate(offer.validUntil)}
+            </p>
           </div>
         </section>
 
-        <section className="mt-6 rounded-xl border border-slate-300 p-4 print:rounded-none">
-          <h2 className="mb-2 text-sm font-black uppercase text-slate-500">Условия</h2>
-          <textarea value={offer.notes} onChange={(event) => updateOffer("notes", event.target.value)} rows={3} className="w-full resize-none border-0 bg-transparent text-sm leading-6 outline-none" />
-          <p className="mt-2 text-sm font-semibold text-slate-600">
-            Валидност: {formatDisplayDate(offer.validUntil)}
-          </p>
-        </section>
-
-        <footer className="mt-10 grid gap-8 md:grid-cols-2">
+        <footer className="offer-signatures mt-8 grid gap-8 border-t border-slate-200 pt-6 md:grid-cols-2">
           <div>
-            <div className="text-sm font-bold">Изготвил:</div>
-            <div className="mt-2 font-black">{offer.preparedBy}</div>
-            <div className="mt-4 h-32 rounded-xl border border-dashed border-slate-300 p-3 print:rounded-none">
-              {offer.signatureUrl ? (
-                <img src={offer.signatureUrl} alt="Подпис" className="h-full max-w-full object-contain" />
-              ) : (
-                <div className="flex h-full items-end text-xs font-semibold text-slate-400">Подпис</div>
-              )}
-            </div>
+            <div className="text-[12px] font-bold text-slate-600">Изготвил:</div>
+            <input value={offer.preparedBy} onChange={(event) => updateOffer("preparedBy", event.target.value)} className="mt-1 w-full bg-transparent text-[15px] font-black text-slate-950 outline-none" />
+            <SignaturePad
+              value={offer.signatureUrl}
+              onChange={(value) => updateOffer("signatureUrl", value)}
+              showClear={false}
+            />
             <div className="no-print mt-3 flex h-10 flex-wrap gap-2">
               <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700">
                 Зареди подпис
@@ -749,8 +1133,8 @@ export default function SalesOfferEditorPage() {
             </div>
           </div>
           <div>
-            <div className="text-sm font-bold">Клиент:</div>
-            <div className="mt-2 font-black">{offer.contact || offer.client || "Без име"}</div>
+            <div className="text-[12px] font-bold text-slate-600">Приел офертата:</div>
+            <div className="mt-1 text-[15px] font-black text-slate-950">{offer.contact || offer.client || "Без име"}</div>
             <SignaturePad
               value={offer.acceptedSignatureUrl}
               onChange={(value) => updateOffer("acceptedSignatureUrl", value)}

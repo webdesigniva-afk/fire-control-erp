@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Edit3,
   FileText,
+  ExternalLink,
   Loader2,
   Mail,
   MapPin,
@@ -653,12 +654,57 @@ export default function SalesDealPage() {
   const [startingService, setStartingService] = useState(false);
   const [startServiceOpen, setStartServiceOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [portalOpening, setPortalOpening] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   function showToast(message: string, type: Toast["type"] = "success") {
     const tid = Date.now().toString();
     setToasts((prev) => [...prev, { id: tid, message, type }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== tid)), 3_500);
+  }
+
+  async function openClientPortal() {
+    if (!opportunity || portalOpening) return;
+    setPortalOpening(true);
+    const portalWindow = window.open("", "_blank");
+
+    if (portalWindow) {
+      portalWindow.document.title = "Клиентски портал";
+      portalWindow.document.body.style.fontFamily = "Inter, Arial, sans-serif";
+      portalWindow.document.body.style.padding = "32px";
+      portalWindow.document.body.style.color = "#1f2a44";
+      portalWindow.document.body.textContent = "Отваряне на клиентски портал...";
+    }
+
+    try {
+      const response = await fetch("/api/client-portal/opportunity-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opportunityId: opportunity.id }),
+      });
+      const payload = (await response.json()) as { portalPath?: string; error?: string };
+
+      if (!response.ok || !payload.portalPath) {
+        throw new Error(payload.error || "Клиентският портал не може да се отвори.");
+      }
+
+      if (portalWindow) {
+        portalWindow.location.assign(payload.portalPath);
+      } else {
+        window.open(payload.portalPath, "_blank");
+      }
+
+      showToast("Клиентският портал е отворен.");
+      await loadData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Грешка при отваряне на клиентски портал.";
+      if (portalWindow) {
+        portalWindow.document.body.textContent = message;
+      }
+      showToast(message, "error");
+    } finally {
+      setPortalOpening(false);
+    }
   }
 
   const loadData = useCallback(async () => {
@@ -983,10 +1029,18 @@ export default function SalesDealPage() {
           <Card className="p-5">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-black">Информация за клиента</h2>
-              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-                <Edit3 size={15} />
-                Редактирай
-              </Button>
+              <div className="flex flex-wrap justify-end gap-2">
+                {opportunity.stage !== "lead" ? (
+                  <Button variant="outline" size="sm" onClick={openClientPortal} disabled={portalOpening}>
+                    {portalOpening ? <Loader2 size={15} className="animate-spin" /> : <ExternalLink size={15} />}
+                    Клиентски портал
+                  </Button>
+                ) : null}
+                <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                  <Edit3 size={15} />
+                  Редактирай
+                </Button>
+              </div>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
               {opportunity.lead_client_type === "private" ? (

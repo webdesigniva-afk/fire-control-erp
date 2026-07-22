@@ -112,7 +112,7 @@ const STAGE_DESCRIPTIONS: Record<Stage, string> = {
 };
 
 const NEXT_STAGE: Record<Stage, Stage | null> = {
-  lead: "offer", offer: "order", order: "contract", contract: null,
+  lead: "offer", offer: "order", order: null, contract: null,
 };
 
 const NEXT_STAGE_LABEL: Record<Stage, string> = {
@@ -258,6 +258,10 @@ function statusVariant(status: string): BadgeVariant {
 function displayOpportunityStatus(opportunity: Opportunity) {
   if (opportunity.stage === "offer" && opportunity.hasOfferDraft) {
     return "Запазена като чернова";
+  }
+
+  if (opportunity.stage === "order" && opportunity.hasContractDraft) {
+    return "Чернова на договор";
   }
 
   return opportunity.status;
@@ -513,8 +517,15 @@ function PipelineCard({
             <FileText size={14} />
             {item.hasOfferDraft ? "Отвори чернова" : "Създай оферта"}
           </Link>
+        ) : item.stage === "order" ? (
+          <Link
+            href={`/sales/contract/${item.id}`}
+            className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+          >
+            <FileText size={14} />
+            {item.hasContractDraft ? "Отвори договор" : "Създай договор"}
+          </Link>
         ) : item.stage === "contract" ? (
-          item.hasAcceptedContract && !item.converted_to_service ? (
           <button
             type="button"
             disabled={startingServiceId === item.id}
@@ -524,17 +535,8 @@ function PipelineCard({
             }`}
           >
             {startingServiceId === item.id ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
-            Стартирай обслужване
+            Премини към обслужване
           </button>
-          ) : (
-          <Link
-            href={`/sales/contract/${item.id}`}
-            className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
-          >
-            <FileText size={14} />
-            {item.hasContractDraft ? "Отвори договор" : "Създай договор"}
-          </Link>
-          )
         ) : nextStage ? (
           <button
             type="button"
@@ -1322,7 +1324,7 @@ export default function SalesPage() {
         archived: Boolean(row.archived),
         hasOfferDraft: draftIdSet.has(`offer-${String(row.id)}`),
         hasContractDraft: draftIdSet.has(`contract-${String(row.id)}`),
-        hasAcceptedContract: acceptedContractIdSet.has(`contract-${String(row.id)}`) || String(row.status ?? "") === "Потвърден",
+        hasAcceptedContract: acceptedContractIdSet.has(`contract-${String(row.id)}`),
         services: Array.isArray(row.sales_opportunity_services)
           ? (row.sales_opportunity_services as { service_category?: string | null; service_name: string }[])
               .map(mapOpportunityService)

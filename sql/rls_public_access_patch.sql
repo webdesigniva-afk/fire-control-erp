@@ -36,7 +36,9 @@ BEGIN
     'sales_opportunity_services',
     'sales_activity_logs',
     'crm_role_permissions',
-    'crm_appearance'
+    'crm_appearance',
+    'client_portal_links',
+    'client_portal_documents'
   ]
   LOOP
     IF to_regclass('public.' || table_name) IS NOT NULL THEN
