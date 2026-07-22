@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -128,6 +129,154 @@ function normalizeTask(row: DataRecord) {
   };
 }
 
+function signatureMethod(value: string) {
+  return value === "onsite" || value === "portal" || value === "paper" ? value : null;
+}
+
+function savedDocumentSignature(savedDocument: DataRecord) {
+  const payload = isRecord(savedDocument.payload) ? savedDocument.payload : {};
+  const signature = isRecord(payload.signature) ? payload.signature : {};
+  const offer = isRecord(payload.offer) ? payload.offer : {};
+  const contract = isRecord(payload.contract) ? payload.contract : {};
+  const status = textValue(signature, ["status"]) || textValue(payload, ["status"]);
+  const dataUrl =
+    textValue(signature, ["signatureDataUrl"]) ||
+    textValue(offer, ["acceptedSignatureUrl"]) ||
+    textValue(contract, ["clientSignatureUrl"]);
+
+  return {
+    isSigned: status === "signed" || status === "accepted" || Boolean(dataUrl),
+    method: signatureMethod(textValue(signature, ["method"])),
+    signedAt: textValue(signature, ["signedAt"]),
+    signedByName:
+      textValue(signature, ["signedByName"]) ||
+      textValue(contract, ["contact", "client"]) ||
+      textValue(offer, ["contact", "client"]),
+    signatureDataUrl: dataUrl,
+    opportunityId: textValue(offer, ["opportunityId"]) || textValue(contract, ["opportunityId"]),
+  };
+}
+
+async function readSignedSavedDocumentsForClient(
+  supabase: SupabaseClient,
+  clientId: string,
+  client: DataRecord
+) {
+  const possibleClientNames = uniqueValues([
+    clientDisplayName(client),
+    textValue(client, ["name"]),
+    textValue(client, ["company_name", "companyName"]),
+  ]);
+
+  const [byClientResult, opportunitiesResult] = await Promise.all([
+    possibleClientNames.length
+      ? supabase
+          .from("saved_documents")
+          .select("*")
+          .in("client", possibleClientNames)
+          .in("kind", ["offer", "contract"])
+          .limit(200)
+      : { data: [] as DataRecord[], error: null },
+    supabase
+      .from("sales_opportunities")
+      .select("id")
+      .eq("converted_client_id", clientId)
+      .limit(200),
+  ]);
+
+  if (byClientResult.error) throw new Error(byClientResult.error.message);
+  if (opportunitiesResult.error) throw new Error(opportunitiesResult.error.message);
+
+  const opportunityIds = uniqueValues(
+    ((opportunitiesResult.data ?? []) as DataRecord[]).map((row) => textValue(row, ["id"]))
+  );
+  const savedDocumentIds = uniqueValues(opportunityIds.flatMap((id) => [`offer-${id}`, `contract-${id}`]));
+  const byOpportunityResult = savedDocumentIds.length
+    ? await supabase
+        .from("saved_documents")
+        .select("*")
+        .in("id", savedDocumentIds)
+    : { data: [] as DataRecord[], error: null };
+
+  if (byOpportunityResult.error) throw new Error(byOpportunityResult.error.message);
+
+  const documentsById = new Map<string, DataRecord>();
+  for (const row of [
+    ...((byClientResult.data ?? []) as DataRecord[]),
+    ...((byOpportunityResult.data ?? []) as DataRecord[]),
+  ]) {
+    const id = textValue(row, ["id"]);
+    if (id) documentsById.set(id, row);
+  }
+
+  return Array.from(documentsById.values()).filter((row) => savedDocumentSignature(row).isSigned);
+}
+
+async function syncSignedSavedDocumentsToPortal(
+  supabase: SupabaseClient,
+  clientId: string,
+  client: DataRecord
+) {
+  const [signedSavedDocuments, existingResult] = await Promise.all([
+    readSignedSavedDocumentsForClient(supabase, clientId, client),
+    supabase
+      .from("client_portal_documents")
+      .select("id,saved_document_id")
+      .eq("client_id", clientId),
+  ]);
+
+  if (existingResult.error) throw new Error(existingResult.error.message);
+
+  const existingBySavedId = new Map(
+    ((existingResult.data ?? []) as DataRecord[]).map((row) => [
+      textValue(row, ["saved_document_id"]),
+      textValue(row, ["id"]),
+    ])
+  );
+  const now = new Date().toISOString();
+
+  for (const savedDocument of signedSavedDocuments) {
+    const savedDocumentId = textValue(savedDocument, ["id"]);
+    const kind = textValue(savedDocument, ["kind"]);
+    if (!savedDocumentId || (kind !== "offer" && kind !== "contract")) continue;
+
+    const signature = savedDocumentSignature(savedDocument);
+    const payload = {
+      client_id: clientId,
+      saved_document_id: savedDocumentId,
+      kind,
+      title:
+        textValue(savedDocument, ["title"]) ||
+        `${kind === "offer" ? "Оферта" : "Договор"} ${textValue(savedDocument, ["number"])}`,
+      status: "signed",
+      requires_signature: false,
+      signature_method: signature.method,
+      signed_at: signature.signedAt || null,
+      signed_by_name: signature.signedByName,
+      signature_data_url: signature.signatureDataUrl,
+      metadata: {
+        opportunityId: signature.opportunityId,
+        objectName: textValue(savedDocument, ["object"]),
+      },
+      updated_at: now,
+    };
+
+    const existingId = existingBySavedId.get(savedDocumentId);
+    if (existingId) {
+      const { error } = await supabase
+        .from("client_portal_documents")
+        .update(payload)
+        .eq("id", existingId);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase
+        .from("client_portal_documents")
+        .insert({ ...payload, published_at: now });
+      if (error) throw new Error(error.message);
+    }
+  }
+}
+
 async function readTasksForPortal(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   taskIdentifiers: string[]
@@ -196,6 +345,8 @@ export async function GET(
     }
 
     const locationRows = (locations ?? []) as DataRecord[];
+    await syncSignedSavedDocumentsToPortal(supabase, clientId, client);
+
     const portalDocumentsResult = await supabase
       .from("client_portal_documents")
       .select("*")

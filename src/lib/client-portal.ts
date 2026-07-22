@@ -1,16 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-type PublishPortalDocumentInput = {
-  opportunityId: string;
+type PublishPortalDocumentInput = PortalOpportunityInput & {
   savedDocumentId: string;
   kind: "offer" | "contract";
   title: string;
-  clientName: string;
-  contactName: string;
-  phone: string;
-  email: string;
-  address: string;
-  objectName: string;
+  status?: "sent_to_portal" | "signed";
+  requiresSignature?: boolean;
+  signatureMethod?: "onsite" | "portal" | "paper";
+  signedAt?: string | null;
+  signedByName?: string;
+  signatureDataUrl?: string;
 };
 
 export type PortalOpportunityInput = {
@@ -35,6 +34,53 @@ function textValue(record: Record<string, unknown> | null | undefined, keys: str
     if (typeof value === "number") return String(value);
   }
   return "";
+}
+
+function privateClientName(firstName: string, lastName: string) {
+  return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
+}
+
+function portalClientPayload(input: PortalOpportunityInput, opportunity?: Record<string, unknown> | null) {
+  const leadClientType = textValue(opportunity, ["lead_client_type"]);
+  const firstName = textValue(opportunity, ["first_name"]);
+  const lastName = textValue(opportunity, ["last_name"]);
+
+  if (leadClientType === "private") {
+    const name =
+      privateClientName(firstName, lastName) ||
+      clean(input.clientName) ||
+      clean(input.contactName) ||
+      "Клиент";
+
+    return {
+      client_type: "private",
+      name,
+      company_name: "",
+      first_name: firstName,
+      last_name: lastName,
+      contact_person: "",
+      phone: clean(input.phone),
+      email: clean(input.email),
+      address: clean(input.address),
+      bulstat: "",
+      eik: "",
+    };
+  }
+
+  const clientName = clean(input.clientName) || clean(input.contactName) || "Клиент";
+  return {
+    client_type: "corporate",
+    name: clientName,
+    company_name: clientName,
+    first_name: "",
+    last_name: "",
+    contact_person: clean(input.contactName),
+    phone: clean(input.phone),
+    email: clean(input.email),
+    address: clean(input.address),
+    bulstat: "",
+    eik: "",
+  };
 }
 
 async function connectOpportunityToClient(
@@ -79,35 +125,25 @@ async function resolvePortalClientId(
 ) {
   const { data: opportunity } = await supabase
     .from("sales_opportunities")
-    .select("converted_client_id")
+    .select("converted_client_id,lead_client_type,first_name,last_name")
     .eq("id", input.opportunityId)
     .maybeSingle<Record<string, unknown>>();
 
   const convertedClientId = textValue(opportunity, ["converted_client_id"]);
   if (convertedClientId) return convertedClientId;
 
-  const clientName = clean(input.clientName);
+  const clientPayload = portalClientPayload(input, opportunity);
+  const clientName = textValue(clientPayload, ["name"]);
   const existingClientId = await findExistingClientId(supabase, clientName);
   if (existingClientId) {
+    await supabase.from("clients").update(clientPayload).eq("id", existingClientId);
     await connectOpportunityToClient(supabase, input.opportunityId, existingClientId);
     return existingClientId;
   }
 
   const { data: newClient, error } = await supabase
     .from("clients")
-    .insert({
-      client_type: "corporate",
-      name: clientName || clean(input.contactName) || "Клиент",
-      company_name: clientName,
-      first_name: "",
-      last_name: "",
-      contact_person: clean(input.contactName),
-      phone: clean(input.phone),
-      email: clean(input.email),
-      address: clean(input.address),
-      bulstat: "",
-      eik: "",
-    })
+    .insert(clientPayload)
     .select("id")
     .single<Record<string, unknown>>();
 
@@ -154,6 +190,8 @@ export async function publishSavedDocumentToClientPortal(
   const clientId = await resolvePortalClientId(supabase, input);
   const token = await ensurePortalLink(supabase, clientId);
   const now = new Date().toISOString();
+  const status = input.status ?? "sent_to_portal";
+  const requiresSignature = input.requiresSignature ?? status !== "signed";
 
   const { data: existingDocument } = await supabase
     .from("client_portal_documents")
@@ -168,9 +206,12 @@ export async function publishSavedDocumentToClientPortal(
     saved_document_id: input.savedDocumentId,
     kind: input.kind,
     title: input.title,
-    status: "sent_to_portal",
-    requires_signature: true,
-    signature_method: "portal",
+    status,
+    requires_signature: requiresSignature,
+    signature_method: input.signatureMethod ?? (status === "signed" ? null : "portal"),
+    signed_at: input.signedAt ?? null,
+    signed_by_name: input.signedByName ?? "",
+    signature_data_url: input.signatureDataUrl ?? "",
     metadata: {
       opportunityId: input.opportunityId,
       objectName: input.objectName,

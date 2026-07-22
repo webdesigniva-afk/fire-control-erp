@@ -624,6 +624,27 @@ export default function SalesOfferEditorPage() {
         .eq("id", offer.opportunityId);
       if (error) throw new Error(error.message);
 
+      if (method !== "portal") {
+        await publishSavedDocumentToClientPortal(supabase, {
+          opportunityId: offer.opportunityId,
+          savedDocumentId: `offer-${offer.opportunityId}`,
+          kind: "offer",
+          title: `Оферта ${offer.number}`,
+          clientName: offer.client,
+          contactName: offer.contact,
+          phone: offer.phone,
+          email: offer.email,
+          address: offer.address,
+          objectName: offer.object,
+          status: "signed",
+          requiresSignature: false,
+          signatureMethod: method,
+          signedAt: nextSignature.signedAt,
+          signedByName: nextSignature.signedByName,
+          signatureDataUrl: nextSignature.signatureDataUrl,
+        });
+      }
+
       await supabase.from("sales_activity_logs").insert({
         opportunity_id: offer.opportunityId,
         type: "stage_change",

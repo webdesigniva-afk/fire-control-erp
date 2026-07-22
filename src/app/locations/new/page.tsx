@@ -13,6 +13,7 @@ import {
 import {
   ArrowLeft,
   Building2,
+  Loader2,
   MapPin,
   Plus,
   QrCode,
@@ -97,35 +98,27 @@ function uniqueValues(values: string[]) {
 
 function objectTypeOptions(settings: ProtocolSettings, selectedValue = "") {
   return uniqueValues([
+    ...DEFAULT_OBJECT_TYPES,
     ...(settings.objectTypes?.length
       ? settings.objectTypes
       : defaultProtocolSettings.objectTypes),
     selectedValue,
-  ]).filter((value) => value !== "Друг" || selectedValue === "Друг");
+  ]);
 }
 
-const ADD_OBJECT_TYPE_VALUE = "__add_object_type__";
-const privateObjectTypes = [
-  "Апартамент",
-  "Къща",
-  "Вила",
-  "Гараж",
+const DEFAULT_OBJECT_TYPES = [
   "Магазин",
-  "Друг",
+  "Склад",
+  "Офис",
+  "Хотел",
+  "Производствен обект",
+  "Болница",
+  "Училище",
+  "Жилищна сграда",
+  "Друго",
 ];
 
-const corporateObjectTypes = [
-  "Офис",
-  "Склад",
-  "Производствена база",
-  "Хотел",
-  "Търговски обект",
-  "Заведение",
-  "Училище",
-  "Болница",
-  "Административна сграда",
-  "Друг",
-];
+const ADD_OBJECT_TYPE_VALUE = "__add_object_type__";
 
 function FormField({
   label,
@@ -189,6 +182,7 @@ function NewLocationContent() {
   );
   const [addingObjectType, setAddingObjectType] = useState(false);
   const [newObjectType, setNewObjectType] = useState("");
+  const [savingObjectType, setSavingObjectType] = useState(false);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">(
     "loading"
   );
@@ -202,36 +196,41 @@ function NewLocationContent() {
     [clients, form.clientId]
   );
   const isPrivateClient = selectedClient?.clientType === "private";
-  const availableObjectTypes = isPrivateClient
-    ? privateObjectTypes
-    : corporateObjectTypes;
+  const availableObjectTypes = objectTypeOptions(protocolSettings, form.objectType);
 
   function updateForm(key: keyof LocationFormState, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
   function updateClient(clientId: string) {
-    const clientType = clients.find((client) => client.id === clientId)?.clientType;
-    const allowedTypes = clientType === "private" ? privateObjectTypes : corporateObjectTypes;
-
     setForm((current) => ({
       ...current,
       clientId,
-      objectType: allowedTypes.includes(current.objectType) ? current.objectType : "",
     }));
     setAddingObjectType(false);
   }
 
   async function addObjectType() {
     const value = newObjectType.trim();
-    if (!value) return;
+    if (!value || savingObjectType) return;
 
-    const nextSettings = {
-      ...protocolSettings,
-      objectTypes: uniqueValues([...(protocolSettings.objectTypes ?? []), value]),
-    };
-
+    setSavingObjectType(true);
+    setErrorMessage("");
     try {
+      const databaseSettings = await readProtocolSettingsFromSupabase().catch(
+        () => protocolSettings
+      );
+      const nextSettings = {
+        ...databaseSettings,
+        objectTypes: uniqueValues([
+          ...DEFAULT_OBJECT_TYPES,
+          ...(defaultProtocolSettings.objectTypes ?? []),
+          ...(databaseSettings.objectTypes ?? []),
+          ...(protocolSettings.objectTypes ?? []),
+          value,
+        ]),
+      };
+
       await writeProtocolSettingsToSupabase(nextSettings);
       setProtocolSettings(nextSettings);
       updateForm("objectType", value);
@@ -243,6 +242,8 @@ function NewLocationContent() {
           ? error.message
           : "Грешка при запис на типа обект"
       );
+    } finally {
+      setSavingObjectType(false);
     }
   }
 
@@ -503,7 +504,15 @@ function NewLocationContent() {
                   <select
                     required
                     value={form.objectType}
-                    onChange={(event) => updateForm("objectType", event.target.value)}
+                    onChange={(event) => {
+                      if (event.target.value === ADD_OBJECT_TYPE_VALUE) {
+                        setAddingObjectType(true);
+                        updateForm("objectType", "");
+                        return;
+                      }
+                      setAddingObjectType(false);
+                      updateForm("objectType", event.target.value);
+                    }}
                     className="h-11 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
                   >
                     <option value="">Изберете тип</option>
@@ -512,8 +521,29 @@ function NewLocationContent() {
                         {type}
                       </option>
                     ))}
+                    <option value={ADD_OBJECT_TYPE_VALUE}>+ Добави</option>
                   </select>
                 </div>
+                {addingObjectType ? (
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      value={newObjectType}
+                      onChange={(event) => setNewObjectType(event.target.value)}
+                      placeholder="Нов тип обект"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={addObjectType}
+                      disabled={!newObjectType.trim() || savingObjectType}
+                    >
+                      {savingObjectType ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : null}
+                      {savingObjectType ? "Запис..." : "Добави"}
+                    </Button>
+                  </div>
+                ) : null}
               </FormField>
 
               <div className="lg:col-span-2">

@@ -239,6 +239,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function savedContractIsAccepted(payload: unknown) {
+  if (!isRecord(payload)) return false;
+  const signature = isRecord(payload.signature) ? payload.signature : {};
+  return payload.status === "accepted" || signature.status === "signed";
+}
+
 function serviceDisplayName(service: OpportunityService): string {
   return service.category && service.category !== service.name
     ? `${service.category} - ${service.name}`
@@ -525,7 +531,7 @@ function PipelineCard({
             <FileText size={14} />
             {item.hasContractDraft ? "Отвори договор" : "Създай договор"}
           </Link>
-        ) : item.stage === "contract" ? (
+        ) : item.stage === "contract" && item.hasAcceptedContract ? (
           <button
             type="button"
             disabled={startingServiceId === item.id}
@@ -537,6 +543,14 @@ function PipelineCard({
             {startingServiceId === item.id ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
             Премини към обслужване
           </button>
+        ) : item.stage === "contract" ? (
+          <Link
+            href={`/sales/contract/${item.id}`}
+            className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+          >
+            <FileText size={14} />
+            {item.hasContractDraft ? "Отвори договор" : "Създай договор"}
+          </Link>
         ) : nextStage ? (
           <button
             type="button"
@@ -1296,7 +1310,7 @@ export default function SalesPage() {
         draftIdSet = new Set(rows.map((row) => row.id));
         acceptedContractIdSet = new Set(
           rows
-            .filter((row) => row.id.startsWith("contract-") && isRecord(row.payload) && row.payload.status === "accepted")
+            .filter((row) => row.id.startsWith("contract-") && savedContractIsAccepted(row.payload))
             .map((row) => row.id)
         );
       }
@@ -1391,6 +1405,10 @@ export default function SalesPage() {
 
   async function handleStartService() {
     if (!serviceTarget || startingServiceId) return;
+    if (!serviceTarget.hasAcceptedContract) {
+      showToast("Първо запазете и приемете договора.", "error");
+      return;
+    }
     setStartingServiceId(serviceTarget.id);
     try {
       const supabase = createSupabaseBrowserClient();
@@ -1408,6 +1426,15 @@ export default function SalesPage() {
 
       if (existingClient) {
         clientId = String(existingClient.id);
+        const { error: clientUpdateError } = await supabase
+          .from("clients")
+          .update(opportunityClientPayload(serviceTarget))
+          .eq("id", clientId);
+        if (clientUpdateError) {
+          showToast("Грешка при обновяване на клиента.", "error");
+          setStartingServiceId("");
+          return;
+        }
       } else {
         const { data: newClient, error: clientError } = await supabase
           .from("clients")

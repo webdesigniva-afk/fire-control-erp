@@ -210,6 +210,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function savedContractIsAccepted(payload: unknown) {
+  if (!isRecord(payload)) return false;
+  const signature = isRecord(payload.signature) ? payload.signature : {};
+  return payload.status === "accepted" || signature.status === "signed";
+}
+
 function privateLeadName(firstName: string, lastName: string) {
   return [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
 }
@@ -764,7 +770,7 @@ export default function SalesDealPage() {
         archived: Boolean(row.archived),
         hasOfferDraft: Boolean(offerDraftResult.data),
         hasContractDraft: Boolean(contractDraftResult.data),
-        hasAcceptedContract: (isRecord(contractDraftResult.data?.payload) && contractDraftResult.data.payload.status === "accepted") || String(row.status ?? "") === "Потвърден",
+        hasAcceptedContract: savedContractIsAccepted(contractDraftResult.data?.payload),
         services: Array.isArray(row.sales_opportunity_services)
           ? (row.sales_opportunity_services as { service_category?: string | null; service_name: string }[])
               .map(mapOpportunityService)
@@ -843,6 +849,10 @@ export default function SalesDealPage() {
 
   async function handleStartService() {
     if (!opportunity || startingService) return;
+    if (!opportunity.hasAcceptedContract) {
+      showToast("Първо запазете и приемете договора.", "error");
+      return;
+    }
     setStartingService(true);
     try {
       const supabase = createSupabaseBrowserClient();
@@ -852,6 +862,14 @@ export default function SalesDealPage() {
         .from("clients").select("id").ilike("name", clientName).maybeSingle();
       if (existingClient) {
         clientId = String(existingClient.id);
+        const { error: clientUpdateError } = await supabase
+          .from("clients")
+          .update(opportunityClientPayload(opportunity))
+          .eq("id", clientId);
+        if (clientUpdateError) {
+          showToast("Грешка при обновяване на клиента.", "error");
+          return;
+        }
       } else {
         const { data: newClient, error: clientError } = await supabase
           .from("clients")

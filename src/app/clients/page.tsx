@@ -233,6 +233,7 @@ export default function ClientsPage() {
   >("all");
   const [clientPage, setClientPage] = useState(1);
   const [selectedClientId, setSelectedClientId] = useState("");
+  const [editingClientId, setEditingClientId] = useState("");
   const [formMode, setFormMode] = useState<"hidden" | "create" | "edit">("hidden");
   const [loadState, setLoadState] = useState<
     "loading" | "ready" | "error" | "saving" | "deleting"
@@ -270,6 +271,8 @@ export default function ClientsPage() {
 
   const selectedClient =
     clients.find((client) => client.id === selectedClientId) ?? null;
+  const editingClient =
+    clients.find((client) => client.id === editingClientId) ?? null;
 
   const totalLocations = clients.reduce(
     (total, client) => total + client.locations.length,
@@ -301,6 +304,7 @@ export default function ClientsPage() {
 
   function openCreateForm() {
     setForm(emptyForm);
+    setEditingClientId("");
     setFormMode("create");
     setMessage("");
     setErrorMessage("");
@@ -311,7 +315,8 @@ export default function ClientsPage() {
   }
 
   function openEditForm(client: ClientProfile) {
-    setSelectedClientId(client.id);
+    setSelectedClientId("");
+    setEditingClientId(client.id);
     setForm(formFromClient(client));
     setFormMode("edit");
     setMessage("");
@@ -492,13 +497,13 @@ export default function ClientsPage() {
   }
 
   async function updateClient() {
-    if (!selectedClient) return;
+    if (!editingClient) return;
 
     const supabase = createSupabaseBrowserClient();
     const { error } = await supabase
       .from("clients")
       .update(clientPayload(form))
-      .eq("id", selectedClient.id);
+      .eq("id", editingClient.id);
 
     if (error) {
       throw new Error(error.message || "Клиентът не беше обновен");
@@ -528,6 +533,7 @@ export default function ClientsPage() {
       }
 
       setForm(emptyForm);
+      setEditingClientId("");
       setFormMode("hidden");
       await loadClients();
     } catch (error) {
@@ -674,6 +680,7 @@ export default function ClientsPage() {
                 onClick={() => {
                   setFormMode("hidden");
                   setForm(emptyForm);
+                  setEditingClientId("");
                 }}
               >
                 Затвори

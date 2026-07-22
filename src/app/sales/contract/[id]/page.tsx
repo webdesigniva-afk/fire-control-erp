@@ -608,6 +608,26 @@ export default function ContractEditorPage() {
         .update({ stage: "contract", status: "Потвърден", last_activity_at: now, updated_at: now })
         .eq("id", contract.opportunityId);
       if (error) throw new Error(error.message);
+      if (method !== "portal") {
+        await publishSavedDocumentToClientPortal(supabase, {
+          opportunityId: contract.opportunityId,
+          savedDocumentId: `contract-${contract.opportunityId}`,
+          kind: "contract",
+          title: `Договор ${contract.number}`,
+          clientName: contract.client,
+          contactName: contract.contact,
+          phone: contract.phone,
+          email: contract.email,
+          address: contract.address,
+          objectName: contract.object,
+          status: "signed",
+          requiresSignature: false,
+          signatureMethod: method,
+          signedAt: nextSignature.signedAt,
+          signedByName: nextSignature.signedByName,
+          signatureDataUrl: nextSignature.signatureDataUrl,
+        });
+      }
       await supabase.from("sales_activity_logs").insert({
         opportunity_id: contract.opportunityId,
         type: "stage_change",
