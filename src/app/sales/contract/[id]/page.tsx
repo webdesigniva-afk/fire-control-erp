@@ -109,6 +109,13 @@ function lineTotal(line: ContractLine) {
   return Number(line.price) || 0;
 }
 
+function visibleLineNote(line: ContractLine) {
+  const description = line.description.trim();
+  if (!description || description.toLowerCase().includes("описание от офертата")) return "";
+  if (description.toLowerCase().includes("услуга по пожарна безопасност според избрания обхват")) return "";
+  return description;
+}
+
 function normalizeContractLine(line: Partial<ContractLine>, index: number, objectName: string): ContractLine {
   const price = Number(line.price) || 0;
   const quantity = Number(line.quantity) || 1;
@@ -347,8 +354,37 @@ function serviceLabel(row: { service_category?: string | null; service_name?: st
   return category ? `${category} - ${name}` : name || "Услуга";
 }
 
-function nextContractNumber(id: string) {
-  return `CTR-${new Date().getFullYear()}-${id.slice(0, 8).toUpperCase()}`;
+type SupabaseBrowserClient = ReturnType<typeof createSupabaseBrowserClient>;
+
+function formatDocumentDateForNumber(date: Date) {
+  return `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}.${date.getFullYear()}г.`;
+}
+
+function parseSequentialDocumentNumber(value: unknown, shortYear: string) {
+  const match = String(value ?? "").match(/^(\d{2})(\d{4})\//);
+  if (!match || match[1] !== shortYear) return 0;
+  return Number(match[2]) || 0;
+}
+
+async function nextContractNumber(supabase: SupabaseBrowserClient, date: Date) {
+  const shortYear = String(date.getFullYear()).slice(-2);
+  const { data } = await supabase
+    .from("saved_documents")
+    .select("number,payload")
+    .eq("kind", "contract");
+
+  const maxSequence = ((data as { number?: unknown; payload?: unknown }[] | null) ?? []).reduce((max, row) => {
+    const payload = isRecord(row.payload) ? row.payload : {};
+    const contract = isRecord(payload.contract) ? payload.contract : {};
+    return Math.max(
+      max,
+      parseSequentialDocumentNumber(row.number, shortYear),
+      parseSequentialDocumentNumber(contract.number, shortYear)
+    );
+  }, 0);
+  const nextSequence = Math.max(100, maxSequence + 1);
+
+  return `${shortYear}${String(nextSequence).padStart(4, "0")}/${formatDocumentDateForNumber(date)}`;
 }
 
 const defaultTerms = [
@@ -448,11 +484,15 @@ export default function ContractEditorPage() {
           price: [120, 180, 240, 360][index % 4],
         }));
 
+        const draft = readDraftContract(contractDocResult.data?.payload);
+        const today = new Date();
+        const generatedNumber = draft?.number || await nextContractNumber(supabase, today);
+
         const defaultContract: ContractData = {
           opportunityId,
-          number: nextContractNumber(opportunityId),
+          number: generatedNumber,
           offerNumber,
-          date: dateKey(new Date()),
+          date: dateKey(today),
           client: String(oppResult.data.company_name ?? ""),
           contact: String(oppResult.data.contact_name ?? ""),
           phone: String(oppResult.data.phone ?? ""),
@@ -465,7 +505,6 @@ export default function ContractEditorPage() {
           lines: offerLines.length ? offerLines.map((line) => ({ ...line, object: String(oppResult.data.object_name ?? "") })) : fallbackLines,
           terms: defaultTerms,
         };
-        const draft = readDraftContract(contractDocResult.data?.payload);
         const savedStatus = readDraftContractStatus(contractDocResult.data?.payload);
         const loadedSignature = readDocumentSignature(
           contractDocResult.data?.payload,
@@ -500,7 +539,10 @@ export default function ContractEditorPage() {
     };
   }, [opportunityId]);
 
-  const total = useMemo(() => contract?.lines.reduce((sum, line) => sum + lineTotal(line), 0) ?? 0, [contract]);
+  const subtotal = useMemo(() => contract?.lines.reduce((sum, line) => sum + lineTotal(line), 0) ?? 0, [contract]);
+  const vatRate = 0.2;
+  const vat = subtotal * vatRate;
+  const total = subtotal + vat;
 
   function updateContract<K extends keyof ContractData>(key: K, value: ContractData[K]) {
     setContract((current) => current ? { ...current, [key]: value } : current);
@@ -698,7 +740,7 @@ export default function ContractEditorPage() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:p-0">
+    <main className="contract-page min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:p-0">
       <div className="no-print mx-auto mb-4 flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link href={`/sales/${contract.opportunityId}`} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm">
           <ArrowLeft size={18} />
@@ -754,40 +796,396 @@ export default function ContractEditorPage() {
         </div>
       ) : null}
 
-      <article className={`mx-auto w-full max-w-6xl rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200 print:max-w-none print:rounded-none print:p-0 print:shadow-none print:ring-0 ${isReadOnly ? "pointer-events-none" : ""}`}>
-        <header className="grid gap-8 border-b border-slate-200 pb-8 md:grid-cols-[1fr_auto]">
-          <div className="pt-1">
-            <div className="text-3xl font-black tracking-tight">FIRE<span className="text-orange-600 print:text-black">Control</span></div>
-            <p className="mt-2 max-w-xl text-xs font-black uppercase tracking-wide text-slate-500">Пожарна безопасност, сервиз и абонаментно обслужване</p>
-            <div className="mt-6 h-1 w-20 rounded-full bg-gradient-to-r from-red-600 to-orange-400 print:bg-slate-900" />
+      <style>{`
+        @page {
+          size: A4;
+          margin: 0 0 11mm;
+
+          @bottom-center {
+            content: counter(page);
+            color: #64748b;
+            font-size: 9px;
+            font-weight: 700;
+          }
+        }
+
+        .contract-sheet input,
+        .contract-sheet textarea,
+        .contract-field {
+          min-width: 0;
+        }
+
+        @media screen {
+          .contract-field:focus {
+            border-bottom-color: #fb923c;
+          }
+        }
+
+        @media print {
+          * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+
+          html,
+          body {
+            background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+
+          .contract-page {
+            background: #ffffff !important;
+            margin: 0 !important;
+            min-height: auto !important;
+            padding: 0 !important;
+          }
+
+          .no-print {
+            display: none !important;
+          }
+
+          .contract-sheet {
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            box-sizing: border-box !important;
+            margin: 0 !important;
+            overflow: visible !important;
+            padding: 10mm 12mm !important;
+            width: 210mm !important;
+          }
+
+          .contract-sheet input,
+          .contract-sheet textarea {
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            color: inherit !important;
+            overflow: visible !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+          }
+
+          .contract-sheet input[type="date"]::-webkit-calendar-picker-indicator {
+            display: none !important;
+          }
+
+          .contract-header {
+            align-items: start !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            display: grid !important;
+            gap: 10mm !important;
+            grid-template-columns: minmax(0, 1fr) 82mm !important;
+            padding-bottom: 6mm !important;
+          }
+
+          .contract-logo {
+            width: 38mm !important;
+          }
+
+          .contract-subtitle {
+            font-size: 9.2px !important;
+            line-height: 1.35 !important;
+            margin-top: 2.5mm !important;
+            max-width: 86mm !important;
+          }
+
+          .contract-subject {
+            border-left: 2px solid #f97316 !important;
+            color: #334155 !important;
+            font-size: 11.2px !important;
+            font-weight: 700 !important;
+            line-height: 1.45 !important;
+            margin-top: 7mm !important;
+            max-width: 106mm !important;
+            padding-left: 3.5mm !important;
+          }
+
+          .contract-meta {
+            background: #ffffff !important;
+            border: 0 !important;
+            border-radius: 4px !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+          }
+
+          .contract-meta-title {
+            border-bottom: 0 !important;
+            padding-bottom: 0 !important;
+          }
+
+          .contract-meta h1 {
+            border-bottom: 0 !important;
+            font-size: 27px !important;
+            margin: 0 !important;
+            padding-bottom: 0 !important;
+          }
+
+          .contract-meta-accent {
+            background: #f97316 !important;
+            display: block !important;
+            height: 1.2mm !important;
+            margin-top: 3mm !important;
+            width: 18mm !important;
+          }
+
+          .contract-meta-fields {
+            border-top: 1px solid #e2e8f0 !important;
+            margin-top: 5mm !important;
+            padding-top: 4mm !important;
+          }
+
+          .contract-meta label {
+            gap: 4mm !important;
+            grid-template-columns: 18mm minmax(0, 1fr) !important;
+            margin-top: 2.6mm !important;
+          }
+
+          .contract-meta span {
+            color: #94a3b8 !important;
+            font-size: 8px !important;
+            line-height: 1.2 !important;
+          }
+
+          .contract-meta input {
+            font-size: 10.2px !important;
+            height: auto !important;
+            line-height: 1.25 !important;
+            overflow-wrap: anywhere !important;
+            width: 100% !important;
+          }
+
+          .contract-party-grid {
+            border-bottom: 1px solid #e2e8f0 !important;
+            display: grid !important;
+            gap: 10mm !important;
+            grid-template-columns: 1fr 1fr !important;
+            margin-top: 5mm !important;
+            padding-bottom: 4.5mm !important;
+          }
+
+          .contract-party-grid h2 {
+            font-size: 8.5px !important;
+          }
+
+          .contract-party-grid input {
+            font-size: 10.5px !important;
+            line-height: 1.35 !important;
+          }
+
+          .contract-party-grid textarea {
+            font-size: 10.5px !important;
+            line-height: 1.35 !important;
+            overflow-wrap: anywhere !important;
+            white-space: pre-wrap !important;
+            word-break: normal !important;
+          }
+
+          .contract-party-grid textarea:first-child {
+            font-size: 14px !important;
+            line-height: 1.25 !important;
+          }
+
+          .contract-lines-section {
+            margin-top: 5mm !important;
+          }
+
+          .contract-lines-section h2 {
+            font-size: 16px !important;
+          }
+
+          .contract-lines-section p {
+            font-size: 10px !important;
+          }
+
+          .contract-table {
+            border: 1px solid #cbd5e1 !important;
+            border-radius: 4px !important;
+            font-size: 10.5px !important;
+            margin-top: 4mm !important;
+          }
+
+          .contract-table th {
+            background: #f1f5f9 !important;
+            font-size: 8.5px !important;
+            padding: 1.8mm 2mm !important;
+          }
+
+          .contract-table td {
+            padding: 2.2mm 2mm !important;
+          }
+
+          .contract-table textarea,
+          .contract-table input {
+            font-size: 10.5px !important;
+            line-height: 1.35 !important;
+          }
+
+          .contract-table tr,
+          .contract-terms,
+          .contract-signatures {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          .contract-table col:nth-child(1) { width: 5% !important; }
+          .contract-table col:nth-child(2) { width: 52% !important; }
+          .contract-table col:nth-child(3) { width: 12% !important; }
+          .contract-table col:nth-child(4) { width: 15% !important; }
+          .contract-table col:nth-child(5) { width: 16% !important; }
+
+          .contract-total {
+            font-size: 13px !important;
+            margin-top: 3mm !important;
+          }
+
+          .contract-summary {
+            font-size: 10px !important;
+            margin-left: auto !important;
+            margin-top: 4mm !important;
+            width: 54mm !important;
+          }
+
+          .contract-summary-row {
+            display: grid !important;
+            gap: 4mm !important;
+            grid-template-columns: 1fr 1fr !important;
+            padding: 1.2mm 0 !important;
+          }
+
+          .contract-summary-row strong {
+            text-align: right !important;
+          }
+
+          .contract-summary-total {
+            background: #020617 !important;
+            border-radius: 3px !important;
+            color: #ffffff !important;
+            margin-top: 1.5mm !important;
+            padding: 2.3mm 2.5mm !important;
+          }
+
+          .contract-summary-total strong {
+            font-size: 14px !important;
+          }
+
+          .contract-terms {
+            border-top: 1px solid #e2e8f0 !important;
+            margin-top: 6mm !important;
+            padding-top: 4mm !important;
+          }
+
+          .contract-terms > div {
+            gap: 0 !important;
+          }
+
+          .contract-term {
+            display: grid !important;
+            gap: 4mm !important;
+            grid-template-columns: 7mm minmax(0, 1fr) !important;
+            padding: 3.2mm 0 !important;
+          }
+
+          .contract-term + .contract-term {
+            border-top: 1px solid #eef2f7 !important;
+          }
+
+          .contract-term-number {
+            align-items: start !important;
+            color: #94a3b8 !important;
+            display: flex !important;
+            font-size: 10px !important;
+            font-weight: 900 !important;
+            justify-content: flex-start !important;
+            line-height: 1.2 !important;
+            padding-top: 0.4mm !important;
+          }
+
+          .contract-term h2 {
+            color: #64748b !important;
+            font-size: 8.5px !important;
+            letter-spacing: 0.09em !important;
+            margin: 0 !important;
+          }
+
+          .contract-term-print-text {
+            color: #0f172a !important;
+            display: block !important;
+            font-size: 10px !important;
+            font-weight: 650 !important;
+            line-height: 1.42 !important;
+            margin-top: 1.2mm !important;
+          }
+
+          .contract-signatures {
+            border-top: 1px solid #e2e8f0 !important;
+            display: grid !important;
+            gap: 12mm !important;
+            grid-template-columns: 1fr 1fr !important;
+            margin-top: 6mm !important;
+            padding-top: 5mm !important;
+          }
+
+          .contract-signatures::before {
+            content: "Потвърждение";
+            color: #64748b;
+            display: block;
+            font-size: 9px;
+            font-weight: 900;
+            grid-column: 1 / -1;
+            letter-spacing: 0.12em;
+            margin-bottom: -7mm;
+            text-transform: uppercase;
+          }
+
+          .contract-signature-box,
+          .contract-signatures canvas {
+            height: 24mm !important;
+            max-width: 100% !important;
+          }
+        }
+      `}</style>
+
+      <article className={`contract-sheet mx-auto w-full max-w-[210mm] rounded-[6px] bg-white px-[15mm] py-[14mm] shadow-sm ring-1 ring-slate-200 print:max-w-none print:rounded-none print:ring-0 ${isReadOnly ? "pointer-events-none" : ""}`}>
+        <header className="contract-header grid gap-7 border-b border-slate-200 pb-7 md:grid-cols-[minmax(0,1fr)_82mm] md:items-start">
+          <div className="min-w-0">
+            <img src="/firecontrol-header-logo.png" alt="FIREControl" className="contract-logo h-auto w-[43mm] object-contain" />
+            <p className="contract-subtitle mt-3 max-w-[92mm] text-[10.5px] font-black uppercase leading-4 tracking-wide text-slate-500">Пожарна безопасност, сервиз и абонаментно обслужване</p>
+            <div className="contract-subject mt-8 max-w-[110mm] border-l-2 border-orange-500 py-1 pl-4 text-[13px] font-semibold leading-6 text-slate-700">
+              Договор за услуги, свързани с пожарна безопасност, профилактика, сервиз и документиране.
+            </div>
           </div>
-          <div className="min-w-80 rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
-            <h1 className="text-3xl font-black uppercase leading-none">Договор</h1>
-            <div className="mt-5 space-y-3 text-sm">
-              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
-                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Номер</span>
+          <div className="contract-meta min-w-0 rounded-[4px] border border-slate-200 bg-slate-50/70 p-5 print:bg-white">
+            <div className="contract-meta-title border-b border-slate-200 pb-4">
+              <h1 className="text-[30px] font-black uppercase leading-none tracking-tight text-slate-950">Договор</h1>
+              <span className="contract-meta-accent hidden rounded-full print:block" />
+            </div>
+            <div className="contract-meta-fields mt-4 space-y-3 text-sm">
+              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Номер</span>
                 <input
                   value={contract.number}
                   onChange={(event) => updateContract("number", event.target.value)}
-                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
+                  className="contract-field w-full min-w-0 whitespace-nowrap bg-transparent py-1 text-[11.5px] font-black tracking-[-0.01em] text-slate-900 outline-none"
                 />
               </label>
-              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
-                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Дата</span>
+              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Дата</span>
                 <input
                   type="date"
                   value={contract.date}
                   onChange={(event) => updateContract("date", event.target.value)}
-                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
+                  className="contract-field w-full min-w-0 bg-transparent py-1 text-[12.5px] font-bold text-slate-800 outline-none"
                 />
               </label>
-              <label className="grid grid-cols-[92px_1fr] items-center gap-3">
-                <span className="text-xs font-black uppercase tracking-wide text-slate-400">Оферта</span>
+              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Оферта</span>
                 <input
                   value={contract.offerNumber}
                   onChange={(event) => updateContract("offerNumber", event.target.value)}
                   placeholder="№ оферта"
-                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm outline-none placeholder:text-slate-300 focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
+                  className="contract-field w-full min-w-0 bg-transparent py-1 text-[12.5px] font-bold text-slate-800 outline-none placeholder:text-slate-300"
                 />
               </label>
             </div>
@@ -795,12 +1193,12 @@ export default function ContractEditorPage() {
         </header>
 
         {contract.offerNumber ? (
-          <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-bold text-orange-800">
+          <div className="no-print mt-4 rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-bold text-orange-800">
             Договорът е обвързан с оферта № {contract.offerNumber}.
           </div>
         ) : null}
 
-        <div className={`mt-4 rounded-xl border px-4 py-3 text-sm font-bold ${
+        <div className={`no-print mt-4 rounded-xl border px-4 py-3 text-sm font-bold ${
           contractStatus === "accepted"
             ? "border-emerald-200 bg-emerald-50 text-emerald-800"
             : "border-slate-200 bg-slate-50 text-slate-600"
@@ -808,27 +1206,27 @@ export default function ContractEditorPage() {
           Статус: {contractStatus === "accepted" ? "Договор приет" : "Чернова на договор"}
         </div>
 
-        <section className="mt-7 grid gap-8 border-b border-slate-200 pb-7 md:grid-cols-2">
+        <section className="contract-party-grid mt-7 grid gap-8 border-b border-slate-200 pb-7 md:grid-cols-2">
           <div>
             <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">Възложител</h2>
             <div className="mt-3 space-y-1.5">
-              <input value={contract.client} onChange={(event) => updateContract("client", event.target.value)} placeholder="Фирма / име" className="w-full bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
-              <input value={contract.contact} onChange={(event) => updateContract("contact", event.target.value)} placeholder="Лице за контакт" className="w-full bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
-              <input value={contract.phone} onChange={(event) => updateContract("phone", event.target.value)} placeholder="Телефон" className="w-full bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
-              <input value={contract.email} onChange={(event) => updateContract("email", event.target.value)} placeholder="Email" className="w-full bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
+              <AutoResizeTextarea value={contract.client} onChange={(event) => updateContract("client", event.target.value)} rows={1} placeholder="Фирма / име" className="w-full resize-none overflow-hidden bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
+              <AutoResizeTextarea value={contract.contact} onChange={(event) => updateContract("contact", event.target.value)} rows={1} placeholder="Лице за контакт" className="w-full resize-none overflow-hidden bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
+              <AutoResizeTextarea value={contract.phone} onChange={(event) => updateContract("phone", event.target.value)} rows={1} placeholder="Телефон" className="w-full resize-none overflow-hidden bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
+              <AutoResizeTextarea value={contract.email} onChange={(event) => updateContract("email", event.target.value)} rows={1} placeholder="Email" className="w-full resize-none overflow-hidden bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
             </div>
           </div>
           <div>
             <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">Обект и изпълнител</h2>
             <div className="mt-3 space-y-1.5">
-              <input value={contract.object} onChange={(event) => updateContract("object", event.target.value)} placeholder="Обект" className="w-full bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
-              <input value={contract.address} onChange={(event) => updateContract("address", event.target.value)} placeholder="Адрес" className="w-full bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
-              <input value={contract.preparedBy} onChange={(event) => updateContract("preparedBy", event.target.value)} placeholder="Изготвил" className="w-full bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
+              <AutoResizeTextarea value={contract.object} onChange={(event) => updateContract("object", event.target.value)} rows={1} placeholder="Обект" className="w-full resize-none overflow-hidden bg-transparent text-xl font-black leading-7 text-slate-950 outline-none" />
+              <AutoResizeTextarea value={contract.address} onChange={(event) => updateContract("address", event.target.value)} rows={1} placeholder="Адрес" className="w-full resize-none overflow-hidden bg-transparent text-sm font-bold leading-6 text-slate-700 outline-none" />
+              <AutoResizeTextarea value={contract.preparedBy} onChange={(event) => updateContract("preparedBy", event.target.value)} rows={1} placeholder="Изготвил" className="w-full resize-none overflow-hidden bg-transparent text-sm font-semibold leading-6 text-slate-600 outline-none" />
             </div>
           </div>
         </section>
 
-        <section className="mt-6">
+        <section className="contract-lines-section mt-6">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-lg font-black">Договорени услуги</h2>
@@ -845,90 +1243,112 @@ export default function ContractEditorPage() {
             </div>
             ) : null}
           </div>
-          <div className="overflow-hidden rounded-2xl border border-slate-200">
-            <table className="w-full table-fixed border-collapse text-sm">
+          <div className="overflow-hidden rounded-lg border border-slate-300">
+            <table className="contract-table w-full table-fixed border-collapse text-[12px]">
               <colgroup>
                 <col className="w-[5%]" />
-                <col className="w-[45%]" />
-                <col className="w-[17%]" />
-                <col className="w-[9%]" />
+                <col className="w-[48%]" />
                 <col className="w-[12%]" />
-                <col className="w-[12%]" />
-                <col className="no-print w-[5%]" />
+                <col className="w-[15%]" />
+                <col className="w-[14%]" />
+                <col className="no-print w-[6%]" />
               </colgroup>
               <thead>
                 <tr className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
                   <th className="px-3 py-3 text-left">№</th>
-                  <th className="px-3 py-3 text-left">Услуга и описание</th>
-                  <th className="px-3 py-3 text-left">Период</th>
-                  <th className="px-3 py-3 text-center">Бр.</th>
+                  <th className="px-3 py-3 text-left">Услуга</th>
+                  <th className="px-3 py-3 text-center">Количество</th>
                   <th className="px-3 py-3 text-right">Ед. цена</th>
                   <th className="px-3 py-3 text-right">Общо</th>
                   {!isReadOnly ? <th className="no-print px-2 py-3" /> : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {contract.lines.map((line, index) => (
-                  <tr key={line.id} className="align-top">
-                    <td className="px-3 py-4 font-black text-slate-400">{index + 1}</td>
-                    <td className="px-3 py-4">
+                {contract.lines.map((line, index) => {
+                  const note = visibleLineNote(line);
+
+                  return (
+                  <tr key={line.id} className="align-middle">
+                    <td className="px-2 py-2.5 align-middle font-black text-slate-400">{index + 1}</td>
+                    <td className="px-2 py-2.5 align-middle">
                       <AutoResizeTextarea
                         value={line.name}
                         onChange={(event) => updateLine(line.id, { name: event.target.value })}
                         rows={1}
-                        className="w-full resize-none overflow-hidden bg-transparent text-sm font-black leading-5 text-slate-950 outline-none"
+                        className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-black leading-5 text-slate-950 outline-none"
                       />
+                      {note ? (
+                        <div className="mt-0.5 text-[10.5px] font-semibold leading-4 text-slate-500">
+                          {note}
+                        </div>
+                      ) : null}
                       <AutoResizeTextarea
                         value={line.description}
                         onChange={(event) => updateLine(line.id, { description: event.target.value })}
-                        rows={2}
-                        placeholder="Описание от офертата"
-                        className="mt-1 w-full resize-none overflow-hidden bg-transparent text-sm font-medium leading-5 text-slate-600 outline-none placeholder:text-slate-300"
-                      />
-                    </td>
-                    <td className="px-3 py-4">
-                      <AutoResizeTextarea
-                        value={line.periodicity}
-                        onChange={(event) => updateLine(line.id, { periodicity: event.target.value })}
                         rows={1}
-                        className="w-full resize-none overflow-hidden bg-transparent text-sm font-bold leading-5 text-slate-700 outline-none"
+                        placeholder="Описание от офертата"
+                        className="no-print mt-1 w-full resize-none overflow-hidden bg-transparent text-[10.5px] font-medium leading-4 text-slate-500 outline-none placeholder:text-slate-300"
                       />
                     </td>
-                    <td className="px-3 py-4 text-center">
-                      <input type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })} className="w-full bg-transparent text-center text-sm font-bold outline-none" />
+                    <td className="px-2 py-2.5 align-middle text-center">
+                      <input type="number" min="0" step="1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })} className="w-full bg-transparent text-center text-[12px] font-bold outline-none" />
                     </td>
-                    <td className="px-3 py-4">
-                      <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) || 0 })} className="w-full bg-transparent text-right text-sm font-bold outline-none" />
+                    <td className="px-2 py-2.5 align-middle">
+                      <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) || 0 })} className="w-full bg-transparent text-right text-[12px] font-bold outline-none" />
                     </td>
-                    <td className="px-3 py-4 text-right font-black text-slate-950">{money(lineTotal(line))}</td>
-                    {!isReadOnly ? <td className="no-print px-2 py-3 text-center"><button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"><Trash2 size={15} /></button></td> : null}
+                    <td className="px-2 py-2.5 align-middle text-right text-[12px] font-black text-slate-950">{money(lineTotal(line))}</td>
+                    {!isReadOnly ? <td className="no-print px-2 py-2 text-center align-middle"><button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition hover:border-red-200 hover:bg-red-100" title="Изтрий услуга" aria-label={`Изтрий услуга ${index + 1}`}><Trash2 size={14} /></button></td> : null}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
-          <div className="mt-4 text-right text-base font-black">Общо: {money(total)}</div>
-        </section>
-
-        <section className="mt-7 space-y-5 border-t border-slate-200 pt-6">
-          {contract.terms.map((term) => (
-            <div key={term.id} className="break-inside-avoid">
-              <h2 className="mb-2 text-xs font-black uppercase tracking-wide text-slate-500">{term.title}</h2>
-              <AutoResizeTextarea
-                value={term.text}
-                onChange={(event) => updateTerm(term.id, event.target.value)}
-                rows={2}
-                className="w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-medium leading-6 text-slate-800 outline-none"
-              />
+          <div className="contract-summary mt-4 ml-auto w-full max-w-[250px] text-[12px]">
+            <div className="contract-summary-row grid grid-cols-2 gap-4 py-1.5">
+              <div className="font-bold text-slate-500">Междинна сума</div>
+              <strong className="text-right font-bold text-slate-800">{money(subtotal)}</strong>
             </div>
-          ))}
+            <div className="contract-summary-row grid grid-cols-2 gap-4 py-1.5">
+              <div className="font-bold text-slate-500">ДДС {Math.round(vatRate * 100)}%</div>
+              <strong className="text-right font-bold text-slate-800">{money(vat)}</strong>
+            </div>
+            <div className="contract-summary-row contract-summary-total mt-2 grid grid-cols-2 gap-4 rounded-[4px] bg-slate-950 px-3 py-3 text-white print:bg-slate-900">
+              <div className="text-[13px] font-black uppercase">Общо</div>
+              <strong className="text-right text-[17px] font-black">{money(total)}</strong>
+            </div>
+          </div>
         </section>
 
-        <footer className="mt-10 grid gap-8 md:grid-cols-2">
+        <section className="contract-terms mt-7 border-t border-slate-200 pt-6">
+          <div className="grid gap-3">
+            {contract.terms.map((term, index) => (
+              <div key={term.id} className="contract-term grid gap-4 rounded-xl border border-slate-100 bg-slate-50/40 p-4 break-inside-avoid md:grid-cols-[42px_minmax(0,1fr)] print:rounded-none print:border-0 print:bg-transparent print:p-0">
+                <div className="contract-term-number flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-black text-slate-400 shadow-sm print:h-auto print:w-auto print:rounded-none print:bg-transparent print:shadow-none">
+                  {index + 1}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-[11px] font-black uppercase tracking-wide text-slate-500">{term.title}</h2>
+                  <AutoResizeTextarea
+                    value={term.text}
+                    onChange={(event) => updateTerm(term.id, event.target.value)}
+                    rows={2}
+                    className="mt-1 w-full resize-none overflow-hidden border-0 bg-transparent text-sm font-medium leading-6 text-slate-800 outline-none print:hidden"
+                  />
+                  <div className="contract-term-print-text hidden whitespace-pre-line">
+                    {term.text}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <footer className="contract-signatures mt-10 grid gap-8 md:grid-cols-2">
           <div>
             <div className="text-sm font-bold">Изпълнител:</div>
             <div className="mt-2 font-black">{contract.preparedBy}</div>
-            <div className="mt-4 h-32 rounded-xl border border-dashed border-slate-300 p-3 print:rounded-none">
+            <div className="contract-signature-box mt-4 h-32 rounded-xl border border-dashed border-slate-300 p-3 print:rounded-none">
               {contract.contractorSignatureUrl ? <img src={contract.contractorSignatureUrl} alt="Подпис" className="h-full max-w-full object-contain" /> : null}
             </div>
           </div>

@@ -23,6 +23,7 @@ import {
   MapPin,
   MapPinned,
   PanelTop,
+  PencilLine,
   Phone,
   ShieldCheck,
   Siren,
@@ -94,12 +95,20 @@ type OfferPreview = {
   email?: string;
   object?: string;
   address?: string;
+  subject?: string;
+  notes?: string;
+  executionTerm?: string;
+  paymentTerms?: string;
+  warrantyTerms?: string;
   preparedBy?: string;
+  signatureUrl?: string;
+  acceptedSignatureUrl?: string;
   lines?: DocumentLine[];
 };
 
 type ContractPreview = OfferPreview & {
   offerNumber?: string;
+  contractorSignatureUrl?: string;
   terms?: { id?: string; title?: string; text?: string }[];
 };
 
@@ -267,6 +276,52 @@ function documentTotals(document: PortalDocument) {
   return { subtotal: resolvedSubtotal, vat: resolvedVat, total: resolvedTotal };
 }
 
+function visibleLineDescription(line: DocumentLine) {
+  const description = String(line.description || "").trim();
+  const normalized = description.toLowerCase();
+  if (!description || normalized.includes("описание от офертата")) return "";
+  if (normalized.includes("услуга по пожарна безопасност според избрания обхват")) return "";
+  return description;
+}
+
+function documentSubject(document: PortalDocument) {
+  const source = documentSource(document);
+  if (source?.subject) return source.subject;
+  if (document.kind === "contract") {
+    return "Договор за услуги, свързани с пожарна безопасност, профилактика, сервиз и документиране.";
+  }
+  return "Оферта за услуги, свързани с пожарна безопасност и сервизно обслужване.";
+}
+
+function documentTerms(document: PortalDocument) {
+  const source = documentSource(document);
+  if (document.kind === "contract") {
+    return document.documentData?.contract?.terms || [];
+  }
+  return [
+    {
+      id: "execution",
+      title: "Изпълнение",
+      text: source?.executionTerm || "Изпълнението се планира след писмено потвърждение на офертата и уточняване на достъп до обекта.",
+    },
+    {
+      id: "payment",
+      title: "Плащане",
+      text: source?.paymentTerms || "Плащане по банков път след издадена фактура, освен ако страните не договорят друго писмено.",
+    },
+    {
+      id: "documents",
+      title: "Документи",
+      text: source?.warrantyTerms || "Офертата включва документиране на извършените дейности съгласно приложимите изисквания за пожарна безопасност.",
+    },
+    {
+      id: "notes",
+      title: "Бележки",
+      text: source?.notes || "Цените са ориентировъчни и могат да бъдат прецизирани след оглед и потвърждение на обхвата.",
+    },
+  ];
+}
+
 function documentStatus(document: PortalDocument) {
   if (document.status === "signed") {
     return document.signatureMethod === "paper" ? "Подписан на хартия" : "Подписан онлайн";
@@ -424,6 +479,10 @@ function libraryItemDate(item: PortalLibraryItem) {
 
 function libraryItemStatus(item: PortalLibraryItem) {
   return item.itemType === "protocol" ? protocolStatus(item.protocol) : documentStatus(item.document);
+}
+
+function libraryItemNeedsSignature(item: PortalLibraryItem) {
+  return item.itemType === "document" && item.document.requiresSignature && item.document.status !== "signed";
 }
 
 function textFromRecord(record: Record<string, unknown>, key: string) {
@@ -688,7 +747,7 @@ function SignaturePad({ value, onChange }: { value: string; onChange: (value: st
     <div>
       <canvas
         ref={canvasRef}
-        className="h-40 w-full touch-none rounded-2xl border border-dashed border-slate-300 bg-white"
+        className="h-32 w-full touch-none rounded-xl border border-dashed border-slate-300 bg-white"
         onPointerDown={start}
         onPointerMove={move}
         onPointerUp={finish}
@@ -703,23 +762,42 @@ function SignaturePad({ value, onChange }: { value: string; onChange: (value: st
 
 function documentHtml(document: PortalDocument) {
   const source = documentSource(document);
+  const isContract = document.kind === "contract";
+  const contractSource = isContract ? document.documentData?.contract : null;
+  const terms = documentTerms(document);
   const rows = documentLines(document)
     .map((line, index) => {
       const quantity = Number(line.quantity) || 1;
       const unitPrice = Number(line.unitPrice) || 0;
       const price = Number(line.price);
       const total = Number.isFinite(price) && price > 0 ? price : quantity * unitPrice;
+      const visibleDescription = visibleLineDescription(line);
+      /*
+      const description = String(line.description || "").trim();
+      const visibleDescription = description.toLowerCase().includes("услуга по пожарна безопасност според избрания обхват")
+        ? ""
+        : description;
+      */
       return `<tr>
         <td>${index + 1}</td>
-        <td><strong>${escapeHtml(line.name || "Услуга")}</strong><br><span>${escapeHtml(line.description || "")}</span></td>
-        <td>${escapeHtml(line.period || line.periodicity || "")}</td>
+        <td><strong>${escapeHtml(line.name || "Услуга")}</strong>${visibleDescription ? `<br><span>${escapeHtml(visibleDescription)}</span>` : ""}</td>
+        <td class="center">${escapeHtml(quantity)}</td>
+        <td class="right">${escapeHtml(formatAmount(unitPrice))}</td>
         <td class="right">${escapeHtml(formatAmount(total))}</td>
       </tr>`;
     })
     .join("");
   const totals = documentTotals(document);
-  const signature = document.signatureDataUrl
-    ? `<div class="signature"><img src="${escapeHtml(document.signatureDataUrl)}" alt="Подпис"><div>${escapeHtml(document.signedByName || "Клиент")}</div><small>${escapeHtml(formatDate(document.signedAt))}</small></div>`
+  const subject =
+    source?.subject ||
+    `${documentKindLabel(document.kind)} за услуги, свързани с пожарна безопасност и сервизно обслужване.`;
+  const contractorSignatureUrl = contractSource?.contractorSignatureUrl || source?.signatureUrl || "";
+  const preparedSignature = contractorSignatureUrl
+    ? `<img src="${escapeHtml(contractorSignatureUrl)}" alt="Подпис">`
+    : "";
+  const acceptedSignatureUrl = document.signatureDataUrl || source?.acceptedSignatureUrl || "";
+  const clientSignature = acceptedSignatureUrl
+    ? `<div class="signature"><img src="${escapeHtml(acceptedSignatureUrl)}" alt="Подпис"><div>${escapeHtml(document.signedByName || source?.contact || source?.client || "Клиент")}</div>${document.signedAt ? `<small>${escapeHtml(formatDate(document.signedAt))}</small>` : ""}</div>`
     : `<div class="signature empty">Няма положен подпис</div>`;
 
   return `<!doctype html>
@@ -728,27 +806,168 @@ function documentHtml(document: PortalDocument) {
     <meta charset="utf-8">
     <title>${escapeHtml(document.title)}</title>
     <style>
-      @page { size: A4; margin: 14mm; }
+      @page {
+        size: A4;
+        margin: 10mm 12mm 12mm;
+        @bottom-center {
+          content: counter(page);
+          color: #64748b;
+          font-size: 9px;
+          font-weight: 700;
+        }
+      }
       * { box-sizing: border-box; }
-      body { margin: 0; color: #0f172a; font-family: Arial, sans-serif; font-size: 11pt; line-height: 1.45; }
-      header { display: grid; grid-template-columns: 1fr 58mm; gap: 12mm; border-bottom: 1px solid #cbd5e1; padding-bottom: 10mm; }
-      .brand { font-size: 23pt; font-weight: 900; letter-spacing: -0.5px; }
-      .brand span { color: #ea580c; }
-      .subtitle, .label { color: #64748b; font-size: 8pt; font-weight: 800; text-transform: uppercase; }
-      .meta { border: 1px solid #dbe4ef; border-radius: 8px; padding: 6mm; background: #f8fafc; }
-      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; margin-top: 10mm; }
-      .value { margin-top: 2mm; font-size: 14pt; font-weight: 900; }
-      p { margin: 2mm 0 0; color: #334155; }
-      table { width: 100%; margin-top: 10mm; border-collapse: collapse; border: 1px solid #dbe4ef; }
-      th { background: #f1f5f9; color: #64748b; font-size: 8pt; text-transform: uppercase; text-align: left; }
-      th, td { border-bottom: 1px solid #dbe4ef; padding: 3.5mm; vertical-align: top; }
-      td span { color: #475569; }
+      body {
+        margin: 0;
+        color: #0f172a;
+        font-family: Arial, sans-serif;
+        font-size: 10.5px;
+        line-height: 1.38;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 82mm;
+        gap: 10mm;
+        border-bottom: 1px solid #cbd5e1;
+        padding-bottom: 6mm;
+      }
+      .logo { width: 38mm; height: auto; display: block; }
+      .subtitle {
+        margin-top: 2.5mm;
+        max-width: 86mm;
+        color: #64748b;
+        font-size: 9.2px;
+        font-weight: 900;
+        line-height: 1.35;
+        text-transform: uppercase;
+      }
+      .subject {
+        margin-top: 7mm;
+        max-width: 106mm;
+        border-left: 2px solid #f97316;
+        padding-left: 3.5mm;
+        color: #334155;
+        font-size: 11.2px;
+        font-weight: 700;
+        line-height: 1.45;
+      }
+      .meta {
+        border: 1px solid #cbd5e1;
+        border-radius: 4px;
+        padding: 4mm;
+      }
+      .meta h1 {
+        margin: 0 0 4mm;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 4mm;
+        font-size: 25px;
+        font-weight: 900;
+        line-height: 1;
+        text-transform: uppercase;
+      }
+      .meta-row {
+        display: grid;
+        grid-template-columns: 18mm minmax(0, 1fr);
+        gap: 2mm;
+        align-items: center;
+        margin-top: 3mm;
+      }
+      .label {
+        color: #64748b;
+        font-size: 8.5px;
+        font-weight: 900;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .meta strong {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        font-size: 11px;
+        font-weight: 900;
+      }
+      .party-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10mm;
+        margin-top: 5mm;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 4.5mm;
+      }
+      .value {
+        margin-top: 1.5mm;
+        font-size: 14px;
+        font-weight: 900;
+        line-height: 1.25;
+      }
+      p { margin: 1.5mm 0 0; color: #475569; }
+      .positions-title { margin-top: 5mm; }
+      .positions-title h2 { margin: 0; font-size: 16px; font-weight: 900; }
+      .positions-title p { color: #64748b; font-size: 10px; font-weight: 700; }
+      table { width: 100%; margin-top: 4mm; border-collapse: collapse; border: 1px solid #cbd5e1; border-radius: 4px; overflow: hidden; table-layout: fixed; }
+      col:nth-child(1) { width: 5%; }
+      col:nth-child(2) { width: 52%; }
+      col:nth-child(3) { width: 12%; }
+      col:nth-child(4) { width: 15%; }
+      col:nth-child(5) { width: 16%; }
+      th { background: #f1f5f9; color: #64748b; font-size: 8.5px; font-weight: 900; text-transform: uppercase; text-align: left; }
+      th, td { border-bottom: 1px solid #e2e8f0; padding: 2.2mm 2mm; vertical-align: middle; }
+      tr { break-inside: avoid; page-break-inside: avoid; }
+      td strong { font-size: 10.5px; line-height: 1.35; }
+      td span { color: #64748b; font-size: 9.5px; font-weight: 600; }
+      .center { text-align: center; }
       .right { text-align: right; white-space: nowrap; }
-      .totals { width: 70mm; margin: 8mm 0 0 auto; border: 1px solid #dbe4ef; border-radius: 8px; overflow: hidden; }
-      .totals div { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid #dbe4ef; }
-      .totals div:last-child { border-bottom: 0; background: #020617; color: white; }
-      .totals span, .totals strong { padding: 3.5mm; }
-      .signatures { display: grid; grid-template-columns: 1fr 1fr; gap: 10mm; margin-top: 14mm; page-break-inside: avoid; }
+      .after-table {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 54mm;
+        gap: 10mm;
+        margin-top: 7mm;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 5mm;
+        break-inside: avoid;
+      }
+      .terms h2 {
+        margin: 0 0 4mm;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .term {
+        display: grid;
+        grid-template-columns: 28mm minmax(0, 1fr);
+        gap: 4mm;
+        margin-top: 3mm;
+      }
+      .term div:last-child { color: #334155; font-size: 9.5px; line-height: 1.35; }
+      .totals { font-size: 10px; }
+      .totals .row { display: grid; grid-template-columns: 1fr 1fr; gap: 4mm; padding: 1.2mm 0; }
+      .totals strong { text-align: right; }
+      .totals .total { margin-top: 1.5mm; border-radius: 3px; background: #020617; color: white; padding: 2.3mm 2.5mm; }
+      .totals .total strong { font-size: 14px; }
+      .valid { color: #64748b; font-size: 9.5px; font-weight: 700; text-align: right; }
+      .signatures {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12mm;
+        margin-top: 6mm;
+        border-top: 1px solid #e2e8f0;
+        padding-top: 5mm;
+        page-break-inside: avoid;
+        break-inside: avoid;
+      }
+      .signatures::before {
+        content: "Потвърждение";
+        grid-column: 1 / -1;
+        margin-bottom: -7mm;
+        color: #64748b;
+        font-size: 9px;
+        font-weight: 900;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
       .signature { min-height: 28mm; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 4mm; text-align: center; }
       .signature img { max-height: 22mm; max-width: 100%; object-fit: contain; display: block; margin: 0 auto 2mm; }
       .empty { display: flex; align-items: center; justify-content: center; color: #94a3b8; font-weight: 700; }
@@ -757,40 +976,58 @@ function documentHtml(document: PortalDocument) {
   <body>
     <header>
       <div>
-        <div class="brand">FIRE<span>Control</span></div>
-        <div class="subtitle">${escapeHtml(documentKindLabel(document.kind))} за пожарна безопасност и сервизно обслужване.</div>
+        <img class="logo" src="/firecontrol-header-logo.png" alt="FIREControl">
+        <div class="subtitle">Пожарна безопасност, сервиз и абонаментно обслужване</div>
+        <div class="subject">${escapeHtml(subject)}</div>
       </div>
       <div class="meta">
-        <div class="label">Номер</div><strong>${escapeHtml(document.number || source?.number || "")}</strong><br><br>
-        <div class="label">Дата</div><strong>${escapeHtml(formatDate(source?.date || document.publishedAt))}</strong>
+        <h1>${escapeHtml(documentKindLabel(document.kind))}</h1>
+        <div class="meta-row"><div class="label">Номер</div><strong>${escapeHtml(document.number || source?.number || "")}</strong></div>
+        <div class="meta-row"><div class="label">Дата</div><strong>${escapeHtml(formatDate(source?.date || document.publishedAt))}</strong></div>
+        ${source?.validUntil ? `<div class="meta-row"><div class="label">Валидност</div><strong>${escapeHtml(formatDate(source.validUntil))}</strong></div>` : ""}
       </div>
     </header>
-    <section class="grid">
-      <div><div class="label">Клиент</div><div class="value">${escapeHtml(source?.client || "")}</div><p>${escapeHtml(source?.contact || "")}<br>${escapeHtml(source?.phone || "")}<br>${escapeHtml(source?.email || "")}</p></div>
+    <section class="party-grid">
+      <div><div class="label">Клиент</div><div class="value">${escapeHtml(source?.client || "")}</div><p>${escapeHtml([source?.contact, source?.phone, source?.email].filter(Boolean).join(" · "))}</p></div>
       <div><div class="label">Обект</div><div class="value">${escapeHtml(source?.object || document.objectName || "")}</div><p>${escapeHtml(source?.address || "")}</p></div>
     </section>
-    <table><thead><tr><th>№</th><th>Услуга</th><th>Период</th><th class="right">Стойност</th></tr></thead><tbody>${rows || `<tr><td colspan="4">Няма позиции.</td></tr>`}</tbody></table>
-    <section class="totals">
-      <div><span>Междинна сума</span><strong>${escapeHtml(formatAmount(totals.subtotal))}</strong></div>
-      <div><span>ДДС</span><strong>${escapeHtml(formatAmount(totals.vat))}</strong></div>
-      <div><span>Общо</span><strong>${escapeHtml(formatAmount(totals.total))}</strong></div>
+    <section class="positions-title">
+      <h2>Офертни позиции</h2>
+      <p>Цените са без включен ДДС, освен ако изрично не е посочено друго.</p>
+    </section>
+    <table><colgroup><col><col><col><col><col></colgroup><thead><tr><th>№</th><th>Услуга</th><th class="center">Количество</th><th class="right">Ед. цена</th><th class="right">Общо</th></tr></thead><tbody>${rows || `<tr><td colspan="5">Няма позиции.</td></tr>`}</tbody></table>
+    <section class="after-table">
+      <div class="terms">
+        <h2>Условия</h2>
+        <div class="term"><div class="label">Изпълнение</div><div>${escapeHtml(source?.executionTerm || "Изпълнението се планира след писмено потвърждение на офертата и уточняване на достъп до обекта.")}</div></div>
+        <div class="term"><div class="label">Плащане</div><div>${escapeHtml(source?.paymentTerms || "Плащане по банков път след издадена фактура, освен ако страните не договорят друго писмено.")}</div></div>
+        <div class="term"><div class="label">Документи</div><div>${escapeHtml(source?.warrantyTerms || "Офертата включва документиране на извършените дейности съгласно приложимите изисквания за пожарна безопасност.")}</div></div>
+        <div class="term"><div class="label">Бележки</div><div>${escapeHtml(source?.notes || "Цените са ориентировъчни и могат да бъдат прецизирани след оглед и потвърждение на обхвата.")}</div></div>
+      </div>
+      <div class="totals">
+        <div class="row"><span>Междинна сума</span><strong>${escapeHtml(formatAmount(totals.subtotal))}</strong></div>
+        <div class="row"><span>ДДС 20%</span><strong>${escapeHtml(formatAmount(totals.vat))}</strong></div>
+        <div class="row total"><span>Общо</span><strong>${escapeHtml(formatAmount(totals.total))}</strong></div>
+        ${source?.validUntil ? `<p class="valid">Валидна до ${escapeHtml(formatDate(source.validUntil))}</p>` : ""}
+      </div>
     </section>
     <section class="signatures">
-      <div><div class="label">Изготвил</div><div class="signature empty">${escapeHtml(source?.preparedBy || "FireControl")}</div></div>
-      <div><div class="label">Клиент</div>${signature}</div>
+      <div><div class="label">Изготвил:</div><div class="name">${escapeHtml(source?.preparedBy || "FireControl")}</div><div class="signature ${preparedSignature ? "" : "empty"}">${preparedSignature || escapeHtml(source?.preparedBy || "FireControl")}</div></div>
+      <div><div class="label">Приел офертата:</div><div class="name">${escapeHtml(source?.contact || source?.client || "Клиент")}</div>${clientSignature}</div>
     </section>
   </body>
   </html>`;
 }
 
 function openPdfPrintWindow(document: PortalDocument) {
-  const printWindow = window.open("", "_blank", "noopener,noreferrer,width=900,height=1100");
+  const html = documentHtml(document);
+  const printWindow = window.open("about:blank", "_blank", "width=900,height=1100");
   if (!printWindow) return;
   printWindow.document.open();
-  printWindow.document.write(documentHtml(document));
+  printWindow.document.write(html);
   printWindow.document.close();
   printWindow.focus();
-  setTimeout(() => printWindow.print(), 250);
+  setTimeout(() => printWindow.print(), 500);
 }
 
 function protocolHtml(protocol: PortalProtocol, client: PortalClient) {
@@ -854,33 +1091,218 @@ function openProtocolPrintWindow(protocol: PortalProtocol, client: PortalClient)
   setTimeout(() => printWindow.print(), 250);
 }
 
-function DocumentPreview({ document }: { document: PortalDocument }) {
+function DocumentPreview({
+  document,
+  signedByName,
+  signatureDataUrl,
+  onSignatureChange,
+}: {
+  document: PortalDocument;
+  signedByName: string;
+  signatureDataUrl: string;
+  onSignatureChange: (value: string) => void;
+}) {
   const source = documentSource(document);
   const lines = documentLines(document);
   const totals = documentTotals(document);
-  const terms = document.kind === "contract" ? document.documentData?.contract?.terms || [] : [];
+  const terms = documentTerms(document);
+  const isContract = document.kind === "contract";
+  const contractSource = isContract ? document.documentData?.contract : null;
+  const acceptedSignatureUrl = document.signatureDataUrl || source?.acceptedSignatureUrl || signatureDataUrl;
+  const clientName = document.signedByName || signedByName || source?.contact || source?.client || "Клиент";
+  const contractorSignatureUrl = contractSource?.contractorSignatureUrl || source?.signatureUrl || "";
+  const canSign = document.status !== "signed";
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-7">
-      <div className="grid gap-6 md:grid-cols-[1fr_260px]">
-        <div>
-          <div className="text-3xl font-black tracking-tight">
-            FIRE<span className="text-orange-600">Control</span>
+    <article className="mx-auto w-full max-w-[210mm] rounded-[6px] bg-white px-6 py-7 shadow-sm ring-1 ring-slate-200 sm:px-10 md:px-[15mm] md:py-[14mm]">
+      <header className="grid gap-7 border-b border-slate-200 pb-7 md:grid-cols-[minmax(0,1fr)_82mm] md:items-start">
+        <div className="min-w-0">
+          <img src="/firecontrol-header-logo.png" alt="FIREControl" className="h-auto w-[43mm] max-w-full object-contain" />
+          <p className="mt-3 max-w-[92mm] text-[10.5px] font-black uppercase leading-4 tracking-wide text-slate-500">
+            Пожарна безопасност, сервиз и абонаментно обслужване
+          </p>
+          <div className="mt-8 max-w-[110mm] border-l-2 border-orange-500 py-1 pl-4 text-[13px] font-semibold leading-6 text-slate-700">
+            {documentSubject(document)}
           </div>
-          <p className="mt-2 text-sm font-semibold text-slate-500">
-            {documentKindLabel(document.kind)} за пожарна безопасност и сервизно обслужване.
+        </div>
+        <div className="min-w-0 rounded-[4px] border border-slate-200 bg-slate-50/70 p-5">
+          <div className="border-b border-slate-200 pb-4">
+            <h1 className="text-[30px] font-black uppercase leading-none tracking-tight text-slate-950">
+              {documentKindLabel(document.kind)}
+            </h1>
+          </div>
+          <div className="mt-4 space-y-3 text-sm">
+            <div className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+              <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Номер</span>
+              <strong className="min-w-0 whitespace-nowrap text-[11.5px] font-black tracking-[-0.01em] text-slate-900">
+                {document.number || source?.number}
+              </strong>
+            </div>
+            <div className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+              <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Дата</span>
+              <strong className="text-[12.5px] font-bold text-slate-800">{formatDate(source?.date || document.publishedAt)}</strong>
+            </div>
+            {contractSource?.offerNumber ? (
+              <div className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Оферта</span>
+                <strong className="min-w-0 text-[12.5px] font-bold text-slate-800 [overflow-wrap:anywhere]">{contractSource.offerNumber}</strong>
+              </div>
+            ) : null}
+            {!isContract && source?.validUntil ? (
+              <div className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Валидност</span>
+                <strong className="text-[12.5px] font-bold text-slate-800">{formatDate(source.validUntil)}</strong>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </header>
+
+      <section className="mt-7 grid gap-8 border-b border-slate-200 pb-7 md:grid-cols-2">
+        <div>
+          <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">Възложител</h2>
+          <div className="mt-3 space-y-1.5">
+            <div className="text-xl font-black leading-7 text-slate-950">{source?.client || document.title}</div>
+            {source?.contact ? <div className="text-sm font-bold leading-6 text-slate-700">{source.contact}</div> : null}
+            {source?.phone ? <div className="text-sm font-semibold leading-6 text-slate-600">{source.phone}</div> : null}
+            {source?.email ? <div className="text-sm font-semibold leading-6 text-slate-600">{source.email}</div> : null}
+          </div>
+        </div>
+        <div>
+          <h2 className="text-xs font-black uppercase tracking-wide text-slate-400">Обект и изпълнител</h2>
+          <div className="mt-3 space-y-1.5">
+            <div className="text-xl font-black leading-7 text-slate-950">{source?.object || document.objectName || "Обект"}</div>
+            {source?.address ? <div className="text-sm font-bold leading-6 text-slate-700">{source.address}</div> : null}
+            <div className="text-sm font-semibold leading-6 text-slate-600">{source?.preparedBy || "FireControl"}</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-6">
+        <div className="mb-4">
+          <h2 className="text-lg font-black">{isContract ? "Договорени услуги" : "Офертни позиции"}</h2>
+          <p className="mt-1 text-sm font-semibold text-slate-500">
+            {isContract
+              ? "Услугите са попълнени от приетата оферта."
+              : "Цените са без включен ДДС, освен ако изрично не е посочено друго."}
           </p>
         </div>
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <div className="text-xs font-black uppercase text-slate-400">Номер</div>
-          <div className="mt-1 font-black">{document.number || source?.number}</div>
-          <div className="mt-3 text-xs font-black uppercase text-slate-400">Дата</div>
-          <div className="mt-1 font-black">{formatDate(source?.date || document.publishedAt)}</div>
-          {document.kind === "contract" && document.documentData?.contract?.offerNumber ? (
-            <>
-              <div className="mt-3 text-xs font-black uppercase text-slate-400">Към оферта</div>
-              <div className="mt-1 font-black">{document.documentData.contract.offerNumber}</div>
-            </>
+        <div className="overflow-hidden rounded-lg border border-slate-300">
+          <table className="w-full table-fixed border-collapse text-[12px]">
+            <colgroup>
+              <col className="w-[5%]" />
+              <col className="w-[52%]" />
+              <col className="w-[12%]" />
+              <col className="w-[15%]" />
+              <col className="w-[16%]" />
+            </colgroup>
+            <thead>
+              <tr className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500">
+                <th className="px-3 py-3 text-left">№</th>
+                <th className="px-3 py-3 text-left">Услуга</th>
+                <th className="px-3 py-3 text-center">Количество</th>
+                <th className="px-3 py-3 text-right">Ед. цена</th>
+                <th className="px-3 py-3 text-right">Общо</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {lines.length ? (
+                lines.map((line, index) => {
+                  const quantity = Number(line.quantity) || 1;
+                  const unitPrice = Number(line.unitPrice) || 0;
+                  const price = Number(line.price);
+                  const total = Number.isFinite(price) && price > 0 ? price : quantity * unitPrice;
+                  const note = visibleLineDescription(line);
+
+                  return (
+                    <tr key={line.id || index} className="align-middle">
+                      <td className="px-2 py-2.5 align-middle font-black text-slate-400">{index + 1}</td>
+                      <td className="px-2 py-2.5 align-middle">
+                        <div className="text-[12.5px] font-black leading-5 text-slate-950">{line.name || "Услуга"}</div>
+                        {note ? <div className="mt-0.5 text-[10.5px] font-semibold leading-4 text-slate-500">{note}</div> : null}
+                      </td>
+                      <td className="px-2 py-2.5 align-middle text-center text-[12px] font-bold">{quantity}</td>
+                      <td className="px-2 py-2.5 align-middle text-right text-[12px] font-bold">{formatAmount(unitPrice)}</td>
+                      <td className="px-2 py-2.5 align-middle text-right text-[12px] font-black text-slate-950">{formatAmount(total)}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center font-bold text-slate-400">
+                    Няма позиции за визуализация.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 ml-auto w-full max-w-[250px] text-[12px]">
+          <div className="grid grid-cols-2 gap-4 py-1.5">
+            <div className="font-bold text-slate-500">Междинна сума</div>
+            <strong className="text-right font-bold text-slate-800">{formatAmount(totals.subtotal)}</strong>
+          </div>
+          <div className="grid grid-cols-2 gap-4 py-1.5">
+            <div className="font-bold text-slate-500">ДДС 20%</div>
+            <strong className="text-right font-bold text-slate-800">{formatAmount(totals.vat)}</strong>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-4 rounded-[4px] bg-slate-950 px-3 py-3 text-white">
+            <div className="text-[13px] font-black uppercase">Общо</div>
+            <strong className="text-right text-[17px] font-black">{formatAmount(totals.total)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-7 border-t border-slate-200 pt-6">
+        <div className="grid gap-3">
+          {terms.map((term, index) => (
+            <div key={term.id || term.title || index} className="grid gap-4 rounded-xl border border-slate-100 bg-slate-50/40 p-4 md:grid-cols-[42px_minmax(0,1fr)]">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-xs font-black text-slate-400 shadow-sm">
+                {index + 1}
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-[11px] font-black uppercase tracking-wide text-slate-500">{term.title || "Условие"}</h2>
+                <div className="mt-1 whitespace-pre-line text-sm font-medium leading-6 text-slate-800">{term.text}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {canSign ? (
+        <div className="mt-8 rounded-xl border border-orange-100 bg-orange-50/70 px-4 py-3 text-sm font-semibold leading-6 text-slate-700">
+          С подписването потвърждавате, че сте прегледали документа и го приемате електронно през клиентския портал.
+        </div>
+      ) : null}
+
+      <footer className="mt-6 grid gap-8 border-t border-slate-200 pt-6 md:grid-cols-2">
+        <div>
+          <div className="text-sm font-bold">Изпълнител:</div>
+          <div className="mt-2 font-black">{source?.preparedBy || "FireControl"}</div>
+          <div className="mt-4 h-32 rounded-xl border border-dashed border-slate-300 p-3">
+            {contractorSignatureUrl ? (
+              <img src={contractorSignatureUrl} alt="Подпис" className="h-full max-w-full object-contain" />
+            ) : null}
+          </div>
+        </div>
+        <div>
+          <div className="text-sm font-bold">{isContract ? "Клиент:" : "Приел офертата:"}</div>
+          <div className="mt-2 font-black">{document.signedByName || source?.contact || source?.client || "Клиент"}</div>
+          <div className={canSign ? "mt-4" : "mt-4 h-32 rounded-xl border border-dashed border-slate-300 p-3"}>
+            {canSign ? (
+              <SignaturePad value={signatureDataUrl} onChange={onSignatureChange} />
+            ) : acceptedSignatureUrl ? (
+              <img src={acceptedSignatureUrl} alt="Подпис" className="h-full max-w-full object-contain" />
+            ) : null}
+          </div>
+          {document.signedAt ? <div className="mt-2 text-sm font-bold text-slate-500">{formatDate(document.signedAt)}</div> : null}
+        </div>
+      </footer>
+    </article>
+  );
+}
+/*
           ) : null}
         </div>
       </div>
@@ -968,6 +1390,7 @@ function DocumentPreview({ document }: { document: PortalDocument }) {
   );
 }
 
+*/
 function ProtocolPreview({ protocol, client }: { protocol: PortalProtocol; client: PortalClient }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-7">
@@ -1412,9 +1835,13 @@ export default function ClientPortalPage() {
                     onClick={() => openLibraryItem(item)}
                     title="Отвори документа"
                     aria-label="Отвори документа"
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-950 text-white transition hover:bg-slate-800"
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-lg text-white transition ${
+                      libraryItemNeedsSignature(item)
+                        ? "bg-orange-500 hover:bg-orange-600"
+                        : "bg-slate-950 hover:bg-slate-800"
+                    }`}
                   >
-                    <ExternalLink size={16} />
+                    {libraryItemNeedsSignature(item) ? <PencilLine size={16} /> : <ExternalLink size={16} />}
                   </button>
                   <button
                     type="button"
@@ -1684,51 +2111,27 @@ export default function ClientPortalPage() {
               </div>
             </div>
 
-            <DocumentPreview document={selectedDocument} />
+            <DocumentPreview
+              document={selectedDocument}
+              signedByName={signedByName}
+              signatureDataUrl={signatureDataUrl}
+              onSignatureChange={setSignatureDataUrl}
+            />
 
-            {selectedDocument.status === "signed" ? (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-                <div className="flex items-start gap-3">
-                  <CheckCircle2 className="mt-1 shrink-0 text-emerald-600" size={22} />
-                  <div>
-                    <h3 className="text-lg font-black text-emerald-900">Подписан документ</h3>
-                    <p className="mt-1 text-sm font-semibold leading-6 text-emerald-800/75">Документът е подписан и е достъпен за преглед и PDF експорт.</p>
-                  </div>
-                </div>
-                <div className="mt-4 grid gap-4 md:grid-cols-[1fr_280px]">
-                  <div className="rounded-2xl border border-emerald-200 bg-white p-4">
-                    <div className="text-xs font-black uppercase text-slate-400">Подписал</div>
-                    <div className="mt-1 text-lg font-black text-slate-950">{selectedDocument.signedByName || "Клиент"}</div>
-                    <div className="mt-3 text-xs font-black uppercase text-slate-400">Дата</div>
-                    <div className="mt-1 text-sm font-bold text-slate-700">{formatDate(selectedDocument.signedAt)}</div>
-                  </div>
-                  <div className="rounded-2xl border border-dashed border-emerald-200 bg-white p-3">
-                    {selectedDocument.signatureDataUrl ? (
-                      <img src={selectedDocument.signatureDataUrl} alt="Подпис" className="h-32 w-full object-contain" />
-                    ) : (
-                      <div className="flex h-32 items-center justify-center text-sm font-bold text-slate-400">Няма изображение на подпис.</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5">
-                <h3 className="text-lg font-black">Онлайн подпис</h3>
-                <p className="mt-1 text-sm font-semibold leading-6 text-slate-500">
-                  С подписването потвърждавате, че сте прегледали документа и го приемате електронно през клиентския портал.
-                </p>
-                <label className="mt-4 block text-xs font-black uppercase text-slate-400">Име на подписващ</label>
-                <input value={signedByName} onChange={(event) => setSignedByName(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold outline-none focus:border-orange-400" />
-                <div className="mt-4">
-                  <SignaturePad value={signatureDataUrl} onChange={setSignatureDataUrl} />
-                </div>
-                {signState === "error" ? <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">{signError}</div> : null}
-                <button type="button" onClick={signDocument} disabled={signState === "saving" || !signedByName.trim() || !signatureDataUrl} className="mt-4 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+            {selectedDocument.status !== "signed" ? (
+              <div className="mx-auto mt-4 flex w-full max-w-[210mm] flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                {signState === "error" ? (
+                  <div className="text-sm font-bold text-red-700">{signError}</div>
+                ) : (
+                  <div className="text-sm font-semibold text-slate-500">Подпишете в полето „Клиент“ в документа.</div>
+                )}
+                <button type="button" onClick={signDocument} disabled={signState === "saving" || !signedByName.trim() || !signatureDataUrl} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-orange-600 px-5 text-sm font-black text-white shadow-sm transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-300">
                   {signState === "saving" ? <Loader2 size={18} className="animate-spin" /> : <FileSignature size={18} />}
                   Подпиши документа
                 </button>
               </div>
-            )}
+            ) : null}
+
           </div>
         </div>
       ) : null}

@@ -117,7 +117,7 @@ const NEXT_STAGE: Record<Stage, Stage | null> = {
 const NEXT_STAGE_BUTTON: Record<Stage, string> = {
   lead: "Преминаване към Оферта",
   offer: "Създай оферта",
-  order: "Преминаване към Договор",
+  order: "Създай договор",
   contract: "—",
 };
 
