@@ -6,19 +6,30 @@ import {
   AlertTriangle,
   Building2,
   CheckCircle2,
+  ChevronDown,
+  CircleAlert,
   Clock3,
   Download,
   ExternalLink,
+  Fan,
   FileCheck2,
   FileSignature,
   FileText,
+  FireExtinguisher,
+  LampWallUp,
   Loader2,
   Mail,
   MapPin,
+  MapPinned,
+  PanelTop,
   Phone,
   ShieldCheck,
+  Siren,
+  SprayCan,
   UserRound,
+  Waves,
   X,
+  type LucideIcon,
 } from "lucide-react";
 
 type PortalClient = {
@@ -40,6 +51,24 @@ type PortalLocation = {
   status: string;
   service: string;
   objectType: string;
+  equipment: PortalEquipment[];
+};
+
+type PortalEquipment = {
+  id: string;
+  locationId: string;
+  name: string;
+  type: string;
+  subtype: string;
+  category: string;
+  brand: string;
+  model: string;
+  serialNumber: string;
+  capacity: string;
+  location: string;
+  status: string;
+  lastCheckDate: string;
+  nextCheckDate: string;
 };
 
 type DocumentLine = {
@@ -110,6 +139,7 @@ type PortalProtocol = {
   technician: string;
   locationId: string;
   objectCode: string;
+  protocolPayload: Record<string, unknown>;
 };
 
 type PortalTask = {
@@ -231,6 +261,22 @@ function protocolStatus(protocol: PortalProtocol) {
   return protocol.status;
 }
 
+function protocolTypeLabel(value: string) {
+  if (value === "subscription") return "Абонаментно обслужване / профилактичен преглед";
+  if (value === "extinguisher") return "Пожарогасители";
+  if (value === "service") return "Протокол за поддръжка на ПИС";
+  return value || "Протокол";
+}
+
+function protocolPrintSlug(protocolType: string) {
+  const label = protocolTypeLabel(protocolType);
+  if (label === "Пожарогасители") return "extinguisher-handover";
+  if (label === "Протокол за поддръжка на ПИС" || label === "Сервизен протокол") {
+    return "service-maintenance";
+  }
+  return "subscription-service";
+}
+
 function libraryItemTypeLabel(item: PortalLibraryItem) {
   if (item.itemType === "protocol") return "Протокол";
   return documentKindLabel(item.document.kind);
@@ -252,6 +298,108 @@ function libraryItemStatus(item: PortalLibraryItem) {
   return item.itemType === "protocol" ? protocolStatus(item.protocol) : documentStatus(item.document);
 }
 
+function textFromRecord(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return "";
+}
+
+function protocolPayloadRows(protocol: PortalProtocol) {
+  const rows = protocol.protocolPayload?.["extinguisherRows"];
+  return Array.isArray(rows) ? rows : [];
+}
+
+function protocolPayloadPhotos(protocol: PortalProtocol) {
+  const photos = protocol.protocolPayload?.["photos"];
+  return Array.isArray(photos) ? photos : [];
+}
+
+function truthyRecordKeys(record: unknown) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return "";
+  return Object.entries(record as Record<string, unknown>)
+    .filter(([, value]) => Boolean(value))
+    .map(([key]) => key)
+    .join(",");
+}
+
+function checkedRowsByValue(record: unknown, wantedValue: string) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) return "";
+  return Object.entries(record as Record<string, unknown>)
+    .filter(([, value]) => value === wantedValue)
+    .map(([key]) => key)
+    .join(",");
+}
+
+function protocolPreviewId(protocol: PortalProtocol) {
+  return `portal-${protocol.id || protocol.number}`;
+}
+
+function protocolPrintHref(protocol: PortalProtocol, embedded = false) {
+  const payload = protocol.protocolPayload ?? {};
+  const protocolType = textFromRecord(payload, "protocolType") || protocolTypeLabel(protocol.type);
+  const slug = protocolPrintSlug(protocolType);
+  const params = new URLSearchParams({
+    protocolNumber: protocol.number || textFromRecord(payload, "number"),
+    date: textFromRecord(payload, "date") || protocol.date,
+    client: textFromRecord(payload, "client") || protocol.clientName,
+    objectName: textFromRecord(payload, "objectName") || protocol.objectName,
+    address: textFromRecord(payload, "address"),
+    region: textFromRecord(payload, "region"),
+    phone: textFromRecord(payload, "phone"),
+    technician: textFromRecord(payload, "technician") || protocol.technician,
+    contact:
+      textFromRecord(payload, "clientRepresentative") ||
+      textFromRecord(payload, "contact"),
+    clientRepresentative: textFromRecord(payload, "clientRepresentative"),
+    technicianSignature: textFromRecord(payload, "technician") || protocol.technician,
+    clientSignature: textFromRecord(payload, "clientRepresentative"),
+    previewId: protocolPreviewId(protocol),
+    contractReference: textFromRecord(payload, "contractReference"),
+    serviceQuality: textFromRecord(payload, "serviceQuality"),
+    notes: textFromRecord(payload, "notes"),
+    serviceDefects: textFromRecord(payload, "serviceDefects"),
+    serviceDeviations: textFromRecord(payload, "serviceDeviations"),
+    serviceSystemStatus: textFromRecord(payload, "serviceSystemStatus"),
+    nextVisitDate: textFromRecord(payload, "nextVisitDate"),
+    personnelFunctions: truthyRecordKeys(payload["personnelFunctions"]),
+    goodRows: checkedRowsByValue(payload["subscriptionChecks"], "добро"),
+    badRows: checkedRowsByValue(payload["subscriptionChecks"], "лошо"),
+  });
+  const rows = protocolPayloadRows(protocol);
+  if (rows.length) {
+    params.set("extinguishers", JSON.stringify(rows));
+  }
+  if (embedded) {
+    params.set("embedded", "1");
+  }
+  const checks = payload["checks"];
+  if (checks && typeof checks === "object" && !Array.isArray(checks)) {
+    params.set("checks", JSON.stringify(checks));
+  }
+
+  return `/protocols/print/${slug}?${params.toString()}`;
+}
+
+function storeProtocolPrintPayload(protocol: PortalProtocol) {
+  const payload = protocol.protocolPayload ?? {};
+
+  try {
+    localStorage.setItem(
+      `firecontrol:protocol-preview:${protocolPreviewId(protocol)}`,
+      JSON.stringify({
+        technicianSignatureDataUrl: textFromRecord(payload, "technicianSignatureDataUrl"),
+        clientSignatureDataUrl: textFromRecord(payload, "clientSignatureDataUrl"),
+        extinguisherRows: protocolPayloadRows(protocol),
+        photos: protocolPayloadPhotos(protocol),
+        savedAt: Date.now(),
+      })
+    );
+  } catch {
+    // The protocol can still open; only embedded signatures/photos may be missing.
+  }
+}
+
 function documentNumberIsInTitle(document: PortalDocument) {
   return Boolean(document.number && document.title.toLowerCase().includes(document.number.toLowerCase()));
 }
@@ -261,6 +409,40 @@ function libraryItemTone(item: PortalLibraryItem): "green" | "orange" | "blue" |
   if (item.document.status === "signed") return "green";
   if (item.document.requiresSignature) return "orange";
   return "slate";
+}
+
+function equipmentListIcon(type: string): { icon: LucideIcon; className: string } {
+  switch (type) {
+    case "Пожарогасител":
+      return { icon: FireExtinguisher, className: "bg-orange-50 text-orange-600" };
+    case "Пожароизвестител":
+      return { icon: Siren, className: "bg-red-50 text-red-600" };
+    case "Пожароизвестителна централа":
+      return { icon: PanelTop, className: "bg-sky-50 text-sky-600" };
+    case "Пожарен кран":
+      return { icon: Waves, className: "bg-cyan-50 text-cyan-600" };
+    case "Спринклерна система":
+      return { icon: SprayCan, className: "bg-blue-50 text-blue-600" };
+    case "Аварийно осветление":
+      return { icon: LampWallUp, className: "bg-amber-50 text-amber-600" };
+    case "Димоотвеждане":
+      return { icon: Fan, className: "bg-slate-100 text-slate-600" };
+    case "Евакуационен план":
+      return { icon: MapPinned, className: "bg-emerald-50 text-emerald-600" };
+    default:
+      return { icon: CircleAlert, className: "bg-slate-100 text-slate-500" };
+  }
+}
+
+function equipmentPublicDetails(item: PortalEquipment) {
+  return [
+    item.location ? `Място: ${item.location}` : "",
+    item.capacity ? `Капацитет: ${item.capacity}` : "",
+    [item.brand, item.model].filter(Boolean).join(" ") || "",
+    item.serialNumber ? `Сериен номер: ${item.serialNumber}` : "",
+    item.nextCheckDate ? `Следваща проверка: ${formatDate(item.nextCheckDate)}` : "",
+    item.status ? `Статус: ${item.status}` : "",
+  ].filter(Boolean);
 }
 
 function badgeClass(tone: "green" | "orange" | "blue" | "slate") {
@@ -707,6 +889,7 @@ export default function ClientPortalPage() {
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
   const [signState, setSignState] = useState<"idle" | "saving" | "error">("idle");
   const [signError, setSignError] = useState("");
+  const [openLocationEquipmentIds, setOpenLocationEquipmentIds] = useState<string[]>([]);
 
   async function loadPortal() {
     const response = await fetch(`/api/client-portal/${token}`, { cache: "no-store" });
@@ -732,6 +915,34 @@ export default function ClientPortalPage() {
     run();
     return () => {
       alive = false;
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    async function refreshPortal() {
+      try {
+        await loadPortal();
+        setLoadState("ready");
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : "Порталът не може да се зареди.");
+        setLoadState("error");
+      }
+    }
+
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") {
+        void refreshPortal();
+      }
+    }
+
+    window.addEventListener("focus", refreshPortal);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.removeEventListener("focus", refreshPortal);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
   }, [token]);
 
@@ -773,6 +984,7 @@ export default function ClientPortalPage() {
   }
 
   function openProtocol(protocol: PortalProtocol) {
+    storeProtocolPrintPayload(protocol);
     setSelectedProtocolId(protocol.id);
     setSelectedDocumentId("");
     setSignState("idle");
@@ -794,10 +1006,19 @@ export default function ClientPortalPage() {
   function downloadLibraryItem(item: PortalLibraryItem) {
     if (!data) return;
     if (item.itemType === "protocol") {
-      openProtocolPrintWindow(item.protocol, data.client);
+      storeProtocolPrintPayload(item.protocol);
+      window.open(protocolPrintHref(item.protocol), "_blank", "noopener,noreferrer");
     } else {
       downloadDocument(item.document);
     }
+  }
+
+  function toggleLocationEquipment(locationId: string) {
+    setOpenLocationEquipmentIds((current) =>
+      current.includes(locationId)
+        ? current.filter((id) => id !== locationId)
+        : [...current, locationId]
+    );
   }
 
   async function signDocument() {
@@ -1021,19 +1242,96 @@ export default function ClientPortalPage() {
               <h2 className="text-xl font-black">Обекти</h2>
               <Badge>{data.locations.length}</Badge>
             </div>
-            <div className="mt-4 space-y-3">
-              {data.locations.length ? data.locations.map((location) => (
-                <div key={location.id} className="rounded-2xl border border-slate-200 p-4">
-                  <div className="font-black">{location.name}</div>
-                  {location.address ? (
-                    <div className="mt-2 flex gap-2 text-sm font-semibold text-slate-500">
-                      <MapPin size={16} className="mt-0.5 shrink-0 text-orange-500" />
-                      <span>{location.address}</span>
+            <div className="mt-4 space-y-4">
+              {data.locations.length ? data.locations.map((location) => {
+                const equipmentOpen = openLocationEquipmentIds.includes(location.id);
+
+                return (
+                <div key={location.id} className="overflow-hidden rounded-2xl border border-slate-200">
+                  <div className="border-b border-slate-100 bg-slate-50/70 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-orange-600 shadow-sm">
+                        <Building2 size={19} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="font-black text-slate-950">{location.name}</div>
+                          {location.objectType ? <Badge tone="slate">{location.objectType}</Badge> : null}
+                        </div>
+                        {location.address ? (
+                          <div className="mt-2 flex gap-2 text-sm font-semibold text-slate-500">
+                            <MapPin size={16} className="mt-0.5 shrink-0 text-orange-500" />
+                            <span>{location.address}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleLocationEquipment(location.id)}
+                        className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                        aria-expanded={equipmentOpen}
+                        aria-label={equipmentOpen ? "Скрий оборудването" : "Покажи оборудването"}
+                        title={equipmentOpen ? "Скрий оборудването" : "Покажи оборудването"}
+                      >
+                        {location.equipment.length}
+                        <ChevronDown
+                          size={15}
+                          className={`transition ${equipmentOpen ? "rotate-180" : ""}`}
+                        />
+                      </button>
                     </div>
+                    {location.service ? (
+                      <div className="mt-3 text-sm font-semibold leading-6 text-slate-500">
+                        {location.service}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {equipmentOpen ? (
+                  <div className="p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                        Оборудване
+                      </div>
+                      <span className="text-xs font-black text-slate-400">
+                        {location.equipment.length}
+                      </span>
+                    </div>
+                    {location.equipment.length ? (
+                      <div className="divide-y divide-slate-100">
+                        {location.equipment.map((item) => {
+                          const { icon: EquipmentIcon, className } = equipmentListIcon(item.type);
+                          const details = equipmentPublicDetails(item);
+
+                          return (
+                            <div key={item.id} className="flex gap-3 py-2.5 first:pt-0 last:pb-0">
+                              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${className}`}>
+                                <EquipmentIcon size={17} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-black text-slate-900">{item.name || item.type || "Оборудване"}</div>
+                                {details.length ? (
+                                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-bold text-slate-400">
+                                    {details.map((detail) => (
+                                      <span key={detail}>{detail}</span>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm font-bold text-slate-400">
+                        Няма добавено оборудване към този обект.
+                      </div>
+                    )}
+                  </div>
                   ) : null}
-                  {location.service ? <div className="mt-2 text-xs font-black uppercase text-slate-400">{location.service}</div> : null}
                 </div>
-              )) : (
+                );
+              }) : (
                 <div className="rounded-2xl border border-dashed border-slate-300 p-6 text-center text-sm font-bold text-slate-400">Няма добавени обекти.</div>
               )}
             </div>
@@ -1157,25 +1455,22 @@ export default function ClientPortalPage() {
       ) : null}
 
       {selectedProtocol ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 px-4 py-6">
-          <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f3f7fb] p-4 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <Badge tone="blue">{protocolStatus(selectedProtocol)}</Badge>
-                <h2 className="mt-2 text-xl font-black">{protocolTitle(selectedProtocol)}</h2>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => openProtocolPrintWindow(selectedProtocol, data.client)} className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700">
-                  <Download size={18} />
-                  PDF
-                </button>
-                <button type="button" onClick={() => setSelectedProtocolId("")} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600">
-                  <X size={20} />
-                </button>
-              </div>
-            </div>
-
-            <ProtocolPreview protocol={selectedProtocol} client={data.client} />
+        <div className="fixed inset-0 z-50 bg-slate-950/70 px-3 py-4">
+          <div className="relative mx-auto h-full max-w-6xl overflow-hidden rounded-[24px] bg-white shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setSelectedProtocolId("")}
+              className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white/95 text-slate-600 shadow-sm backdrop-blur transition hover:bg-slate-50"
+              aria-label="Затвори протокола"
+              title="Затвори"
+            >
+              <X size={18} />
+            </button>
+            <iframe
+              title={protocolTitle(selectedProtocol)}
+              src={protocolPrintHref(selectedProtocol, true)}
+              className="h-full w-full bg-white"
+            />
           </div>
         </div>
       ) : null}

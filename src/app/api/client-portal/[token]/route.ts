@@ -62,6 +62,25 @@ function normalizeLocation(row: DataRecord) {
   };
 }
 
+function normalizeEquipment(row: DataRecord) {
+  return {
+    id: textValue(row, ["id"]),
+    locationId: textValue(row, ["location_id", "locationId"]),
+    name: textValue(row, ["display_name", "name"]) || textValue(row, ["equipment_type", "type", "category"]),
+    type: textValue(row, ["equipment_type", "type", "category"]),
+    subtype: textValue(row, ["subtype"]),
+    category: textValue(row, ["category"]),
+    brand: textValue(row, ["brand"]),
+    model: textValue(row, ["model"]),
+    serialNumber: textValue(row, ["serial_number", "serial", "identifier", "code"]),
+    capacity: textValue(row, ["capacity", "mass", "charge_mass"]),
+    location: textValue(row, ["location", "object_location", "place"]),
+    status: textValue(row, ["status"]),
+    lastCheckDate: textValue(row, ["last_check_date", "last_check", "last_check_at", "last_service_date"]),
+    nextCheckDate: textValue(row, ["next_check_date", "next_check", "next_check_at", "next_service_date"]),
+  };
+}
+
 function normalizeDocument(row: DataRecord, savedDocument?: DataRecord | null) {
   const payload = isRecord(savedDocument?.payload) ? savedDocument.payload : {};
   const signature = isRecord(payload.signature) ? payload.signature : {};
@@ -99,6 +118,8 @@ function normalizeDocument(row: DataRecord, savedDocument?: DataRecord | null) {
 }
 
 function normalizeProtocol(row: DataRecord) {
+  const payload = isRecord(row["protocol_payload"]) ? row["protocol_payload"] : {};
+
   return {
     id: textValue(row, ["id"]),
     number: textValue(row, ["protocol_number", "number"]),
@@ -110,6 +131,7 @@ function normalizeProtocol(row: DataRecord) {
     technician: textValue(row, ["technician"]),
     locationId: textValue(row, ["location_id"]),
     objectCode: textValue(row, ["object_code"]),
+    protocolPayload: payload,
   };
 }
 
@@ -386,6 +408,26 @@ export async function GET(
 
     if (protocolsResult.error) throw new Error(protocolsResult.error.message);
 
+    const equipmentResult = locationIds.length
+      ? await supabase
+          .from("equipment")
+          .select("*")
+          .in("location_id", locationIds)
+          .eq("archived", false)
+          .order("created_at", { ascending: true })
+      : { data: [] as DataRecord[], error: null };
+
+    if (equipmentResult.error) throw new Error(equipmentResult.error.message);
+
+    const equipmentByLocationId = new Map<string, ReturnType<typeof normalizeEquipment>[]>();
+    for (const row of ((equipmentResult.data ?? []) as DataRecord[]).map(normalizeEquipment)) {
+      if (!row.locationId) continue;
+      equipmentByLocationId.set(row.locationId, [
+        ...(equipmentByLocationId.get(row.locationId) ?? []),
+        row,
+      ]);
+    }
+
     const taskRows = await readTasksForPortal(supabase, uniqueValues([...locationIds, ...locationCodes]));
 
     await supabase
@@ -407,7 +449,13 @@ export async function GET(
         email: textValue(client, ["email"]),
         address: textValue(client, ["address"]),
       },
-      locations: locationRows.map(normalizeLocation),
+      locations: locationRows.map((row) => {
+        const location = normalizeLocation(row);
+        return {
+          ...location,
+          equipment: equipmentByLocationId.get(location.id) ?? [],
+        };
+      }),
       documents: portalDocumentRows.map((row) =>
         normalizeDocument(row, savedDocumentById.get(textValue(row, ["saved_document_id"])) ?? null)
       ),
