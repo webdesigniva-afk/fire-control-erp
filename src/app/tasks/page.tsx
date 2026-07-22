@@ -297,10 +297,20 @@ export default function TasksPage() {
     return Array.from(
       new Set(
         (task.activities?.length ? task.activities : [{ title: task.title }])
-          .map((activity) => activity.title.trim())
+          .map((activity) => sentenceTitle(activity.title))
           .filter(Boolean)
       )
     );
+  }
+
+  function sentenceTitle(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed) return "";
+    return `${trimmed.charAt(0).toLocaleUpperCase("bg-BG")}${trimmed.slice(1)}`;
+  }
+
+  function sameDisplayText(first: string, second: string) {
+    return first.trim().toLocaleLowerCase("bg-BG") === second.trim().toLocaleLowerCase("bg-BG");
   }
 
   function taskRecurrenceLabel(task: ServiceTask) {
@@ -324,7 +334,7 @@ export default function TasksPage() {
     const titles = taskActivityTitles(task);
     if (titles.length === 1) return titles[0];
 
-    return task.taskType || task.title || "Планирано посещение";
+    return sentenceTitle(task.taskType || task.title || "Планирано посещение");
   }
 
   return (
@@ -394,12 +404,13 @@ export default function TasksPage() {
           <div className="space-y-3">
             {plannedTasks.map((task) => {
               const isCompleted = isCompletedTask(task);
+              const displayTitle = taskDisplayTitle(task);
               const activities = task.activities?.length
                 ? task.activities
                 : [{ title: task.title }];
               const activityTitles = activities
-                .map((activity) => activity.title.trim())
-                .filter(Boolean);
+                .map((activity) => sentenceTitle(activity.title))
+                .filter((title) => title && !sameDisplayText(title, displayTitle));
               const visibleActivities = activityTitles.slice(0, 3);
               const hiddenActivities = Math.max(activityTitles.length - 3, 0);
 
@@ -414,7 +425,7 @@ export default function TasksPage() {
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="font-black text-slate-950">
-                              {task.activities[0]?.title || task.taskType || "Следващо действие"}
+                              {sentenceTitle(task.activities[0]?.title || task.taskType || "Следващо действие")}
                             </h3>
                             <Badge variant="warning">Лийд</Badge>
                           </div>
@@ -450,7 +461,7 @@ export default function TasksPage() {
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
                           <h3 className="text-base font-black leading-6 text-slate-950">
-                            {taskDisplayTitle(task)}
+                            {displayTitle}
                           </h3>
                           <Badge variant={isProblemTask(task) ? "danger" : "neutral"}>
                             {taskTypeLabel(task)}

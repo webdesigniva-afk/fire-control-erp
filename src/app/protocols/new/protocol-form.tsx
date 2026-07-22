@@ -3451,10 +3451,12 @@ function TextAreaSection({
   title,
   value,
   onChange,
+  placeholder = "Добавете описание...",
 }: {
   title: string;
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }) {
   return (
     <Card className="p-5">
@@ -3462,7 +3464,7 @@ function TextAreaSection({
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="Добавете описание..."
+        placeholder={placeholder}
         className="mt-4 min-h-32 w-full resize-y rounded-2xl border border-slate-200 bg-white p-4 text-sm font-medium text-slate-800 shadow-sm transition placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
       />
     </Card>
@@ -5525,11 +5527,13 @@ export function ProtocolForm({
                 title="Дефекти"
                 value={serviceDefects}
                 onChange={setServiceDefects}
+                placeholder="Опишете установените дефекти. Оставете празно, ако няма такива."
               />
               <TextAreaSection
                 title="Отклонения"
                 value={serviceDeviations}
                 onChange={setServiceDeviations}
+                placeholder="Опишете установените отклонения. Оставете празно, ако няма такива."
               />
             </div>
             <Card className="p-5">

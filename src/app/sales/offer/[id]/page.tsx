@@ -113,12 +113,21 @@ function defaultPeriodFor(serviceName: string) {
   return "по заявка";
 }
 
+function visibleLineNote(line: OfferLine) {
+  const parts = [line.description]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .filter((value) => !value.toLowerCase().includes("услуга по пожарна безопасност според избрания обхват"));
+
+  return Array.from(new Set(parts)).join(" · ");
+}
+
 function normalizeLine(line: Partial<OfferLine>, index: number): OfferLine {
   const name = String(line.name || "Услуга");
   return {
     id: String(line.id || `line-${index}-${name}`),
     name,
-    description: String(line.description || "Услуга по пожарна безопасност според избрания обхват."),
+    description: String(line.description || ""),
     period: String(line.period || defaultPeriodFor(name)),
     quantity: Number(line.quantity) || 1,
     unitPrice: Number(line.unitPrice) || 0,
@@ -423,7 +432,7 @@ export default function SalesOfferEditorPage() {
           ? serviceRows.map((row, index) => ({
               id: `${index}-${serviceLabel(row)}`,
               name: serviceLabel(row),
-              description: "Услуга по пожарна безопасност според избрания обхват.",
+              description: "",
               period: defaultPeriodFor(serviceLabel(row)),
               quantity: 1,
               unitPrice: fakePriceFor(index),
@@ -431,7 +440,7 @@ export default function SalesOfferEditorPage() {
           : [{
               id: "default-service",
               name: "Пожарна безопасност",
-              description: "Уточняване на обхват, оглед и последващо обслужване.",
+              description: "",
               period: "по заявка",
               quantity: 1,
               unitPrice: 180,
@@ -529,18 +538,6 @@ export default function SalesOfferEditorPage() {
       ...current,
       lines: current.lines.filter((line) => line.id !== id),
     } : current);
-  }
-
-  function handleSignatureUpload(file: File | null) {
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        updateOffer("signatureUrl", reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
   }
 
   async function persistOffer(signatureOverride?: DocumentSignature) {
@@ -866,71 +863,71 @@ export default function SalesOfferEditorPage() {
           }
 
           .offer-table col:nth-child(2) {
-            width: 45% !important;
+            width: 51% !important;
           }
 
           .offer-table col:nth-child(3) {
-            width: 14% !important;
+            width: 12% !important;
           }
 
           .offer-table col:nth-child(4) {
-            width: 7% !important;
+            width: 15% !important;
           }
 
           .offer-table col:nth-child(5) {
-            width: 13% !important;
-          }
-
-          .offer-table col:nth-child(6) {
-            width: 16% !important;
+            width: 17% !important;
           }
         }
       `}</style>
 
       <article className="offer-sheet mx-auto w-full max-w-[210mm] rounded-[6px] bg-white px-[15mm] py-[14mm] shadow-sm ring-1 ring-slate-200 print:max-w-none print:rounded-none print:ring-0">
-        <header className="grid gap-8 border-b-2 border-slate-900 pb-7 md:grid-cols-[minmax(0,1fr)_64mm]">
-          <div className="min-w-0 pt-1">
-            <div className="text-[28px] font-black leading-none tracking-tight">
-              FIRE<span className="text-orange-600 print:text-black">Control</span>
-            </div>
-            <p className="mt-2 max-w-[96mm] text-[11px] font-black uppercase leading-4 tracking-wide text-slate-500">
+        <header className="grid gap-7 border-b border-slate-200 pb-7 md:grid-cols-[minmax(0,1fr)_74mm] md:items-start">
+          <div className="min-w-0">
+            <img
+              src="/firecontrol-header-logo.png"
+              alt="FIREControl"
+              className="h-auto w-[43mm] object-contain"
+            />
+            <p className="mt-3 max-w-[92mm] text-[10.5px] font-black uppercase leading-4 tracking-wide text-slate-500">
               Пожарна безопасност, сервиз и абонаментно обслужване
             </p>
             <AutoResizeTextarea
               value={offer.subject}
               onChange={(event) => updateOffer("subject", event.target.value)}
               rows={2}
-              className="mt-7 w-full resize-none overflow-hidden bg-transparent text-[13px] font-semibold leading-6 text-slate-700 outline-none"
+              className="mt-8 w-full max-w-[110mm] resize-none overflow-hidden border-l-2 border-orange-500 bg-transparent py-1 pl-4 text-[13px] font-semibold leading-6 text-slate-700 outline-none"
             />
           </div>
 
-          <div className="offer-meta min-w-0">
-            <h1 className="text-[34px] font-black uppercase leading-none tracking-tight text-slate-950">Оферта</h1>
-            <div className="mt-6 space-y-2.5 border-l-4 border-orange-500 pl-4">
-              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
-                <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">Номер</span>
+          <div className="offer-meta min-w-0 rounded-[4px] border border-slate-200 bg-slate-50/70 p-5 print:bg-white">
+            <div className="border-b border-slate-200 pb-4">
+              <h1 className="text-[30px] font-black uppercase leading-none tracking-tight text-slate-950">Оферта</h1>
+            </div>
+            <div className="mt-4 space-y-3">
+              <label className="grid grid-cols-[24mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Номер</span>
                 <input
                   value={offer.number}
                   onChange={(event) => updateOffer("number", event.target.value)}
-                  className="offer-field w-full bg-transparent py-1 text-[13px] font-black text-slate-900 outline-none"
+                  className="offer-field w-full min-w-0 bg-transparent py-1 text-[12.5px] font-black text-slate-900 outline-none"
                 />
               </label>
-              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
-                <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">Дата</span>
+              <label className="grid grid-cols-[24mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Дата</span>
                 <input
                   type="date"
                   value={offer.date}
                   onChange={(event) => updateOffer("date", event.target.value)}
-                  className="offer-field w-full bg-transparent py-1 text-[13px] font-bold text-slate-800 outline-none"
+                  className="offer-field w-full min-w-0 bg-transparent py-1 text-[12.5px] font-bold text-slate-800 outline-none"
                 />
               </label>
-              <label className="grid grid-cols-[22mm_minmax(0,1fr)] items-center gap-3">
-                <span className="text-[10px] font-black uppercase tracking-wide text-slate-400">Валидност</span>
+              <label className="grid grid-cols-[24mm_minmax(0,1fr)] items-center gap-3">
+                <span className="text-[9.5px] font-black uppercase tracking-wide text-slate-400">Валидност</span>
                 <input
                   type="date"
                   value={offer.validUntil}
                   onChange={(event) => updateOffer("validUntil", event.target.value)}
-                  className="offer-field w-full bg-transparent py-1 text-[13px] font-bold text-slate-800 outline-none"
+                  className="offer-field w-full min-w-0 bg-transparent py-1 text-[12.5px] font-bold text-slate-800 outline-none"
                 />
               </label>
             </div>
@@ -979,150 +976,157 @@ export default function SalesOfferEditorPage() {
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-slate-300">
+          <div className="overflow-hidden rounded-lg border border-slate-300">
             <table className="offer-table w-full table-fixed border-collapse text-[12px]">
               <colgroup>
-                <col className="w-[4%]" />
-                <col className="w-[40%]" />
-                <col className="w-[15%]" />
-                <col className="w-[7%]" />
+                <col className="w-[5%]" />
+                <col className="w-[48%]" />
                 <col className="w-[12%]" />
-                <col className="w-[17%]" />
-                <col className="no-print w-[5%]" />
+                <col className="w-[15%]" />
+                <col className="w-[14%]" />
+                <col className="no-print w-[6%]" />
               </colgroup>
               <thead>
                 <tr className="bg-slate-100 text-[10px] font-black uppercase tracking-wide text-slate-500">
                   <th className="border-b border-slate-300 px-2 py-2 text-left">№</th>
-                  <th className="border-b border-slate-300 px-2 py-2 text-left">Услуга и обхват</th>
-                  <th className="border-b border-slate-300 px-2 py-2 text-left">Период</th>
-                  <th className="border-b border-slate-300 px-2 py-2 text-center">Бр.</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-left">Услуга</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-center">Количество</th>
                   <th className="border-b border-slate-300 px-2 py-2 text-right">Ед. цена</th>
-                  <th className="border-b border-slate-300 px-2 py-2 text-right">Стойност</th>
+                  <th className="border-b border-slate-300 px-2 py-2 text-right">Общо</th>
                   <th className="no-print border-b border-slate-300 px-2 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {offer.lines.map((line, index) => (
-                  <tr key={line.id} className="align-top">
-                    <td className="px-2 py-3 font-black text-slate-400">{index + 1}</td>
-                    <td className="px-2 py-3">
-                      <AutoResizeTextarea
-                        value={line.name}
-                        onChange={(event) => updateLine(line.id, { name: event.target.value })}
-                        rows={1}
-                        className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-black leading-5 text-slate-950 outline-none"
-                      />
-                      <AutoResizeTextarea
-                        value={line.description}
-                        onChange={(event) => updateLine(line.id, { description: event.target.value })}
-                        rows={2}
-                        placeholder="Описание на обхвата"
-                        className="mt-1 w-full resize-none overflow-hidden bg-transparent text-[11.5px] font-medium leading-5 text-slate-600 outline-none placeholder:text-slate-300"
-                      />
-                    </td>
-                    <td className="px-2 py-3">
-                      <AutoResizeTextarea
-                        value={line.period}
-                        onChange={(event) => updateLine(line.id, { period: event.target.value })}
-                        rows={1}
-                        className="w-full resize-none overflow-hidden bg-transparent text-[12px] font-bold leading-5 text-slate-700 outline-none"
-                      />
-                    </td>
-                    <td className="px-2 py-3 text-center">
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        value={line.quantity}
-                        onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })}
-                        className="w-full bg-transparent text-center text-[12px] font-bold outline-none"
-                      />
-                    </td>
-                    <td className="px-2 py-3">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={line.unitPrice}
-                        onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) || 0 })}
-                        className="w-full bg-transparent text-right text-[12px] font-bold outline-none"
-                      />
-                    </td>
-                    <td className="px-2 py-3 text-right text-[12px] font-black text-slate-950">
-                      {money(line.quantity * line.unitPrice)}
-                    </td>
-                    <td className="no-print px-2 py-2 text-center">
-                      <button type="button" onClick={() => removeLine(line.id)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600">
-                        <Trash2 size={15} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {offer.lines.map((line, index) => {
+                  const note = visibleLineNote(line);
+
+                  return (
+                    <tr key={line.id} className="align-middle">
+                      <td className="px-2 py-2.5 align-middle font-black text-slate-400">{index + 1}</td>
+                      <td className="px-2 py-2.5 align-middle">
+                        <AutoResizeTextarea
+                          value={line.name}
+                          onChange={(event) => updateLine(line.id, { name: event.target.value })}
+                          rows={1}
+                          className="w-full resize-none overflow-hidden bg-transparent text-[12.5px] font-black leading-5 text-slate-950 outline-none"
+                        />
+                        {note ? (
+                          <div className="mt-0.5 text-[10.5px] font-semibold leading-4 text-slate-500">
+                            {note}
+                          </div>
+                        ) : null}
+                        <div className="no-print mt-1 grid gap-1">
+                          <AutoResizeTextarea
+                            value={line.description}
+                            onChange={(event) => updateLine(line.id, { description: event.target.value })}
+                            rows={1}
+                            placeholder="Описание"
+                            className="w-full resize-none overflow-hidden bg-transparent text-[10.5px] font-medium leading-4 text-slate-500 outline-none placeholder:text-slate-300"
+                          />
+                        </div>
+                      </td>
+                      <td className="px-2 py-2.5 align-middle text-center">
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={line.quantity}
+                          onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value) || 0 })}
+                          className="w-full bg-transparent text-center text-[12px] font-bold outline-none"
+                        />
+                      </td>
+                      <td className="px-2 py-2.5 align-middle">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={line.unitPrice}
+                          onChange={(event) => updateLine(line.id, { unitPrice: Number(event.target.value) || 0 })}
+                          className="w-full bg-transparent text-right text-[12px] font-bold outline-none"
+                        />
+                      </td>
+                      <td className="px-2 py-2.5 align-middle text-right text-[12px] font-black text-slate-950">
+                        {money(line.quantity * line.unitPrice)}
+                      </td>
+                      <td className="no-print px-2 py-2 text-center align-middle">
+                        <button
+                          type="button"
+                          onClick={() => removeLine(line.id)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-600 transition hover:border-red-200 hover:bg-red-100"
+                          aria-label={`Изтрий услуга ${index + 1}`}
+                          title="Изтрий услуга"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </section>
 
-        <section className="offer-print-block mt-6 grid items-start gap-8 md:grid-cols-[minmax(0,1fr)_58mm]">
+        <section className="offer-print-block mt-7 grid items-start gap-8 border-t border-slate-200 pt-6 md:grid-cols-[minmax(0,1fr)_54mm]">
           <div>
-            <h2 className="border-b border-slate-200 pb-2 text-[12px] font-black uppercase tracking-[0.12em] text-slate-500">
+            <h2 className="text-[12px] font-black uppercase tracking-[0.12em] text-slate-500">
               Условия
             </h2>
-            <div className="mt-3 space-y-2.5">
-              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
-                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Срок на изпълнение</span>
+            <div className="mt-4 space-y-3.5">
+              <label className="grid gap-3 md:grid-cols-[36mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9px] font-black uppercase tracking-wide text-slate-400">Изпълнение</span>
                 <AutoResizeTextarea
                   value={offer.executionTerm}
                   onChange={(event) => updateOffer("executionTerm", event.target.value)}
                   rows={1}
-                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                  className="w-full resize-none overflow-hidden bg-transparent text-[10.8px] font-medium leading-[1.55] text-slate-700 outline-none"
                 />
               </label>
-              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
-                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Плащане</span>
+              <label className="grid gap-3 md:grid-cols-[36mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9px] font-black uppercase tracking-wide text-slate-400">Плащане</span>
                 <AutoResizeTextarea
                   value={offer.paymentTerms}
                   onChange={(event) => updateOffer("paymentTerms", event.target.value)}
                   rows={1}
-                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                  className="w-full resize-none overflow-hidden bg-transparent text-[10.8px] font-medium leading-[1.55] text-slate-700 outline-none"
                 />
               </label>
-              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
-                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Документиране</span>
+              <label className="grid gap-3 md:grid-cols-[36mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9px] font-black uppercase tracking-wide text-slate-400">Документи</span>
                 <AutoResizeTextarea
                   value={offer.warrantyTerms}
                   onChange={(event) => updateOffer("warrantyTerms", event.target.value)}
                   rows={1}
-                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                  className="w-full resize-none overflow-hidden bg-transparent text-[10.8px] font-medium leading-[1.55] text-slate-700 outline-none"
                 />
               </label>
-              <label className="grid gap-3 md:grid-cols-[42mm_minmax(0,1fr)]">
-                <span className="pt-0.5 text-[9.5px] font-black uppercase tracking-wide text-slate-400">Допълнителни условия</span>
+              <label className="grid gap-3 md:grid-cols-[36mm_minmax(0,1fr)]">
+                <span className="pt-0.5 text-[9px] font-black uppercase tracking-wide text-slate-400">Бележки</span>
                 <AutoResizeTextarea
                   value={offer.notes}
                   onChange={(event) => updateOffer("notes", event.target.value)}
                   rows={1}
-                  className="w-full resize-none overflow-hidden bg-transparent text-[11px] font-medium leading-[1.55] text-slate-700 outline-none"
+                  className="w-full resize-none overflow-hidden bg-transparent text-[10.8px] font-medium leading-[1.55] text-slate-700 outline-none"
                 />
               </label>
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-lg border border-slate-300 text-[12px]">
-            <div className="grid grid-cols-2 border-b border-slate-300">
-              <div className="border-r border-slate-300 px-3 py-2 font-bold text-slate-600">Междинна сума</div>
-              <div className="px-3 py-2 text-right font-bold">{money(totals.subtotal)}</div>
+          <div className="pt-1 text-[12px]">
+            <div className="grid grid-cols-2 gap-4 py-1.5">
+              <div className="font-bold text-slate-500">Междинна сума</div>
+              <div className="text-right font-bold text-slate-800">{money(totals.subtotal)}</div>
             </div>
-            <div className="grid grid-cols-2 border-b border-slate-300">
-              <div className="border-r border-slate-300 px-3 py-2 font-bold text-slate-600">ДДС {Math.round(vatRate * 100)}%</div>
-              <div className="px-3 py-2 text-right font-bold">{money(totals.vat)}</div>
+            <div className="grid grid-cols-2 gap-4 py-1.5">
+              <div className="font-bold text-slate-500">ДДС {Math.round(vatRate * 100)}%</div>
+              <div className="text-right font-bold text-slate-800">{money(totals.vat)}</div>
             </div>
-            <div className="grid grid-cols-2 bg-slate-950 text-white print:bg-slate-900">
-              <div className="border-r border-slate-700 px-3 py-3 text-[13px] font-black uppercase">Общо</div>
-              <div className="px-3 py-3 text-right text-[15px] font-black">{money(totals.total)}</div>
+            <div className="mt-2 grid grid-cols-2 gap-4 rounded-[4px] bg-slate-950 px-3 py-3 text-white print:bg-slate-900">
+              <div className="text-[13px] font-black uppercase">Общо</div>
+              <div className="text-right text-[17px] font-black">{money(totals.total)}</div>
             </div>
-            <p className="border-t border-slate-200 px-3 py-2 text-[10.5px] font-semibold leading-5 text-slate-500">
-              Валидност на офертата: {formatDisplayDate(offer.validUntil)}
+            <p className="pt-2 text-right text-[10.5px] font-semibold leading-5 text-slate-500">
+              Валидна до {formatDisplayDate(offer.validUntil)}
             </p>
           </div>
         </section>
@@ -1134,24 +1138,8 @@ export default function SalesOfferEditorPage() {
             <SignaturePad
               value={offer.signatureUrl}
               onChange={(value) => updateOffer("signatureUrl", value)}
-              showClear={false}
+              showClear
             />
-            <div className="no-print mt-3 flex h-10 flex-wrap gap-2">
-              <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700">
-                Зареди подпис
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="sr-only"
-                  onChange={(event) => handleSignatureUpload(event.target.files?.[0] ?? null)}
-                />
-              </label>
-              {offer.signatureUrl ? (
-                <Button type="button" variant="outline" onClick={() => updateOffer("signatureUrl", "")}>
-                  Изчисти
-                </Button>
-              ) : null}
-            </div>
           </div>
           <div>
             <div className="text-[12px] font-bold text-slate-600">Приел офертата:</div>

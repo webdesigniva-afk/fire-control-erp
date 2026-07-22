@@ -15,6 +15,7 @@ import {
   FileCheck2,
   FileSignature,
   FileText,
+  Flame,
   FireExtinguisher,
   LampWallUp,
   Loader2,
@@ -176,6 +177,12 @@ function formatDate(value: string | undefined) {
   return new Intl.DateTimeFormat("bg-BG").format(date);
 }
 
+function dateTimestamp(value: string | undefined) {
+  if (!value) return 0;
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
 function formatAmount(value: unknown) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "";
@@ -215,6 +222,24 @@ function taskIsDone(task: PortalTask) {
   return Boolean(task.completedAt) || ["done", "completed", "resolved", "приключена", "готово"].includes(status);
 }
 
+function sentenceTitle(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return `${trimmed.charAt(0).toLocaleUpperCase("bg-BG")}${trimmed.slice(1)}`;
+}
+
+function portalTaskTitle(task: PortalTask) {
+  const text = `${task.title} ${task.description} ${task.taskType}`.toLowerCase();
+  if (
+    text.includes("поддръжка на пожароизвестителна система") ||
+    text.includes("поддръжка на пис") ||
+    text.includes("протокол за поддръжка на пис")
+  ) {
+    return "Поддръжка на ПИС";
+  }
+  return sentenceTitle(task.title);
+}
+
 function documentSource(document: PortalDocument) {
   return document.kind === "contract" ? document.documentData?.contract : document.documentData?.offer;
 }
@@ -251,7 +276,12 @@ function documentStatus(document: PortalDocument) {
 }
 
 function protocolTitle(protocol: PortalProtocol) {
-  return protocol.number ? `Протокол ${protocol.number}` : "Протокол";
+  const protocolType =
+    textFromRecord(protocol.protocolPayload ?? {}, "protocolType") || protocol.type;
+  const label = protocolTypeLabel(protocolType);
+  const shortLabel = label === "Протокол за поддръжка на ПИС" ? "Поддръжка на ПИС" : label;
+
+  return shortLabel;
 }
 
 function protocolStatus(protocol: PortalProtocol) {
@@ -266,6 +296,104 @@ function protocolTypeLabel(value: string) {
   if (value === "extinguisher") return "Пожарогасители";
   if (value === "service") return "Протокол за поддръжка на ПИС";
   return value || "Протокол";
+}
+
+const subscriptionScopeRows = [
+  {
+    number: "1.",
+    label: "Външен оглед на възлите на ПГИ",
+    periodicity: "ежемесечно",
+    intervalMonths: 1,
+  },
+  {
+    number: "2.",
+    label: "Проверка на блоковете за управление и работа на ПГИ в ръчен и автоматичен режим",
+    periodicity: "на три месеца",
+    intervalMonths: 3,
+  },
+  {
+    number: "3.",
+    label: "Тест изправността и напрежението на линиите за активиране на ПГИ",
+    periodicity: "ежемесечно",
+    intervalMonths: 1,
+  },
+  {
+    number: "4.",
+    label: "Тест работата на ПГИ в режим местно и дистанционно управление",
+    periodicity: "ежемесечно",
+    intervalMonths: 1,
+  },
+  {
+    number: "5.",
+    label: "Проверка на изнесени сигнализатори за тревога",
+    periodicity: "годишно",
+    intervalMonths: 12,
+  },
+  {
+    number: "6.",
+    label: "Тест на ПГИ в автономен и ръчен режим на активиране",
+    periodicity: "годишно",
+    intervalMonths: 12,
+  },
+  {
+    number: "7.",
+    label: "Проверка на данните за работа на ПГИ",
+    periodicity: "на три месеца",
+    intervalMonths: 3,
+  },
+  {
+    number: "8.",
+    label: "Хардуерен тест на контролните устройства",
+    periodicity: "годишно",
+    intervalMonths: 12,
+  },
+];
+
+function isSubscriptionProtocol(protocol: PortalProtocol) {
+  const protocolType = textFromRecord(protocol.protocolPayload ?? {}, "protocolType") || protocol.type;
+  return protocolTypeLabel(protocolType).includes("Абонаментно обслужване");
+}
+
+function subscriptionDefaultScope() {
+  return subscriptionScopeRows
+    .filter((row) => row.intervalMonths === 1)
+    .map((row) => row.label);
+}
+
+function monthsBetweenDates(from: string | undefined, to: string | undefined) {
+  if (!from || !to) return 0;
+  const start = new Date(from.includes("T") ? from : `${from}T00:00:00`);
+  const end = new Date(to.includes("T") ? to : `${to}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+  return (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
+}
+
+function subscriptionProtocolScope(protocol: PortalProtocol) {
+  if (!isSubscriptionProtocol(protocol)) return [];
+  const checks = protocol.protocolPayload?.["subscriptionChecks"];
+  if (!checks || typeof checks !== "object" || Array.isArray(checks)) {
+    return subscriptionDefaultScope();
+  }
+
+  const selectedRows = subscriptionScopeRows
+    .filter((row) => Boolean((checks as Record<string, unknown>)[row.number]))
+    .map((row) => row.label);
+
+  return selectedRows.length ? selectedRows : subscriptionDefaultScope();
+}
+
+function subscriptionTaskScope(task: PortalTask, lastVisitDate: string) {
+  const title = `${task.title} ${task.taskType}`.toLowerCase();
+  if (!title.includes("абонаментно")) return [];
+
+  const monthOffset = monthsBetweenDates(lastVisitDate, task.dueDate);
+  if (monthOffset <= 0) return subscriptionDefaultScope();
+
+  const intervalMonths = monthOffset % 12 === 0 ? 12 : monthOffset % 3 === 0 ? 3 : 1;
+
+  return subscriptionScopeRows
+    .filter((row) => row.intervalMonths === intervalMonths)
+    .map((row) => row.label);
 }
 
 function protocolPrintSlug(protocolType: string) {
@@ -308,6 +436,24 @@ function textFromRecord(record: Record<string, unknown>, key: string) {
 function protocolPayloadRows(protocol: PortalProtocol) {
   const rows = protocol.protocolPayload?.["extinguisherRows"];
   return Array.isArray(rows) ? rows : [];
+}
+
+function protocolNextVisitDates(protocol: PortalProtocol) {
+  const payload = protocol.protocolPayload ?? {};
+  const dates = [textFromRecord(payload, "nextVisitDate")];
+
+  for (const row of protocolPayloadRows(protocol)) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const rowRecord = row as Record<string, unknown>;
+    dates.push(
+      textFromRecord(rowRecord, "nextServiceDate"),
+      textFromRecord(rowRecord, "next_service_date"),
+      textFromRecord(rowRecord, "nextCheckDate"),
+      textFromRecord(rowRecord, "next_check_date")
+    );
+  }
+
+  return dates.filter(Boolean);
 }
 
 function protocolPayloadPhotos(protocol: PortalProtocol) {
@@ -460,7 +606,7 @@ function Badge({
   tone?: "green" | "orange" | "blue" | "slate";
 }) {
   return (
-    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-black ${badgeClass(tone)}`}>
+    <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${badgeClass(tone)}`}>
       {children}
     </span>
   );
@@ -971,6 +1117,47 @@ export default function ClientPortalPage() {
   }, [data]);
   const upcomingTasks = useMemo(() => data?.tasks.filter((task) => !taskIsDone(task)) || [], [data]);
   const completedTasks = useMemo(() => data?.tasks.filter(taskIsDone) || [], [data]);
+  const protocolVisitSummary = useMemo(() => {
+    const protocols = data?.protocols ?? [];
+    const lastProtocol = [...protocols]
+      .filter((protocol) => dateTimestamp(protocol.date))
+      .sort((a, b) => dateTimestamp(b.date) - dateTimestamp(a.date))[0];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextVisitDate = protocols
+      .flatMap(protocolNextVisitDates)
+      .filter((value) => dateTimestamp(value) >= today.getTime())
+      .sort((a, b) => dateTimestamp(a) - dateTimestamp(b))[0];
+
+    return {
+      lastVisitDate: lastProtocol?.date || "",
+      nextVisitDate: nextVisitDate || "",
+    };
+  }, [data]);
+  const timelineTasks = useMemo(
+    () =>
+      [
+        ...upcomingTasks.map((task) => ({
+          ...task,
+          timelineStatus: "upcoming" as const,
+          timelineDate: task.dueDate,
+        })),
+        ...completedTasks.map((task) => ({
+          ...task,
+          timelineStatus: "completed" as const,
+          timelineDate: task.completedAt || task.dueDate,
+        })),
+      ]
+        .filter((task) => task.timelineDate || task.title)
+        .sort((a, b) => {
+          if (a.timelineStatus !== b.timelineStatus) return a.timelineStatus === "upcoming" ? -1 : 1;
+          const aTime = a.timelineDate ? new Date(a.timelineDate).getTime() : 0;
+          const bTime = b.timelineDate ? new Date(b.timelineDate).getTime() : 0;
+          return a.timelineStatus === "upcoming" ? aTime - bTime : bTime - aTime;
+        })
+        .slice(0, 10),
+    [upcomingTasks, completedTasks]
+  );
   const selectedDocument = visibleDocuments.find((document) => document.id === selectedDocumentId) || null;
   const selectedProtocol = data?.protocols.find((protocol) => protocol.id === selectedProtocolId) || null;
 
@@ -1043,10 +1230,19 @@ export default function ClientPortalPage() {
 
   if (loadState === "loading") {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-100">
-        <div className="flex items-center gap-3 rounded-2xl bg-white px-5 py-4 text-sm font-black text-slate-600 shadow-sm">
-          <Loader2 className="animate-spin text-orange-600" size={18} />
-          Зареждане на клиентски портал
+      <main className="flex min-h-screen items-center justify-center bg-[radial-gradient(circle_at_center,#fff7ed_0%,#f8fafc_42%,#eef2f7_100%)] px-4">
+        <div className="flex flex-col items-center text-center">
+          <div className="relative flex h-20 w-20 items-center justify-center">
+            <div className="absolute inset-0 rounded-full border border-orange-200 bg-white shadow-[0_18px_45px_rgba(234,88,12,0.14)]" />
+            <div className="absolute inset-2 animate-ping rounded-full bg-orange-100/70" />
+            <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-orange-500 to-red-600 text-white shadow-[0_12px_28px_rgba(234,88,12,0.28)]">
+              <Flame size={28} className="animate-pulse" />
+            </div>
+          </div>
+          <div className="mt-5 text-lg font-extrabold text-slate-950">FireControl</div>
+          <div className="mt-1 text-sm font-semibold text-slate-500">
+            Зареждане на клиентския портал
+          </div>
         </div>
       </main>
     );
@@ -1065,16 +1261,16 @@ export default function ClientPortalPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f6f8fb] text-slate-950">
+    <main className="min-h-screen bg-[#f7f9fc] text-slate-950">
       <header className="border-b border-slate-200 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_48%,#eef4ff_100%)]">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-4 py-7 md:flex-row md:items-center md:justify-between">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5 md:flex-row md:items-center md:justify-between">
           <img
             src="/firecontrol-header-logo.png"
             alt="FIREControl"
-            className="h-auto w-[230px] max-w-full object-contain object-left sm:w-[280px]"
+            className="h-auto w-[190px] max-w-full object-contain object-left sm:w-[235px]"
           />
           <div className="max-w-2xl md:text-right">
-            <h1 className="text-3xl font-black leading-tight text-slate-950 sm:text-4xl">
+            <h1 className="text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl">
               Клиентски портал
             </h1>
           </div>
@@ -1082,35 +1278,35 @@ export default function ClientPortalPage() {
       </header>
 
       <div className="mx-auto w-full max-w-7xl px-4 py-6">
-        <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+        <section className="overflow-hidden rounded-[24px] border border-slate-200/80 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.055)]">
           <div className="grid gap-0 lg:grid-cols-[1.25fr_0.75fr]">
             <div className="p-6 md:p-8">
-              <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-950 px-3 py-1 text-xs font-black text-white shadow-sm">
+              <span className="inline-flex items-center rounded-full border border-slate-800 bg-slate-950 px-3 py-1 text-xs font-bold text-white">
                 <ShieldCheck size={13} className="mr-1 text-orange-300" />
                 Активен портал
               </span>
-              <h1 className="mt-4 text-3xl font-black leading-tight md:text-4xl">{data.client.name}</h1>
+              <h1 className="mt-4 text-3xl font-extrabold leading-tight md:text-4xl">{data.client.name}</h1>
               <div className="mt-4 flex max-w-3xl flex-wrap gap-2">
                 {data.client.contactPerson ? (
-                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm font-semibold text-slate-700">
                     <UserRound size={16} className="text-orange-500" />
                     {data.client.contactPerson}
                   </span>
                 ) : null}
                 {data.client.phone ? (
-                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm font-semibold text-slate-700">
                     <Phone size={16} className="text-orange-500" />
                     {data.client.phone}
                   </span>
                 ) : null}
                 {data.client.email ? (
-                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm font-semibold text-slate-700">
                     <Mail size={16} className="text-orange-500" />
                     {data.client.email}
                   </span>
                 ) : null}
                 {data.client.address ? (
-                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
+                  <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm font-semibold text-slate-700">
                     <MapPin size={16} className="text-orange-500" />
                     {data.client.address}
                   </span>
@@ -1120,51 +1316,53 @@ export default function ClientPortalPage() {
                 Документен център, обслужвани обекти, предстоящи дейности и сервизна история.
               </p>
             </div>
-            <div className="border-t border-slate-200 bg-[#f8fafc] p-6 lg:border-l lg:border-t-0">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-xs font-black uppercase tracking-wide text-slate-400">Обекти</div>
-                <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full border border-slate-200 bg-white px-2 text-xs font-black text-slate-700">
-                  {data.locations.length}
-                </span>
-              </div>
-              {data.locations.length ? (
-                <div className="mt-3 space-y-2">
-                  {data.locations.slice(0, 1).map((location) => (
-                    <div key={location.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[0_8px_24px_rgba(15,23,42,0.04)]">
-                      <div className="flex items-start gap-3">
-                        <Building2 className="mt-1 text-orange-600" size={20} />
-                        <div>
-                          <div className="font-black">{location.name}</div>
-                          {location.address ? (
-                            <div className="mt-1 text-sm font-semibold leading-5 text-slate-500">{location.address}</div>
-                          ) : null}
-                        </div>
-                      </div>
+            <div className="border-t border-slate-200 bg-slate-50/70 p-6 lg:border-l lg:border-t-0">
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                    <CheckCircle2 size={18} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Последно посещение
                     </div>
-                  ))}
-                  {data.locations.length > 1 ? (
-                    <div className="px-1 text-xs font-black uppercase text-slate-400">+ още {data.locations.length - 1} обекта в секцията по-долу</div>
-                  ) : null}
+                    <div className="mt-1 text-lg font-extrabold text-slate-950">
+                      {protocolVisitSummary.lastVisitDate
+                        ? formatDate(protocolVisitSummary.lastVisitDate)
+                        : "Няма записан протокол"}
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                <div className="mt-3 text-sm font-semibold leading-6 text-slate-500">
-                  Пълният списък с обекти е в секцията по-долу.
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                    <Clock3 size={18} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                      Следващо посещение
+                    </div>
+                    <div className="mt-1 text-lg font-extrabold text-slate-950">
+                      {protocolVisitSummary.nextVisitDate
+                        ? formatDate(protocolVisitSummary.nextVisitDate)
+                        : "Ще бъде насрочено"}
+                    </div>
+                  </div>
                 </div>
-              )}
+              </div>
               <div className="mt-4 grid grid-cols-3 gap-2">
-                <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_8px_24px_rgba(15,23,42,0.04)]"><div className="text-xs font-black text-slate-400">Документи</div><div className="text-2xl font-black">{libraryItems.length}</div></div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_8px_24px_rgba(15,23,42,0.04)]"><div className="text-xs font-black text-slate-400">За подпис</div><div className="text-2xl font-black">{documentsForSignature.length}</div></div>
-                <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-[0_8px_24px_rgba(15,23,42,0.04)]"><div className="text-xs font-black text-slate-400">Предстоящи</div><div className="text-2xl font-black">{upcomingTasks.length}</div></div>
+                <div className="rounded-xl border border-slate-200/80 bg-white/80 p-3"><div className="text-xs font-bold text-slate-400">Документи</div><div className="mt-1 text-2xl font-extrabold">{libraryItems.length}</div></div>
+                <div className="rounded-xl border border-slate-200/80 bg-white/80 p-3"><div className="text-xs font-bold text-slate-400">Обекти</div><div className="mt-1 text-2xl font-extrabold">{data.locations.length}</div></div>
+                <div className="rounded-xl border border-slate-200/80 bg-white/80 p-3"><div className="text-xs font-bold text-slate-400">Предстоящи</div><div className="mt-1 text-2xl font-extrabold">{upcomingTasks.length}</div></div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mt-6 rounded-[24px] border border-slate-200 bg-white shadow-[0_10px_36px_rgba(15,23,42,0.06)]">
+        <section className="mt-6 rounded-[22px] border border-slate-200/80 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.045)]">
           <div className="p-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-xl font-black">Документи</h2>
+              <h2 className="text-xl font-extrabold">Документи</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">
                 Оферти, договори и протоколи, подредени по дата.
               </p>
@@ -1177,7 +1375,7 @@ export default function ClientPortalPage() {
             </div>
           </div>
           </div>
-          <div className="hidden border-t border-slate-200 bg-slate-50 px-5 py-3 text-xs font-black uppercase tracking-wide text-slate-400 md:grid md:grid-cols-[170px_minmax(300px,1.2fr)_220px_170px_170px] md:items-center md:gap-4">
+          <div className="hidden border-t border-slate-200 bg-slate-50 px-5 py-3 text-xs font-bold uppercase tracking-wide text-slate-400 md:grid md:grid-cols-[170px_minmax(300px,1.2fr)_220px_170px_170px] md:items-center md:gap-4">
             <div>Тип</div>
             <div>Документ</div>
             <div>Дата и обект</div>
@@ -1186,18 +1384,19 @@ export default function ClientPortalPage() {
           </div>
           <div className="border-t border-slate-200 md:border-t-0">
             {libraryItems.length ? libraryItems.map((item) => (
-              <div key={item.id} className="grid gap-4 border-b border-slate-100 px-5 py-4 transition last:border-b-0 hover:bg-slate-50/80 md:grid-cols-[170px_minmax(300px,1.2fr)_220px_170px_170px] md:items-center md:gap-4">
+              <div key={item.id} className="grid gap-4 border-b border-slate-100 px-5 py-4 transition last:border-b-0 hover:bg-slate-50/80 md:grid-cols-[170px_minmax(300px,1.2fr)_220px_170px_170px] md:items-start md:gap-4">
                 <div className="flex items-center gap-3">
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
                     {item.itemType === "protocol" ? <FileCheck2 size={17} /> : <FileText size={17} />}
                   </div>
-                  <span className="text-sm font-black text-slate-700">{libraryItemTypeLabel(item)}</span>
+                  <span className="text-sm font-bold text-slate-700">{libraryItemTypeLabel(item)}</span>
                 </div>
                 <div className="min-w-0">
-                  <h3 className="truncate font-black leading-6 text-slate-950">{libraryItemTitle(item)}</h3>
+                  <h3 className="font-extrabold leading-6 text-slate-950">{libraryItemTitle(item)}</h3>
                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-bold text-slate-500">
                     {item.itemType === "document" && item.document.number && !documentNumberIsInTitle(item.document) ? <span>№ {item.document.number}</span> : null}
-                    {item.itemType === "protocol" && item.protocol.technician ? <span>{item.protocol.technician}</span> : null}
+                    {item.itemType === "protocol" && item.protocol.number ? <span>№ {item.protocol.number}</span> : null}
+                    {item.itemType === "protocol" && item.protocol.technician ? <span>Техник: {item.protocol.technician}</span> : null}
                   </div>
                 </div>
                 <div className="min-w-0 text-sm font-bold text-slate-600">
@@ -1236,10 +1435,10 @@ export default function ClientPortalPage() {
           </div>
         </section>
 
-        <section className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="mt-6 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black">Обекти</h2>
+              <h2 className="text-xl font-extrabold">Обекти</h2>
               <Badge>{data.locations.length}</Badge>
             </div>
             <div className="mt-4 space-y-4">
@@ -1247,15 +1446,15 @@ export default function ClientPortalPage() {
                 const equipmentOpen = openLocationEquipmentIds.includes(location.id);
 
                 return (
-                <div key={location.id} className="overflow-hidden rounded-2xl border border-slate-200">
-                  <div className="border-b border-slate-100 bg-slate-50/70 p-4">
+                <div key={location.id} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/50">
+                  <div className={`${equipmentOpen ? "border-b border-slate-100" : ""} p-4`}>
                     <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-orange-600 shadow-sm">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-orange-600">
                         <Building2 size={19} />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <div className="font-black text-slate-950">{location.name}</div>
+                          <div className="font-extrabold text-slate-950">{location.name}</div>
                           {location.objectType ? <Badge tone="slate">{location.objectType}</Badge> : null}
                         </div>
                         {location.address ? (
@@ -1268,7 +1467,7 @@ export default function ClientPortalPage() {
                       <button
                         type="button"
                         onClick={() => toggleLocationEquipment(location.id)}
-                        className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                        className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
                         aria-expanded={equipmentOpen}
                         aria-label={equipmentOpen ? "Скрий оборудването" : "Покажи оборудването"}
                         title={equipmentOpen ? "Скрий оборудването" : "Покажи оборудването"}
@@ -1290,10 +1489,10 @@ export default function ClientPortalPage() {
                   {equipmentOpen ? (
                   <div className="p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <div className="text-xs font-black uppercase tracking-wide text-slate-400">
+                      <div className="text-xs font-bold uppercase tracking-wide text-slate-400">
                         Оборудване
                       </div>
-                      <span className="text-xs font-black text-slate-400">
+                      <span className="text-xs font-bold text-slate-400">
                         {location.equipment.length}
                       </span>
                     </div>
@@ -1309,7 +1508,7 @@ export default function ClientPortalPage() {
                                 <EquipmentIcon size={17} />
                               </div>
                               <div className="min-w-0 flex-1">
-                                <div className="font-black text-slate-900">{item.name || item.type || "Оборудване"}</div>
+                                <div className="font-extrabold text-slate-900">{item.name || item.type || "Оборудване"}</div>
                                 {details.length ? (
                                   <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-bold text-slate-400">
                                     {details.map((detail) => (
@@ -1337,53 +1536,133 @@ export default function ClientPortalPage() {
             </div>
           </div>
 
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black">График и история</h2>
-              <Badge tone="blue">{upcomingTasks.length}</Badge>
+              <h2 className="text-xl font-extrabold">График и история</h2>
+              <Badge tone="blue">{timelineTasks.length}</Badge>
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <div>
-                <div className="mb-2 text-xs font-black uppercase text-slate-400">Предстоящи</div>
-                <div className="space-y-2">
-                  {upcomingTasks.slice(0, 8).map((task) => (
-                    <div key={task.id} className="rounded-2xl border border-slate-200 p-3">
-                      <div className="flex gap-2">
-                        <Clock3 className="mt-0.5 shrink-0 text-orange-500" size={17} />
-                        <div>
-                          <div className="font-black">{task.title}</div>
-                          <div className="mt-1 text-xs font-bold text-slate-500">{task.objectName || task.objectCode}</div>
-                          <div className="mt-1 text-xs font-black uppercase text-slate-400">{formatDate(task.dueDate)}</div>
+            <div className="mt-4">
+              {timelineTasks.length ? (
+                <div className="relative pl-8">
+                  <div className="absolute bottom-2 left-[11px] top-2 w-px bg-gradient-to-b from-orange-300 via-slate-200 to-emerald-200" />
+                  <div className="divide-y divide-slate-100">
+                    {timelineTasks.map((task) => {
+                      const upcoming = task.timelineStatus === "upcoming";
+                      const markerClass = upcoming
+                        ? "border-orange-200 bg-orange-50 text-orange-600"
+                        : "border-emerald-200 bg-emerald-50 text-emerald-600";
+                      const Icon = upcoming ? Clock3 : CheckCircle2;
+                      const scopeLines = subscriptionTaskScope(task, protocolVisitSummary.lastVisitDate);
+
+                      return (
+                        <div key={`${task.timelineStatus}-${task.id}`} className="relative py-4 first:pt-1 last:pb-1">
+                          <div className={`absolute -left-8 top-4 flex h-6 w-6 items-center justify-center rounded-full border-2 ${markerClass}`}>
+                            <Icon size={14} />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone={upcoming ? "orange" : "green"}>
+                              {upcoming ? "Предстояща" : "Приключена"}
+                            </Badge>
+                            {task.timelineDate ? (
+                              <span className="text-xs font-bold uppercase text-slate-400">
+                                {formatDate(task.timelineDate)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 text-base font-extrabold leading-snug text-slate-950">
+                            {portalTaskTitle(task)}
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold text-slate-500">
+                            {task.objectName || task.objectCode ? (
+                              <span className="inline-flex items-center gap-2">
+                                <Building2 size={15} className="shrink-0 text-slate-400" />
+                                {task.objectName || task.objectCode}
+                              </span>
+                            ) : null}
+                            {task.taskType ? (
+                              <span className="text-xs font-bold uppercase tracking-wide text-slate-400">
+                                {task.taskType}
+                              </span>
+                            ) : null}
+                          </div>
+                          {scopeLines.length ? (
+                            <div className="mt-3 space-y-1.5 text-sm font-semibold leading-5 text-slate-500">
+                              {scopeLines.map((scope) => (
+                                <div key={scope} className="flex gap-2">
+                                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-400" />
+                                  <span>{scope}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-                      </div>
-                    </div>
-                  ))}
-                  {!upcomingTasks.length ? <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm font-bold text-slate-400">Няма предстоящи дейности.</div> : null}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="mb-2 text-xs font-black uppercase text-slate-400">Приключени</div>
-                <div className="space-y-2">
-                  {completedTasks.slice(0, 8).map((task) => (
-                    <div key={task.id} className="rounded-2xl border border-slate-200 p-3">
-                      <div className="flex gap-2">
-                        <CheckCircle2 className="mt-0.5 shrink-0 text-emerald-500" size={17} />
-                        <div>
-                          <div className="font-black">{task.title}</div>
-                          <div className="mt-1 text-xs font-bold text-slate-500">{task.objectName || task.objectCode}</div>
-                          <div className="mt-1 text-xs font-black uppercase text-slate-400">{formatDate(task.completedAt)}</div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {!completedTasks.length ? <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-center text-sm font-bold text-slate-400">Няма приключени дейности.</div> : null}
+              ) : (
+                <div className="rounded-2xl bg-slate-50 p-6 text-center">
+                  <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
+                    <Clock3 size={20} />
+                  </div>
+                  <div className="mt-3 text-sm font-bold text-slate-500">
+                    Все още няма планирани или приключени дейности.
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </section>
 
-        <footer className="py-8 text-center text-xs font-bold text-slate-400">FireControl клиентски портал</footer>
+        <footer className="mt-8 border-t border-slate-200 py-8">
+          <div className="flex flex-col gap-5 text-sm text-slate-500 md:flex-row md:items-start md:justify-between">
+            <div className="max-w-2xl">
+              <img
+                src="/firecontrol-header-logo.png"
+                alt="FireControl"
+                className="h-auto w-32 object-contain object-left"
+              />
+              <p className="mt-2 font-semibold leading-6">
+                FireControl защитава това, което е най-ценно за вас - хората, бизнеса и инвестициите ви.
+                Доверете се на доказан експерт в цялостните решения за пожарна безопасност.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 font-bold text-slate-700 md:items-end">
+              <a
+                href="mailto:office@firecontrol.bg"
+                className="inline-flex items-center gap-2 transition hover:text-orange-600"
+              >
+                <Mail size={16} className="text-orange-500" />
+                office@firecontrol.bg
+              </a>
+              <a
+                href="https://firecontrol.bg/"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 transition hover:text-orange-600"
+              >
+                <ExternalLink size={16} className="text-orange-500" />
+                firecontrol.bg
+              </a>
+              <a
+                href="tel:+359896089991"
+                className="inline-flex items-center gap-2 transition hover:text-orange-600"
+              >
+                <Phone size={16} className="text-orange-500" />
+                +359 89 608 9991
+              </a>
+              <a
+                href="https://www.google.com/maps/search/?api=1&query=%D0%B3%D1%80.%20%D0%A8%D1%83%D0%BC%D0%B5%D0%BD%2C%20%D1%83%D0%BB.%20%D0%92%D0%BB%D0%B0%D0%B4%D0%B0%D0%B9%D1%81%D0%BA%D0%BE%20%D0%B2%D1%8A%D1%81%D1%82%D0%B0%D0%BD%D0%B8%D0%B5%20%E2%84%96152"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 transition hover:text-orange-600"
+              >
+                <MapPin size={16} className="text-orange-500" />
+                гр. Шумен, ул. Владайско въстание №152
+              </a>
+            </div>
+          </div>
+        </footer>
       </div>
 
       {selectedDocument ? (
