@@ -182,11 +182,13 @@ type Activity = {
 };
 
 type UpcomingInspection = {
+  id: string;
   date: string;
   object: string;
   type: string;
   technician: string;
   status: string;
+  href: string;
 };
 
 type TechnicianStatus = "свободен" | "на обект" | "натоварен";
@@ -909,37 +911,59 @@ function ActivityCard({ activities }: { activities: Activity[] }) {
 }
 
 function UpcomingCard({ inspections }: { inspections: UpcomingInspection[] }) {
+  const visibleInspections = inspections.slice(0, 4);
+  const extraCount = inspections.length - visibleInspections.length;
+
   return (
-    <Card className="p-5">
-      <SectionHeader title="Следващи проверки" eyebrow="7 дни" />
-      <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
-        {inspections.length ? (
-          inspections.map((inspection) => (
-            <div
-              key={`${inspection.date}-${inspection.object}-${inspection.type}`}
-              className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3"
+    <Card className="self-start p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold uppercase text-slate-400">
+            7 дни
+          </div>
+          <h2 className="text-lg font-black text-slate-950">Следващи посещения</h2>
+        </div>
+        <Badge variant="warning">{inspections.length}</Badge>
+      </div>
+      <div className="mt-3 space-y-1.5">
+        {visibleInspections.length ? (
+          visibleInspections.map((inspection) => (
+            <Link
+              key={inspection.id}
+              href={inspection.href}
+              className="group grid grid-cols-[54px_1fr] gap-3 rounded-lg border border-slate-100 px-2.5 py-2 transition hover:border-orange-200 hover:bg-orange-50/40"
             >
-              <div className="w-16 shrink-0 text-sm font-black text-slate-950">
-                {inspection.date}
+              <div className="flex flex-col items-center justify-center rounded-md bg-slate-50 px-2 py-1 text-center group-hover:bg-white">
+                <CalendarCheck className="h-3.5 w-3.5 text-orange-500" />
+                <span className="mt-1 text-[11px] font-black leading-none text-slate-950">
+                  {inspection.date}
+                </span>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-black text-slate-950">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-black text-slate-950">
                   {inspection.object}
                 </div>
-                <div className="text-sm font-medium text-slate-500">
+                <div className="mt-0.5 truncate text-xs font-semibold text-slate-500">
                   {inspection.type}
                 </div>
-                <div className="mt-1 text-xs font-bold text-slate-400">
+                <div className="mt-1 truncate text-[11px] font-bold text-slate-400">
                   {inspection.technician}
                 </div>
               </div>
-              <StatusBadge status={inspection.status} />
-            </div>
+            </Link>
           ))
         ) : (
           <EmptyState label="Няма проверки в следващите 7 дни." />
         )}
       </div>
+      {extraCount > 0 ? (
+        <Link
+          href="/tasks"
+          className="mt-3 inline-flex text-xs font-black text-orange-700 transition hover:text-orange-600"
+        >
+          + още {extraCount} в графика
+        </Link>
+      ) : null}
     </Card>
   );
 }
@@ -1231,12 +1255,14 @@ export default function DashboardPage() {
 
     const upcomingInspections: UpcomingInspection[] = upcomingTasks
       .map((task) => ({
+        id: task.id,
         date: formatDate(task.dueDate),
         object: task.objectName,
         type: task.title,
         technician: technicianForTask(task) || "не е зададен техник",
         status: "\u043f\u0440\u0435\u0434\u0441\u0442\u043e\u0438" as const,
-      }))
+        href: objectHrefFromTask(task) || "/tasks",
+      }));
 
     const recentProtocolActivities: Activity[] = data.protocols
       .filter((protocol) => protocol.updatedAt || protocol.date)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -14,25 +14,163 @@ import {
   ListChecks,
   MapPin,
   Play,
+  Plus,
   Search,
+  Trash2,
   Wrench,
+  X,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
-import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 import {
   type ServiceTask,
+  createManualServiceTask,
+  deleteServiceTasks,
   formatTaskDate,
   readServiceTasks,
   readServiceTasksFromSupabase,
+  saveServiceTask,
   serviceTasksUpdatedEvent,
   updateServiceTaskStatus,
 } from "../../lib/tasks";
 
 const PROTOCOLS_LS_KEY = "firecontrol:protocols";
 const UNASSIGNED_TECHNICIAN = "Не е зададен";
+
+const manualTaskTypeOptions = [
+  "Административна задача",
+  "Сервизна задача",
+  "Посещение",
+  "Обаждане",
+  "Среща",
+  "Ремонт",
+  "Друго",
+];
+
+type ManualTaskConfig = {
+  intro: string;
+  titleLabel: string;
+  titlePlaceholder: string;
+  assigneeLabel: string;
+  noteLabel: string;
+  notePlaceholder: string;
+  showClient?: boolean;
+  showContact?: boolean;
+  showPhone?: boolean;
+  showLocation?: boolean;
+  showObjectName?: boolean;
+  showAddress?: boolean;
+};
+
+const manualTaskConfigs: Record<string, ManualTaskConfig> = {
+  "Административна задача": {
+    intro: "Вътрешна работа без клиент или обект.",
+    titleLabel: "Какво трябва да се направи",
+    titlePlaceholder: "Напр. Подготовка на месечен отчет",
+    assigneeLabel: "Отговорник",
+    noteLabel: "Бележка",
+    notePlaceholder: "Контекст, срокове, вътрешни указания...",
+  },
+  "Обаждане": {
+    intro: "Телефонно проследяване към клиент, контакт или лийд.",
+    titleLabel: "Повод за обаждане",
+    titlePlaceholder: "Напр. Потвърждение за оферта",
+    assigneeLabel: "Отговорник",
+    noteLabel: "Бележка за разговора",
+    notePlaceholder: "Какво трябва да се уточни...",
+    showClient: true,
+    showContact: true,
+    showPhone: true,
+  },
+  "Среща": {
+    intro: "Планирана среща с клиент, контакт или екип.",
+    titleLabel: "Тема на срещата",
+    titlePlaceholder: "Напр. Обсъждане на договор",
+    assigneeLabel: "Отговорник",
+    noteLabel: "Дневен ред / бележка",
+    notePlaceholder: "Теми, участници, подготовка...",
+    showClient: true,
+    showContact: true,
+    showPhone: true,
+    showLocation: true,
+    showObjectName: true,
+    showAddress: true,
+  },
+  "Посещение": {
+    intro: "Посещение на адрес, най-често към конкретен обект.",
+    titleLabel: "Цел на посещението",
+    titlePlaceholder: "Напр. Оглед на обект",
+    assigneeLabel: "Техник",
+    noteLabel: "Указания към техника",
+    notePlaceholder: "Какво да провери на място...",
+    showClient: true,
+    showContact: true,
+    showPhone: true,
+    showLocation: true,
+    showObjectName: true,
+    showAddress: true,
+  },
+  "Сервизна задача": {
+    intro: "Оперативна сервизна работа към обект или клиент.",
+    titleLabel: "Сервизна дейност",
+    titlePlaceholder: "Напр. Проверка на аварийно осветление",
+    assigneeLabel: "Техник",
+    noteLabel: "Указания към техника",
+    notePlaceholder: "Детайли за изпълнение...",
+    showClient: true,
+    showContact: true,
+    showPhone: true,
+    showLocation: true,
+    showObjectName: true,
+    showAddress: true,
+  },
+  "Ремонт": {
+    intro: "Ремонтна дейност към обект, клиент или оборудване.",
+    titleLabel: "Какво се ремонтира",
+    titlePlaceholder: "Напр. Ремонт на пожарен кран",
+    assigneeLabel: "Техник",
+    noteLabel: "Описание на проблема",
+    notePlaceholder: "Симптоми, части, достъп, особености...",
+    showClient: true,
+    showContact: true,
+    showPhone: true,
+    showLocation: true,
+    showObjectName: true,
+    showAddress: true,
+  },
+  "Друго": {
+    intro: "Свободна задача, когато не попада в другите типове.",
+    titleLabel: "Наименование",
+    titlePlaceholder: "Кратко име на задачата",
+    assigneeLabel: "Отговорник",
+    noteLabel: "Бележка",
+    notePlaceholder: "Допълнителни детайли...",
+    showClient: true,
+    showContact: true,
+    showPhone: true,
+    showLocation: true,
+    showObjectName: true,
+    showAddress: true,
+  },
+};
+
+const emptyManualTaskForm: ManualTaskForm = {
+  taskType: "Административна задача",
+  title: "",
+  dueDate: "",
+  dueTime: "",
+  client: "",
+  contactName: "",
+  phone: "",
+  locationId: "",
+  objectCode: "",
+  objectName: "",
+  address: "",
+  technician: "",
+  description: "",
+};
 
 type TaskListItem = ServiceTask & {
   href?: string;
@@ -53,17 +191,35 @@ type LocationDirectory = {
   byIdentifier: Map<string, LocationDirectoryEntry>;
 };
 
+type ManualTaskForm = {
+  taskType: string;
+  title: string;
+  dueDate: string;
+  dueTime: string;
+  client: string;
+  contactName: string;
+  phone: string;
+  locationId: string;
+  objectCode: string;
+  objectName: string;
+  address: string;
+  technician: string;
+  description: string;
+};
+
 type ScheduleGroup = {
   id: string;
   title: string;
   kindLabel: string;
   dueDate: string;
+  dueTime: string;
   objectName: string;
   objectCode: string;
   client: string;
   address: string;
   technician: string;
   sourceText: string;
+  details: { label: string; value: string }[];
   href?: string;
   tasks: TaskListItem[];
   items: { label: string; count: number; problem: boolean }[];
@@ -71,6 +227,7 @@ type ScheduleGroup = {
   problem: boolean;
   completed: boolean;
   sales: boolean;
+  manual: boolean;
 };
 
 function normalizedTaskType(task: ServiceTask) {
@@ -90,9 +247,14 @@ function isSalesTask(task: TaskListItem | ServiceTask) {
   return "sourceKind" in task && task.sourceKind === "sales";
 }
 
+function isManualTask(task: ServiceTask) {
+  return (task.sourceProtocolType || "").trim().toLowerCase() === "manual";
+}
+
 function isCompletedTask(task: TaskListItem, todayKey = dateKey(new Date())) {
   if (isSalesTask(task)) {
-    return Boolean(task.dueDate && task.dueDate < todayKey);
+    const status = normalizedTaskStatus(task);
+    return status === "completed" || status === "done" || status === "resolved";
   }
 
   const status = normalizedTaskStatus(task);
@@ -185,6 +347,8 @@ function cleanActivityLabel(value: string) {
 }
 
 function taskTypeLabel(task: ServiceTask) {
+  if (isManualTask(task)) return task.taskType || "Ръчна задача";
+
   const type = normalizedTaskType(task);
   if (type === "problem" || type === "defect" || task.relatedProblemId) return "Проблем / повреда";
   if (type === "visit") return "Посещение";
@@ -266,11 +430,13 @@ function taskDisplayTitle(task: ServiceTask) {
 }
 
 function technicianName(task: TaskListItem) {
-  return task.assignedTo?.trim() || UNASSIGNED_TECHNICIAN;
+  if (task.assignedTo?.trim()) return task.assignedTo.trim();
+  return isManualTask(task) ? "Без отговорник" : UNASSIGNED_TECHNICIAN;
 }
 
 function sourceText(task: ServiceTask) {
   if (isSalesTask(task as TaskListItem)) return "Лийд";
+  if (isManualTask(task)) return "";
 
   const sourceType = (task.sourceProtocolType || "").trim().toLowerCase();
   const sourceLabel = (task.sourceLabel || "").trim().toLowerCase();
@@ -319,6 +485,7 @@ function scheduleGroupKey(task: TaskListItem) {
 
   return [
     normalizeGroupPart(task.dueDate, "date"),
+    normalizeGroupPart(task.dueTime ?? "", "time"),
     normalizeGroupPart(objectKey, "object"),
     normalizeGroupPart(tech, "technician"),
     normalizeGroupPart(kind, "kind"),
@@ -354,6 +521,39 @@ function summarizeGroupItems(tasks: TaskListItem[]) {
   );
 }
 
+function descriptionField(description: string, label: string) {
+  const match = description.match(new RegExp(`(?:^|\\n)${label}:\\s*([^\\n]+)`));
+  return match?.[1]?.trim() ?? "";
+}
+
+function freeDescription(description: string) {
+  return description
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^(Контакт|Телефон|Адрес|Час|Отговорник):/i.test(line))
+    .join(" · ");
+}
+
+function taskDetailItems(task: TaskListItem) {
+  const details: { label: string; value: string }[] = [];
+  const contact = descriptionField(task.description, "Контакт");
+  const phone = descriptionField(task.description, "Телефон");
+  const address = task.locationAddress || descriptionField(task.description, "Адрес");
+  const time = task.dueTime || descriptionField(task.description, "Час");
+  const assignee = task.assignedTo?.trim() || descriptionField(task.description, "Отговорник");
+  const note = freeDescription(task.description);
+
+  if (assignee) details.push({ label: isManualTask(task) ? "Отговорник" : "Техник", value: assignee });
+  if (time) details.push({ label: "Час", value: time });
+  if (task.client?.trim()) details.push({ label: "Клиент", value: task.client.trim() });
+  if (contact) details.push({ label: "Контакт", value: contact });
+  if (phone) details.push({ label: "Телефон", value: phone });
+  if (address) details.push({ label: "Място", value: address });
+  if (note) details.push({ label: "Бележка", value: note });
+
+  return details;
+}
+
 async function readLocationDirectory(): Promise<LocationDirectory> {
   const supabase = createSupabaseBrowserClient();
   const { data, error } = await supabase
@@ -383,8 +583,45 @@ async function readLocationDirectory(): Promise<LocationDirectory> {
   return { identifiers, byIdentifier };
 }
 
+async function readActiveTechnicianOptions() {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("team_members")
+    .select("name")
+    .eq("role", "Техник")
+    .eq("is_active", true)
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  return uniqueValues(
+    ((data as Record<string, unknown>[]) ?? []).map((row) => textValue(row, ["name"]))
+  );
+}
+
+async function readActiveTeamMemberOptions() {
+  const supabase = createSupabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("team_members")
+    .select("name")
+    .eq("is_active", true)
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  return uniqueValues(
+    ((data as Record<string, unknown>[]) ?? []).map((row) => textValue(row, ["name"]))
+  );
+}
+
 function taskBelongsToExistingLocation(task: ServiceTask, locationIdentifiers: Set<string>) {
   if (!locationIdentifiers.size) return true;
+  if (
+    task.sourceProtocolType === "manual" ||
+    task.sourceProtocolType === "sales_follow_up_completed"
+  ) {
+    return true;
+  }
 
   const taskIdentifiers = uniqueValues([
     task.objectId ?? "",
@@ -407,7 +644,10 @@ function hydrateTaskLocation(task: TaskListItem, directory: LocationDirectory): 
     .map((identifier) => directory.byIdentifier.get(identifier))
     .find(Boolean);
 
-  if (!location) return task;
+  if (!location) {
+    const addressMatch = task.description.match(/(?:^|\n)Адрес:\s*([^\n]+)/);
+    return addressMatch?.[1] ? { ...task, locationAddress: addressMatch[1].trim() } : task;
+  }
 
   return {
     ...task,
@@ -569,6 +809,7 @@ function buildScheduleGroups(tasks: TaskListItem[]) {
       const first = groupTasks[0];
       const problem = groupTasks.some(isProblemTask);
       const sales = groupTasks.some(isSalesTask);
+      const manual = isManualTask(first);
       const completed = groupTasks.every((task) => isCompletedTask(task));
       const title = sales
         ? sentenceTitle(first.activities[0]?.title || first.taskType || "Следващо действие")
@@ -581,6 +822,8 @@ function buildScheduleGroups(tasks: TaskListItem[]) {
         ? "Лийд"
         : problem
           ? "Проблем / повреда"
+          : manual
+            ? ""
           : isExtinguisherServiceTask(first)
             ? ""
             : taskTypeLabel(first);
@@ -597,12 +840,16 @@ function buildScheduleGroups(tasks: TaskListItem[]) {
         title,
         kindLabel,
         dueDate: first.dueDate,
-        objectName: first.objectName || first.client || "Без обект",
+        dueTime: first.dueTime ?? "",
+        objectName: manual && !first.client && !first.objectId
+          ? first.taskType || "Вътрешна задача"
+          : first.objectName || first.client || "Без обект",
         objectCode: first.objectCode,
         client: first.client,
         address: first.locationAddress || "",
         technician: technicianName(first),
         sourceText: sourceText(first),
+        details: taskDetailItems(first),
         href: first.href,
         tasks: groupTasks,
         items,
@@ -610,11 +857,14 @@ function buildScheduleGroups(tasks: TaskListItem[]) {
         problem,
         completed,
         sales,
+        manual,
       } satisfies ScheduleGroup;
     })
     .sort((first, second) => {
       const dateCompare = (first.dueDate || "9999").localeCompare(second.dueDate || "9999");
       if (dateCompare) return dateCompare;
+      const timeCompare = (first.dueTime || "99:99").localeCompare(second.dueTime || "99:99");
+      if (timeCompare) return timeCompare;
       return first.objectName.localeCompare(second.objectName, "bg-BG");
     });
 }
@@ -667,15 +917,24 @@ function addMonths(date: Date, months: number) {
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<TaskListItem[]>([]);
+  const [locations, setLocations] = useState<LocationDirectoryEntry[]>([]);
+  const [technicians, setTechnicians] = useState<string[]>([]);
+  const [teamMembers, setTeamMembers] = useState<string[]>([]);
   const [periodFilter, setPeriodFilter] = useState("upcoming");
   const [statusFilter, setStatusFilter] = useState("active");
   const [technicianFilter, setTechnicianFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(new Date()));
+  const [manualTaskOpen, setManualTaskOpen] = useState(false);
+  const [manualTaskSaving, setManualTaskSaving] = useState(false);
+  const [manualTaskError, setManualTaskError] = useState("");
+  const [deletingGroupId, setDeletingGroupId] = useState("");
+  const [manualTaskForm, setManualTaskForm] = useState<ManualTaskForm>(() => ({
+    ...emptyManualTaskForm,
+  }));
 
-  useEffect(() => {
-    async function refreshTasks() {
+  async function refreshTasks() {
       let dbTasks: ServiceTask[] = [];
       let locationDirectory: LocationDirectory = {
         identifiers: new Set<string>(),
@@ -691,6 +950,12 @@ export default function TasksPage() {
 
       try {
         locationDirectory = await readLocationDirectory();
+        setLocations(
+          uniqueValues(Array.from(locationDirectory.byIdentifier.values()).map((entry) => entry.id))
+            .map((id) => locationDirectory.byIdentifier.get(id))
+            .filter((entry): entry is LocationDirectoryEntry => Boolean(entry))
+            .sort((first, second) => first.name.localeCompare(second.name, "bg-BG"))
+        );
       } catch {
         locationDirectory = {
           identifiers: new Set<string>(),
@@ -713,6 +978,7 @@ export default function TasksPage() {
       ]);
     }
 
+  useEffect(() => {
     void refreshTasks();
     window.addEventListener(serviceTasksUpdatedEvent, refreshTasks);
     window.addEventListener("storage", refreshTasks);
@@ -723,12 +989,30 @@ export default function TasksPage() {
     };
   }, []);
 
+  useEffect(() => {
+    async function loadAssignees() {
+      try {
+        const [technicianNames, teamMemberNames] = await Promise.all([
+          readActiveTechnicianOptions(),
+          readActiveTeamMemberOptions(),
+        ]);
+        setTechnicians(technicianNames);
+        setTeamMembers(teamMemberNames);
+      } catch {
+        setTechnicians([]);
+        setTeamMembers([]);
+      }
+    }
+
+    void loadAssignees();
+  }, []);
+
   const technicianOptions = useMemo(
     () =>
-      uniqueValues(tasks.map((task) => technicianName(task))).sort((first, second) =>
+      uniqueValues([...tasks.map((task) => technicianName(task)), ...technicians]).sort((first, second) =>
         first.localeCompare(second, "bg-BG")
       ),
-    [tasks]
+    [tasks, technicians]
   );
 
   const filteredTasks = useMemo(() => {
@@ -781,6 +1065,49 @@ export default function TasksPage() {
       .sort((first, second) => (first.dueDate || "9999").localeCompare(second.dueDate || "9999"));
   }, [periodFilter, searchQuery, selectedDate, statusFilter, tasks, technicianFilter]);
 
+  const summaryTasks = useMemo(() => {
+    const today = dateKey(new Date());
+    const weekEnd = dateKey(addDays(new Date(), 7));
+    const monthEnd = dateKey(addDays(new Date(), 30));
+    const query = searchQuery.trim().toLocaleLowerCase("bg-BG");
+
+    return tasks.filter((task) => {
+      const completed = isCompletedTask(task, today);
+      const dueDate = task.dueDate || "";
+
+      if (selectedDate) {
+        if (dueDate !== selectedDate) return false;
+      } else {
+        if (periodFilter === "today" && dueDate !== today) return false;
+        if (periodFilter === "week" && !(dueDate && dueDate >= today && dueDate <= weekEnd)) return false;
+        if (periodFilter === "month" && !(dueDate && dueDate >= today && dueDate <= monthEnd)) return false;
+        if (periodFilter === "overdue" && !(dueDate && dueDate < today && !completed)) return false;
+      }
+
+      if (technicianFilter !== "all" && technicianName(task) !== technicianFilter) return false;
+
+      if (query) {
+        const haystack = [
+          task.title,
+          task.taskType,
+          task.objectName,
+          task.client,
+          task.locationAddress,
+          task.objectCode,
+          task.assignedTo,
+          task.sourceProtocolNumber,
+          task.sourceLabel,
+          ...task.activities.map((activity) => activity.title),
+        ]
+          .join(" ")
+          .toLocaleLowerCase("bg-BG");
+        if (!haystack.includes(query)) return false;
+      }
+
+      return true;
+    });
+  }, [periodFilter, searchQuery, selectedDate, tasks, technicianFilter]);
+
   const calendarTaskDates = useMemo(() => {
     const today = dateKey(new Date());
     const query = searchQuery.trim().toLocaleLowerCase("bg-BG");
@@ -821,6 +1148,7 @@ export default function TasksPage() {
   }, [searchQuery, statusFilter, tasks, technicianFilter]);
 
   const scheduleGroups = useMemo(() => buildScheduleGroups(filteredTasks), [filteredTasks]);
+  const summaryGroups = useMemo(() => buildScheduleGroups(summaryTasks), [summaryTasks]);
 
   async function completeTask(taskId: string) {
     const task = tasks.find((item) => item.id === taskId);
@@ -830,6 +1158,27 @@ export default function TasksPage() {
 
     if (task?.sourceKind === "sales" && task.objectId) {
       const supabase = createSupabaseBrowserClient();
+      const completedAt = new Date().toISOString();
+      await saveServiceTask({
+        id: `completed-${task.id}`,
+        title: task.activities[0]?.title || task.title || "Търговска задача",
+        description: task.description,
+        taskType: task.taskType || "Търговско проследяване",
+        type: "sales_follow_up_completed",
+        activities: task.activities,
+        objectCode: "",
+        objectId: task.objectId,
+        objectName: task.objectName || task.client || "Лийд",
+        client: task.client,
+        assignedTo: task.assignedTo,
+        dueDate: task.dueDate,
+        sourceProtocolId: task.objectId,
+        sourceProtocolType: "sales_follow_up_completed",
+        sourceLabel: task.sourceLabel || "Лийд",
+        status: "COMPLETED",
+        createdAt: task.createdAt || Date.now(),
+        completedAt,
+      });
       await supabase
         .from("sales_opportunities")
         .update({
@@ -850,6 +1199,95 @@ export default function TasksPage() {
     }
   }
 
+  async function deleteCompletedGroup(group: ScheduleGroup) {
+    if (!group.completed || deletingGroupId) return;
+
+    const taskCount = group.tasks.length;
+    const confirmed = window.confirm(
+      `Сигурни ли сте, че искате да изтриете тази приключена задача?${taskCount > 1 ? `\n\nЩе бъдат изтрити ${taskCount} свързани записа.` : ""}\n\nДействието не може да бъде отменено.`
+    );
+
+    if (!confirmed) return;
+
+    setDeletingGroupId(group.id);
+    try {
+      const ids = group.tasks.map((task) => task.id);
+      await deleteServiceTasks(ids);
+      setTasks((current) => current.filter((task) => !ids.includes(task.id)));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "Задачата не беше изтрита.");
+    } finally {
+      setDeletingGroupId("");
+    }
+  }
+
+  function changeManualTaskType(taskType: string) {
+    const config = manualTaskConfigs[taskType] ?? manualTaskConfigs["Друго"];
+    setManualTaskForm((current) => ({
+      ...current,
+      taskType,
+      client: config.showClient ? current.client : "",
+      contactName: config.showContact ? current.contactName : "",
+      phone: config.showPhone ? current.phone : "",
+      locationId: config.showLocation ? current.locationId : "",
+      objectCode: config.showLocation ? current.objectCode : "",
+      objectName: config.showObjectName ? current.objectName : "",
+      address: config.showAddress ? current.address : "",
+    }));
+  }
+
+  function selectManualTaskLocation(locationId: string) {
+    const location = locations.find((item) => item.id === locationId);
+    setManualTaskForm((current) => ({
+      ...current,
+      locationId,
+      objectName: location?.name ?? current.objectName,
+      objectCode: location?.qrCode ?? "",
+      address: location?.address ?? current.address,
+      client: location?.client ?? current.client,
+    }));
+  }
+
+  async function submitManualTask(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setManualTaskError("");
+
+    const title = manualTaskForm.title.trim() || manualTaskForm.taskType || "Задача";
+    const objectName = manualTaskForm.objectName.trim() || "Вътрешна задача";
+
+    const location = locations.find((item) => item.id === manualTaskForm.locationId);
+    const description = [
+      manualTaskForm.contactName.trim() ? `Контакт: ${manualTaskForm.contactName.trim()}` : "",
+      manualTaskForm.phone.trim() ? `Телефон: ${manualTaskForm.phone.trim()}` : "",
+      manualTaskForm.description.trim(),
+    ].filter(Boolean).join("\n");
+
+    setManualTaskSaving(true);
+    try {
+      await createManualServiceTask({
+        title,
+        taskType: manualTaskForm.taskType,
+        description,
+        objectId: location?.id || undefined,
+        objectCode: location?.qrCode || manualTaskForm.objectCode || undefined,
+        objectName,
+        address: location?.address || manualTaskForm.address,
+        client: manualTaskForm.client,
+        assignedTo: manualTaskForm.technician,
+        dueDate: manualTaskForm.dueDate,
+        dueTime: manualTaskForm.dueTime,
+      });
+
+      setManualTaskOpen(false);
+      setManualTaskForm({ ...emptyManualTaskForm });
+      await refreshTasks();
+    } catch (error) {
+      setManualTaskError(error instanceof Error ? error.message : "Задачата не беше записана.");
+    } finally {
+      setManualTaskSaving(false);
+    }
+  }
+
   const periodFilters = [
     ["upcoming", "Предстоящи"],
     ["today", "Днес"],
@@ -866,11 +1304,11 @@ export default function TasksPage() {
   ];
 
   const summary = {
-    visits: scheduleGroups.length,
-    completed: scheduleGroups.filter((group) => group.completed).length,
-    active: scheduleGroups.filter((group) => !group.completed && !group.problem).length,
-    upcoming: scheduleGroups.filter((group) => group.dueDate >= dateKey(new Date()) && !group.completed).length,
-    problems: scheduleGroups.filter((group) => group.problem && !group.completed).length,
+    visits: summaryGroups.length,
+    completed: summaryGroups.filter((group) => group.completed).length,
+    active: summaryGroups.filter((group) => !group.completed && !group.problem).length,
+    upcoming: summaryGroups.filter((group) => group.dueDate >= dateKey(new Date()) && !group.completed).length,
+    problems: summaryGroups.filter((group) => group.problem && !group.completed).length,
   };
   const today = new Date();
   const todayKey = dateKey(today);
@@ -884,11 +1322,24 @@ export default function TasksPage() {
     { length: 9 },
     (_, index) => calendarMonth.getFullYear() - 4 + index
   );
+  const manualTaskConfig =
+    manualTaskConfigs[manualTaskForm.taskType] ?? manualTaskConfigs["Друго"];
+  const manualTaskAssigneeOptions = uniqueValues(
+    ["Административна задача", "Обаждане", "Среща", "Друго"].includes(manualTaskForm.taskType)
+      ? [...teamMembers, ...technicians]
+      : technicians
+  ).sort((first, second) => first.localeCompare(second, "bg-BG"));
 
   return (
     <AppShell
       title="Задачи"
       description="Планиране, проследяване и изпълнение на сервизни задачи"
+      headerAction={
+        <Button type="button" onClick={() => setManualTaskOpen(true)}>
+          <Plus size={16} />
+          Нова задача
+        </Button>
+      }
       showSearch={false}
     >
       <div className="space-y-5">
@@ -975,6 +1426,12 @@ export default function TasksPage() {
                       <div className="mt-2 text-sm font-semibold text-slate-400">
                         {weekdayName(group.dueDate) || "—"}
                       </div>
+                      {group.dueTime ? (
+                        <div className="mt-2 inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs font-black text-slate-600">
+                          <Clock3 size={13} />
+                          {group.dueTime}
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="relative hidden justify-center md:flex">
@@ -998,43 +1455,53 @@ export default function TasksPage() {
                               <h3 className="text-base font-extrabold leading-6 text-slate-950">
                                 {group.objectName}
                               </h3>
-                              {group.kindLabel ? (
-                                <Badge variant={group.problem ? "danger" : group.sales ? "warning" : "neutral"}>
-                                  {group.kindLabel}
-                                </Badge>
-                              ) : null}
-                              {group.completed ? <Badge variant="success">Приключено</Badge> : null}
                             </div>
 
-                            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold leading-6 text-slate-500">
-                              <span className="inline-flex items-center gap-1.5">
-                                <Wrench size={16} />
-                                {group.technician}
-                              </span>
-                              {group.client ? (
+                            {group.manual ? null : (
+                              <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-semibold leading-6 text-slate-500">
                                 <span className="inline-flex items-center gap-1.5">
-                                  <Building2 size={16} />
-                                  {group.client}
+                                  <Wrench size={16} />
+                                  {group.technician}
                                 </span>
-                              ) : null}
-                              {group.address ? (
-                                <span className="inline-flex items-center gap-1.5">
-                                  <MapPin size={16} />
-                                  {group.address}
-                                </span>
-                              ) : null}
-                              {group.sourceText ? (
-                                <span className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-[11px] font-bold uppercase text-slate-500">
-                                  {group.sourceText}
-                                </span>
-                              ) : null}
-                            </div>
+                                {group.client ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <Building2 size={16} />
+                                    {group.client}
+                                  </span>
+                                ) : null}
+                                {group.address ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <MapPin size={16} />
+                                    {group.address}
+                                  </span>
+                                ) : null}
+                                {group.sourceText ? (
+                                  <span className="inline-flex items-center rounded-lg bg-slate-100 px-2 py-0.5 text-[11px] font-bold uppercase text-slate-500">
+                                    {group.sourceText}
+                                  </span>
+                                ) : null}
+                              </div>
+                            )}
 
                             {group.title ? (
                               <div className="mt-2 inline-flex items-center gap-2 rounded-lg border border-orange-100 bg-orange-50/70 px-2.5 py-1.5 text-sm font-bold text-orange-900">
                                 <ClipboardCheck size={15} />
                                 <span className="text-orange-500">Задача:</span>
                                 <span>{group.title}</span>
+                              </div>
+                            ) : null}
+
+                            {group.manual && group.details.length ? (
+                              <div className="mt-2 grid gap-1 text-sm font-semibold leading-5 text-slate-600 sm:grid-cols-2">
+                                {group.details.map((detail) => (
+                                  <div
+                                    key={`${detail.label}-${detail.value}`}
+                                    className="min-w-0"
+                                  >
+                                    <span className="text-slate-400">{detail.label}: </span>
+                                    <span className="break-words">{detail.value}</span>
+                                  </div>
+                                ))}
                               </div>
                             ) : null}
 
@@ -1090,7 +1557,18 @@ export default function TasksPage() {
                             <Play size={15} />
                             Завърши
                           </Button>
-                        ) : null}
+                        ) : (
+                          <Button
+                            type="button"
+                            variant="danger"
+                            size="sm"
+                            onClick={() => deleteCompletedGroup(group)}
+                            disabled={deletingGroupId === group.id}
+                          >
+                            <Trash2 size={15} />
+                            {deletingGroupId === group.id ? "Изтриване..." : "Изтрий"}
+                          </Button>
+                        )}
                         </div>
                       </div>
                     </Card>
@@ -1131,18 +1609,18 @@ export default function TasksPage() {
                   <button
                     type="button"
                     onClick={() => setCalendarMonth((current) => addMonths(current, -1))}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                     aria-label="Предишен месец"
                   >
-                    <ChevronLeft size={16} />
+                    <ChevronLeft size={18} />
                   </button>
                   <button
                     type="button"
                     onClick={() => setCalendarMonth((current) => addMonths(current, 1))}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                     aria-label="Следващ месец"
                   >
-                    <ChevronRight size={16} />
+                    <ChevronRight size={18} />
                   </button>
                 </div>
               </div>
@@ -1155,7 +1633,7 @@ export default function TasksPage() {
                       new Date(calendarMonth.getFullYear(), Number(event.target.value), 1)
                     )
                   }
-                  className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold capitalize text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  className="h-9 rounded-xl border border-slate-100 bg-slate-50 px-3 text-sm font-bold capitalize text-slate-800 transition focus:border-orange-200 focus:bg-white focus:outline-none focus:ring-4 focus:ring-orange-100"
                   aria-label="Месец"
                 >
                   {Array.from({ length: 12 }, (_, month) => (
@@ -1169,7 +1647,7 @@ export default function TasksPage() {
                   onChange={(event) =>
                     setCalendarMonth(new Date(Number(event.target.value), calendarMonth.getMonth(), 1))
                   }
-                  className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  className="h-9 rounded-xl border border-slate-100 bg-slate-50 px-3 text-sm font-bold text-slate-800 transition focus:border-orange-200 focus:bg-white focus:outline-none focus:ring-4 focus:ring-orange-100"
                   aria-label="Година"
                 >
                   {calendarYears.map((year) => (
@@ -1180,13 +1658,13 @@ export default function TasksPage() {
                 </select>
               </div>
 
-              <div className="mt-3 flex min-h-5 items-center justify-between gap-2 text-xs font-bold text-slate-400">
-                <span className="capitalize">{monthLabel}</span>
+              <div className="mt-3 flex min-h-5 items-center justify-between gap-2 text-xs font-semibold text-slate-400">
+                <span className="capitalize tracking-wide">{monthLabel}</span>
                 {selectedDate ? (
                   <button
                     type="button"
                     onClick={() => setSelectedDate("")}
-                    className="font-black text-orange-700 hover:text-orange-800"
+                    className="font-bold text-orange-600 hover:text-orange-700"
                   >
                     Изчисти {selectedDateLabel}
                   </button>
@@ -1219,17 +1697,17 @@ export default function TasksPage() {
                         isSelected
                           ? "bg-slate-950 text-white shadow-sm"
                           : isToday
-                          ? "bg-orange-500 text-white shadow-sm"
+                          ? "bg-orange-50 font-black text-orange-700 ring-1 ring-orange-200"
                           : day.currentMonth
                             ? "text-slate-700 hover:bg-orange-50 hover:text-orange-700"
                             : "text-slate-300"
                       }`}
                     >
                       {day.label}
-                      {hasTask && !isSelected ? (
+                      {hasTask ? (
                         <span
                           className={`absolute bottom-1 h-1 w-1 rounded-full ${
-                            isToday ? "bg-white" : "bg-orange-500"
+                            isSelected ? "bg-white" : "bg-orange-500"
                           }`}
                         />
                       ) : null}
@@ -1270,6 +1748,242 @@ export default function TasksPage() {
             </Card>
           </aside>
         </div>
+
+        {manualTaskOpen ? (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4 py-6 backdrop-blur-sm"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && !manualTaskSaving) {
+                setManualTaskOpen(false);
+              }
+            }}
+          >
+            <form
+              onSubmit={submitManualTask}
+              className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+                <div>
+                  <h2 className="text-xl font-black text-slate-950">Нова задача</h2>
+                  <p className="mt-1 text-sm font-semibold text-slate-500">
+                    {manualTaskConfig.intro}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setManualTaskOpen(false)}
+                  disabled={manualTaskSaving}
+                  className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50 disabled:opacity-50"
+                  aria-label="Затвори"
+                >
+                  <X size={17} />
+                </button>
+              </div>
+
+              <div className="grid max-h-[calc(100vh-12rem)] gap-4 overflow-y-auto p-5 md:grid-cols-2">
+                {manualTaskError ? (
+                  <div className="md:col-span-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+                    {manualTaskError}
+                  </div>
+                ) : null}
+
+                <label className="space-y-2">
+                  <span className="text-xs font-black uppercase text-slate-400">Тип</span>
+                  <select
+                    value={manualTaskForm.taskType}
+                    onChange={(event) => changeManualTaskType(event.target.value)}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  >
+                    {manualTaskTypeOptions.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-black uppercase text-slate-400">
+                    {manualTaskConfig.titleLabel}
+                  </span>
+                  <input
+                    value={manualTaskForm.title}
+                    onChange={(event) =>
+                      setManualTaskForm((current) => ({ ...current, title: event.target.value }))
+                    }
+                    placeholder={manualTaskConfig.titlePlaceholder}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-black uppercase text-slate-400">Дата</span>
+                  <input
+                    type="date"
+                    value={manualTaskForm.dueDate}
+                    onChange={(event) =>
+                      setManualTaskForm((current) => ({ ...current, dueDate: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  />
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-xs font-black uppercase text-slate-400">Час</span>
+                  <input
+                    type="time"
+                    value={manualTaskForm.dueTime}
+                    onChange={(event) =>
+                      setManualTaskForm((current) => ({ ...current, dueTime: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  />
+                </label>
+
+                {manualTaskConfig.showClient ? (
+                  <label className="space-y-2">
+                    <span className="text-xs font-black uppercase text-slate-400">Клиент</span>
+                    <input
+                      value={manualTaskForm.client}
+                      onChange={(event) =>
+                        setManualTaskForm((current) => ({ ...current, client: event.target.value }))
+                      }
+                      placeholder="Клиент / фирма"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                  </label>
+                ) : null}
+
+                {manualTaskConfig.showContact ? (
+                  <label className="space-y-2">
+                    <span className="text-xs font-black uppercase text-slate-400">Контакт</span>
+                    <input
+                      value={manualTaskForm.contactName}
+                      onChange={(event) =>
+                        setManualTaskForm((current) => ({ ...current, contactName: event.target.value }))
+                      }
+                      placeholder="Име на човек"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                  </label>
+                ) : null}
+
+                {manualTaskConfig.showPhone ? (
+                  <label className="space-y-2">
+                    <span className="text-xs font-black uppercase text-slate-400">Телефон</span>
+                    <input
+                      value={manualTaskForm.phone}
+                      onChange={(event) =>
+                        setManualTaskForm((current) => ({ ...current, phone: event.target.value }))
+                      }
+                      placeholder="Телефон за връзка"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                  </label>
+                ) : null}
+
+                {manualTaskConfig.showLocation ? (
+                  <label className="space-y-2 md:col-span-2">
+                    <span className="text-xs font-black uppercase text-slate-400">Локация / обект</span>
+                    <select
+                      value={manualTaskForm.locationId}
+                      onChange={(event) => selectManualTaskLocation(event.target.value)}
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    >
+                      <option value="">Без избрана локация</option>
+                      {locations.map((location) => (
+                        <option key={location.id} value={location.id}>
+                          {location.name}
+                          {location.client ? ` - ${location.client}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                {manualTaskConfig.showObjectName ? (
+                  <label className="space-y-2">
+                    <span className="text-xs font-black uppercase text-slate-400">Име на обекта / място</span>
+                    <input
+                      value={manualTaskForm.objectName}
+                      onChange={(event) =>
+                        setManualTaskForm((current) => ({ ...current, objectName: event.target.value }))
+                      }
+                      placeholder="По желание"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                  </label>
+                ) : null}
+
+                <label className="space-y-2">
+                  <span className="text-xs font-black uppercase text-slate-400">
+                    {manualTaskConfig.assigneeLabel}
+                  </span>
+                  <select
+                    value={manualTaskForm.technician}
+                    onChange={(event) =>
+                      setManualTaskForm((current) => ({ ...current, technician: event.target.value }))
+                    }
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  >
+                    <option value="">Не е зададен</option>
+                    {manualTaskAssigneeOptions
+                      .filter((technician) => technician !== UNASSIGNED_TECHNICIAN)
+                      .map((technician) => (
+                        <option key={technician} value={technician}>
+                          {technician}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+
+                {manualTaskConfig.showAddress ? (
+                  <label className="space-y-2">
+                    <span className="text-xs font-black uppercase text-slate-400">Адрес / място</span>
+                    <input
+                      value={manualTaskForm.address}
+                      onChange={(event) =>
+                        setManualTaskForm((current) => ({ ...current, address: event.target.value }))
+                      }
+                      placeholder="Попълва се от локацията или се въвежда свободно"
+                      className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                    />
+                  </label>
+                ) : null}
+
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-xs font-black uppercase text-slate-400">
+                    {manualTaskConfig.noteLabel}
+                  </span>
+                  <textarea
+                    value={manualTaskForm.description}
+                    onChange={(event) =>
+                      setManualTaskForm((current) => ({ ...current, description: event.target.value }))
+                    }
+                    rows={3}
+                    placeholder={manualTaskConfig.notePlaceholder}
+                    className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 px-5 py-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setManualTaskOpen(false)}
+                  disabled={manualTaskSaving}
+                >
+                  Отказ
+                </Button>
+                <Button type="submit" disabled={manualTaskSaving}>
+                  <Plus size={16} />
+                  {manualTaskSaving ? "Записване..." : "Създай задача"}
+                </Button>
+              </div>
+            </form>
+          </div>
+        ) : null}
       </div>
     </AppShell>
   );

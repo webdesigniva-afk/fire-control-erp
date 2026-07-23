@@ -596,7 +596,7 @@ export default function ProtocolsPage() {
                       <Badge variant={statusVariant[protocol.status]}>
                         {protocol.status}
                       </Badge>
-                      {protocol.source === "stored" ? (
+                      {protocol.source === "stored" && protocol.status !== "Завършен" ? (
                         <Badge variant="orange">Нов</Badge>
                       ) : null}
                     </div>

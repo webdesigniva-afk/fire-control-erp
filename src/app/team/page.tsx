@@ -465,10 +465,10 @@ export default function TeamPage() {
   const [selectedAccessRoleId, setSelectedAccessRoleId] = useState(defaultAccessRoles[0].id);
   const [newAccessRoleName, setNewAccessRoleName] = useState("");
   const [newAccessRoleDescription, setNewAccessRoleDescription] = useState("");
+  const [teamView, setTeamView] = useState<"people" | "access">("people");
 
   const activeCount = useMemo(() => members.filter((member) => member.is_active).length, [members]);
   const canManageAccess = currentProfile?.role === "Администратор";
-
   const showNotice = useCallback((text: string, type: "success" | "error" = "success") => {
     setNotice({ text, type });
     window.setTimeout(() => setNotice(null), 3500);
@@ -889,9 +889,9 @@ export default function TeamPage() {
         ) : null}
 
         <Card className="p-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-orange-200 bg-orange-50 text-orange-600">
                 <UsersRound size={21} />
               </div>
               <div>
@@ -901,7 +901,35 @@ export default function TeamPage() {
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              {canManageAccess ? (
+                <div className="mr-1 inline-flex rounded-2xl border border-slate-200 bg-slate-100/70 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setTeamView("people")}
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition ${
+                      teamView === "people"
+                        ? "bg-white text-slate-950 shadow-sm"
+                        : "text-slate-500 hover:bg-white/70 hover:text-slate-800"
+                    }`}
+                  >
+                    <UsersRound size={16} />
+                    Хора
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTeamView("access")}
+                    className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-black transition ${
+                      teamView === "access"
+                        ? "bg-white text-slate-950 shadow-sm"
+                        : "text-slate-500 hover:bg-white/70 hover:text-slate-800"
+                    }`}
+                  >
+                    <ShieldCheck size={16} />
+                    Роли и права
+                  </button>
+                </div>
+              ) : null}
               {loadState === "error" ? <span className="text-sm font-bold text-red-600">Грешка при зареждане</span> : null}
               <Button type="button" onClick={openCreate}>
                 <Plus size={16} />
@@ -915,21 +943,8 @@ export default function TeamPage() {
           </div>
         </Card>
 
-        {canManageAccess ? (
-          <RoleAccessSection
-            roles={accessRoles}
-            selectedRoleId={selectedAccessRoleId}
-            newRoleName={newAccessRoleName}
-            newRoleDescription={newAccessRoleDescription}
-            onSelectRole={setSelectedAccessRoleId}
-            onNewRoleNameChange={setNewAccessRoleName}
-            onNewRoleDescriptionChange={setNewAccessRoleDescription}
-            onAddRole={addAccessRole}
-            onTogglePermission={toggleAccessPermission}
-          />
-        ) : null}
-
-        {loadState === "loading" ? (
+        {teamView === "people" ? (
+        loadState === "loading" ? (
           <div className="flex h-56 items-center justify-center">
             <Loader2 className="animate-spin text-orange-500" size={30} />
           </div>
@@ -1026,7 +1041,22 @@ export default function TeamPage() {
               </table>
             </div>
           </Card>
-        )}
+        )
+        ) : null}
+
+        {canManageAccess && teamView === "access" ? (
+          <RoleAccessSection
+            roles={accessRoles}
+            selectedRoleId={selectedAccessRoleId}
+            newRoleName={newAccessRoleName}
+            newRoleDescription={newAccessRoleDescription}
+            onSelectRole={setSelectedAccessRoleId}
+            onNewRoleNameChange={setNewAccessRoleName}
+            onNewRoleDescriptionChange={setNewAccessRoleDescription}
+            onAddRole={addAccessRole}
+            onTogglePermission={toggleAccessPermission}
+          />
+        ) : null}
       </div>
 
       {isCreateOpen ? (

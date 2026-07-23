@@ -1,9 +1,19 @@
 import { PrintButton } from "../../../../components/print-button";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { PrintPhotoAttachments, PrintSignatureLine } from "../signature-preview";
 
 export const dynamic = "force-dynamic";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+const COMPANY_SETTINGS_KEY = "firecontrol:settings:company";
+
+type CompanyPrintSettings = {
+  companyName: string;
+  address: string;
+  phone: string;
+  email: string;
+};
 
 const checklistRows = [
   {
@@ -76,6 +86,42 @@ function valueFromQuery(
   return value ?? fallback;
 }
 
+function valueFromSettingsOrQuery(
+  settingsValue: string,
+  query: Record<string, string | string[] | undefined>,
+  key: string,
+  fallback: string
+) {
+  return settingsValue.trim() || valueFromQuery(query, key, fallback);
+}
+
+async function readCompanyPrintSettings(): Promise<CompanyPrintSettings> {
+  try {
+    const supabase = createSupabaseServerClient();
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", COMPANY_SETTINGS_KEY)
+      .maybeSingle();
+
+    if (error) return { companyName: "", address: "", phone: "", email: "" };
+    const value = data?.value;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { companyName: "", address: "", phone: "", email: "" };
+    }
+
+    const record = value as Partial<CompanyPrintSettings>;
+    return {
+      companyName: typeof record.companyName === "string" ? record.companyName : "",
+      address: typeof record.address === "string" ? record.address : "",
+      phone: typeof record.phone === "string" ? record.phone : "",
+      email: typeof record.email === "string" ? record.email : "",
+    };
+  } catch {
+    return { companyName: "", address: "", phone: "", email: "" };
+  }
+}
+
 function formatDate(date: Date) {
   return new Intl.DateTimeFormat("bg-BG", {
     day: "2-digit",
@@ -128,8 +174,8 @@ function CheckCell({ checked }: { checked: boolean }) {
 
 function VerticalHeaderCell({ children }: { children: string }) {
   return (
-    <th className="relative h-[78px] w-[30px] border-2 border-black p-0 align-middle">
-      <span className="absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 -rotate-90 whitespace-nowrap text-[8.5px] font-black leading-none">
+    <th className="relative h-[74px] w-[36px] border border-black bg-slate-50 p-0 align-middle print:bg-white">
+      <span className="absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 -rotate-90 whitespace-nowrap text-[8.4px] font-black leading-none">
         {children}
       </span>
     </th>
@@ -138,12 +184,14 @@ function VerticalHeaderCell({ children }: { children: string }) {
 
 function InfoItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="border-b border-black last:border-b-0">
-      <div className="grid grid-cols-[76px_1fr]">
-        <div className="border-r border-black px-1.5 py-1 font-bold">
-          {label}
+    <div className="min-h-0 border-b border-black last:border-b-0">
+      <div className="grid h-full grid-cols-[76px_1fr]">
+        <div className="flex items-start border-r border-black px-1.5 py-1 font-bold">
+          <span>{label}</span>
         </div>
-        <div className="px-1.5 py-1">{value}</div>
+        <div className="flex items-start px-1.5 py-1">
+          <span>{value}</span>
+        </div>
       </div>
     </div>
   );
@@ -180,6 +228,7 @@ export default async function ServiceMaintenancePrintPage({
   searchParams,
 }: ServiceMaintenancePrintPageProps) {
   const query = await searchParams;
+  const companySettings = await readCompanyPrintSettings();
   const today = new Date();
   const fallbackDate = formatDate(today);
   const protocolYear = today.getFullYear();
@@ -209,21 +258,33 @@ export default async function ServiceMaintenancePrintPage({
     "serviceSystemStatus",
     ""
   );
-  const companyName = valueFromQuery(query, "companyName", "Пожарен Контрол ЕООД");
-  const companyAddress = valueFromQuery(
+  const companyName = valueFromSettingsOrQuery(
+    companySettings.companyName,
+    query,
+    "companyName",
+    "Пожарен Контрол ЕООД"
+  );
+  const companyAddress = valueFromSettingsOrQuery(
+    companySettings.address,
     query,
     "companyAddress",
     "гр. Шумен, ул. “Владайско въстание” No 152"
   );
-  const companyPhone = valueFromQuery(query, "companyPhone", "0896 089 991");
-  const companyEmail = valueFromQuery(query, "companyEmail", "support@firecontrol.bg");
+  const companyPhone = valueFromSettingsOrQuery(companySettings.phone, query, "companyPhone", "0896 089 991");
+  const companyEmail = valueFromSettingsOrQuery(
+    companySettings.email,
+    query,
+    "companyEmail",
+    "office@firecontrol.bg"
+  );
   const nextVisitDate = valueFromQuery(query, "nextVisitDate", "");
   const faultValues = [
     serviceDefects,
     serviceDeviations,
     serviceSystemStatus,
-    nextVisitDate,
+    formatDateValue(nextVisitDate, ""),
   ];
+  const clientSignerName = contact || client;
 
   return (
     <main className="min-h-screen bg-slate-100 px-4 py-6 text-black print:bg-white print:p-0">
@@ -233,40 +294,43 @@ export default async function ServiceMaintenancePrintPage({
         </div>
       )}
 
-      <article className="mx-auto w-full max-w-[760px] bg-white p-6 text-[9.5px] leading-[1.16] shadow-sm print:min-h-0 print:max-w-none print:p-0 print:shadow-none">
-        <header className="avoid-break border-2 border-black">
-          <div className="grid grid-cols-[1fr_1.45fr_1fr]">
-            <div className="border-r-2 border-black p-2">
-              <div className="text-[18px] font-black tracking-tight">
-                FIRE<span className="text-orange-600 print:text-black">Control</span>
-              </div>
-              <div className="mt-0.5 text-[8.5px] font-bold uppercase tracking-wide">
+      <article className="print-document mx-auto w-full max-w-[980px] bg-white p-6 text-[9.8px] leading-[1.18] shadow-sm print:p-0 print:shadow-none">
+        <header className="avoid-break border border-black">
+          <div className="grid grid-cols-[1.05fr_1.35fr_1.05fr]">
+            <div className="border-r border-black p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/firecontrol-header-logo.png"
+                alt="FireControl"
+                className="h-auto w-32 object-contain object-left"
+              />
+              <div className="mt-1 text-[8px] font-bold uppercase tracking-wide text-slate-800 print:text-black">
                 Пожарна безопасност и сервиз
               </div>
-              <div className="mt-1.5 text-[8.5px] leading-3">
+              <div className="mt-3 text-[8.5px] leading-3 text-slate-700 print:text-black">
                 {companyAddress}
                 <br />
-                GSM: {companyPhone}
+                Тел.: {companyPhone}
                 <br />
                 {companyEmail}
               </div>
             </div>
 
-            <div className="p-2 text-center">
-              <h1 className="text-[22px] font-black leading-tight tracking-wide">
+            <div className="flex flex-col justify-center p-3 text-center">
+              <h1 className="text-[19px] font-black leading-tight tracking-wide">
                 ПРОТОКОЛ ЗА ПОДДРЪЖКА НА ПИС
               </h1>
-              <div className="mx-auto mt-2 grid max-w-[240px] grid-cols-2 border border-black text-[10px]">
-                <div className="border-r border-black px-1.5 py-1">
+              <div className="mx-auto mt-3 grid max-w-[260px] grid-cols-2 overflow-hidden rounded-sm border border-black text-[9.5px]">
+                <div className="border-r border-black bg-slate-50 px-2 py-1 print:bg-white">
                   № <span className="font-bold">{protocolNumber}</span>
                 </div>
-                <div className="px-1.5 py-1">
+                <div className="bg-slate-50 px-2 py-1 print:bg-white">
                   Дата <span className="font-bold">{currentDate}</span>
                 </div>
               </div>
             </div>
 
-            <div className="border-l-2 border-black text-[10px]">
+            <div className="grid grid-rows-4 border-l border-black text-[9.5px]">
               <InfoItem label="Клиент" value={client} />
               <InfoItem label="Обект" value={objectName} />
               <InfoItem label="Адрес" value={address} />
@@ -275,8 +339,8 @@ export default async function ServiceMaintenancePrintPage({
           </div>
         </header>
 
-        <section className="avoid-break mt-2.5 border border-black bg-slate-50 p-2 print:bg-white">
-          <p className="text-[10.5px] font-bold leading-4">
+        <section className="avoid-break mt-3 border border-black bg-slate-50 px-3 py-2.5 print:bg-white">
+          <p className="text-[9.8px] font-semibold leading-4 text-slate-900 print:text-black">
             Днес {currentDate} г., на основание сключен договор за поддръжка на
             пожароизвестителна система, инсталирана на територията на обект:
             {" "}
@@ -288,18 +352,18 @@ export default async function ServiceMaintenancePrintPage({
         </section>
 
         <section className="mt-2.5">
-          <h2 className="border-2 border-b-0 border-black px-2 py-1 text-center text-[10.5px] font-black">
+          <h2 className="border border-b-0 border-black bg-slate-50 px-2 py-1 text-center text-[9.8px] font-black print:bg-white">
             I. Раздел “Превантивна поддръжка”, съгласно т.А.8.а на “Приложение
             А” към стандарта на БДС EN 16763
           </h2>
 
-          <table className="w-full table-fixed border-collapse border-2 border-black text-[8.8px]">
+          <table className="w-full table-fixed border-collapse border-2 border-black text-[9.2px]">
             <thead>
               <tr>
-                <th className="w-[34px] border-2 border-black px-0.5 py-1 text-center align-top text-[10px]">
+                <th className="w-[38px] border border-black bg-slate-50 px-0.5 py-1 text-center align-middle text-[9.5px] print:bg-white">
                   No
                 </th>
-                <th className="border-2 border-black px-2 py-1 text-center align-top text-[10.5px] font-black leading-[1.05]">
+                <th className="border border-black bg-slate-50 px-4 py-2 text-center align-top text-[10.2px] font-semibold leading-[1.18] print:bg-white">
                   Дейности, съгласно изискванията на договора за поддръжка,
                   зададените от производителя данни за компонентите и за
                   системата и в съответствие с т. 12 на стандарта СД
@@ -316,10 +380,10 @@ export default async function ServiceMaintenancePrintPage({
 
                 return (
                 <tr key={row.number} className={row.heading ? "font-black" : ""}>
-                  <td className="border border-black px-0.5 py-0.5 text-center align-middle text-[9.5px]">
+                  <td className="border border-black px-0.5 py-0.5 text-center align-middle text-[9.2px]">
                     {row.number}
                   </td>
-                  <td className="border border-black px-1.5 py-0.5 align-middle text-[9px] leading-[1.08]">
+                  <td className="border border-black px-1.5 py-0.5 align-middle text-[9.2px] leading-[1.16]">
                     {row.activity}
                   </td>
                   <CheckCell checked={checkValue === "Изпълнено"} />
@@ -333,30 +397,32 @@ export default async function ServiceMaintenancePrintPage({
         </section>
 
         <section className="mt-2.5">
-          <h2 className="border-2 border-b-0 border-black px-2 py-1 text-center text-[10.5px] font-black">
+          <h2 className="border border-b-0 border-black bg-slate-50 px-2 py-1 text-center text-[9.8px] font-black print:bg-white">
             II. Раздел “Отстраняване на грешки”, съгласно т.А.8.b на “Приложение
             А” към стандарта БДС EN 16763:2017
           </h2>
 
-          <div className="border-2 border-black">
-            {faultRows.map((row, index) => (
-              <div key={row} className={index > 0 ? "border-t border-black" : ""}>
-                <div className="grid grid-cols-[34px_1fr] border-b border-black text-[10.5px] font-bold">
-                  <div className="border-r border-black px-0.5 py-0.5 text-center">
-                    {index + 1}.
-                  </div>
-                  <div className="px-2 py-0.5">{row}</div>
-                </div>
-                <div
-                  className={`px-2 py-1 text-[9.5px] leading-4 ${
-                    index === 0 ? "min-h-11" : index === 2 ? "min-h-8" : "min-h-7"
-                  }`}
-                >
-                  {faultValues[index] || ""}
-                </div>
-              </div>
-            ))}
-          </div>
+          <table className="w-full table-fixed border-collapse border-2 border-black text-[9.5px]">
+            <tbody>
+              {faultRows.map((row, index) => {
+                const value = faultValues[index]?.trim();
+
+                return (
+                  <tr key={row}>
+                    <td className="w-[38px] border border-black px-0.5 py-1 text-center align-top font-black">
+                      {index + 1}.
+                    </td>
+                    <td className="w-[260px] border border-black bg-slate-50 px-2 py-1 align-top font-black leading-4 print:bg-white">
+                      {row}
+                    </td>
+                    <td className="border border-black px-2 py-1 align-top leading-4">
+                      {value || <span className="text-slate-400 print:text-black">—</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </section>
 
         <footer className="avoid-break mt-3">
@@ -371,13 +437,9 @@ export default async function ServiceMaintenancePrintPage({
                   previewId={previewId}
                   role="technician"
                   fallbackName={technician}
+                  showNameWithSignature
+                  namePlacement="below"
                 />
-              </div>
-              <div className="mt-3 text-[10px]">
-                Дата:{" "}
-                <span className="inline-block min-w-24 border-b border-black">
-                  {currentDate}
-                </span>
               </div>
             </div>
 
@@ -391,29 +453,14 @@ export default async function ServiceMaintenancePrintPage({
                 <PrintSignatureLine
                   previewId={previewId}
                   role="client"
-                  fallbackName={contact}
+                  fallbackName={clientSignerName}
+                  showNameWithSignature
+                  namePlacement="below"
                 />
-              </div>
-              <div className="mt-3 text-[10px]">
-                Дата:{" "}
-                <span className="inline-block min-w-24 border-b border-black">
-                  {currentDate}
-                </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-2.5 flex items-end justify-between">
-            <div className="h-14 w-44 border border-black" aria-hidden="true" />
-            <div className="text-right">
-              <div className="text-[17px] font-black tracking-tight">
-                FIRE<span className="text-orange-600 print:text-black">Control</span>
-              </div>
-              <div className="text-[9px] font-bold">
-                Prepared by: Fire Control Ltd.
-              </div>
-            </div>
-          </div>
         </footer>
       </article>
 
@@ -430,7 +477,7 @@ export default async function ServiceMaintenancePrintPage({
       <style>{`
         @page {
           size: A4;
-          margin: 8mm;
+          margin: 5mm;
         }
 
         @media print {
@@ -438,15 +485,35 @@ export default async function ServiceMaintenancePrintPage({
           body {
             background: white !important;
             color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          main {
+            min-height: auto !important;
+            padding: 0 !important;
           }
 
           .no-print {
             display: none !important;
           }
 
-          article {
+          .print-document {
             box-shadow: none !important;
             border-radius: 0 !important;
+            box-sizing: border-box !important;
+            min-height: auto !important;
+            width: 200mm !important;
+            max-width: 200mm !important;
+            margin: 0 auto !important;
+            overflow: visible !important;
+          }
+
+          .print-document footer {
+            margin-top: 6mm !important;
+            padding-top: 0 !important;
           }
 
           thead {
@@ -465,6 +532,11 @@ export default async function ServiceMaintenancePrintPage({
 
           table {
             border-collapse: collapse !important;
+          }
+
+          .photo-attachments {
+            break-before: page;
+            page-break-before: always;
           }
         }
       `}</style>

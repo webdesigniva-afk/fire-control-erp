@@ -46,6 +46,7 @@ export type ServiceTask = {
   client: string;
   assignedTo?: string;
   dueDate: string;
+  dueTime?: string;
   sourceProtocolId?: string;
   sourceProtocolNumber?: string;
   sourceProtocolRow?: string;
@@ -192,6 +193,7 @@ function mapTaskRow(row: Record<string, unknown>): ServiceTask {
     client: String(row["client"] ?? ""),
     assignedTo: String(row["assigned_to"] ?? "") || undefined,
     dueDate: String(row["due_date"] ?? ""),
+    dueTime: String(row["due_time"] ?? "") || undefined,
     sourceProtocolId: String(row["source_protocol_id"] ?? "") || undefined,
     sourceProtocolNumber: String(row["source_protocol_number"] ?? "") || undefined,
     sourceProtocolRow: String(row["source_protocol_row"] ?? "") || undefined,
@@ -239,6 +241,7 @@ function taskPayload(task: ServiceTask) {
     client: task.client,
     assigned_to: task.assignedTo || null,
     due_date: task.dueDate || null,
+    due_time: task.dueTime || null,
     source_protocol_id: task.sourceProtocolId || null,
     source_protocol_number: task.sourceProtocolNumber || null,
     source_protocol_row: task.sourceProtocolRow || null,
@@ -250,6 +253,7 @@ function taskPayload(task: ServiceTask) {
     resolution_date: task.resolutionDate || null,
     resolved_by: task.resolvedBy || null,
     resolved_at: task.resolvedAt || null,
+    completed_at: task.completedAt || null,
     status: task.status,
     created_at_ms: task.createdAt,
     updated_at: new Date().toISOString(),
@@ -300,6 +304,7 @@ async function upsertTaskPayloadWithFallback(task: ServiceTask) {
     "task_type",
     "object_id",
     "source_protocol_id",
+    "due_time",
     "source_protocol_row",
     "source_protocol_type",
     "source_label",
@@ -422,6 +427,82 @@ export async function writeServiceTasksToSupabase(tasks: ServiceTask[]) {
 
   if (error) throw new Error(error.message);
   writeServiceTasks(tasks);
+}
+
+export async function deleteServiceTasks(taskIds: string[]) {
+  const ids = Array.from(new Set(taskIds.map((id) => id.trim()).filter(Boolean)));
+  if (!ids.length) return;
+
+  const supabase = createSupabaseBrowserClient();
+  const { error } = await supabase
+    .from("service_tasks")
+    .delete()
+    .in("id", ids);
+
+  if (error) throw new Error(error.message);
+
+  writeServiceTasks(readServiceTasks().filter((task) => !ids.includes(task.id)));
+  window.dispatchEvent(new Event(serviceTasksUpdatedEvent));
+}
+
+export async function createManualServiceTask(input: {
+  title: string;
+  description?: string;
+  taskType: string;
+  objectId?: string;
+  objectCode?: string;
+  objectName: string;
+  address?: string;
+  client?: string;
+  assignedTo?: string;
+  dueDate: string;
+  dueTime?: string;
+}) {
+  const title = input.title.trim() || input.taskType || "Задача";
+  const dueTime = input.dueTime?.trim() ?? "";
+  const descriptionParts = [
+    input.description?.trim() ?? "",
+    input.assignedTo?.trim() ? `Отговорник: ${input.assignedTo.trim()}` : "",
+    input.address?.trim() ? `Адрес: ${input.address.trim()}` : "",
+    dueTime ? `Час: ${dueTime}` : "",
+  ].filter(Boolean);
+
+  const task: ServiceTask = {
+    id: createTaskId(),
+    title,
+    description: descriptionParts.join("\n"),
+    taskType: input.taskType || "Ръчна задача",
+    type: "VISIT",
+    activities: [
+      {
+        row: "",
+        title,
+        description: input.description?.trim() ?? "",
+        recurrenceMonths: 0,
+      },
+    ],
+    objectCode: input.objectCode || input.objectId || "",
+    objectId: input.objectId || undefined,
+    objectName: input.objectName.trim(),
+    client: input.client?.trim() ?? "",
+    assignedTo: input.assignedTo?.trim() || undefined,
+    dueDate: input.dueDate,
+    dueTime: dueTime || undefined,
+    sourceProtocolType: "manual",
+    sourceLabel: "Ръчна задача",
+    status: "planned",
+    createdAt: Date.now(),
+  };
+
+  await upsertTaskPayloadWithFallback(task);
+  writeServiceTasks([task, ...readServiceTasks().filter((item) => item.id !== task.id)]);
+  return task;
+}
+
+export async function saveServiceTask(task: ServiceTask) {
+  await upsertTaskPayloadWithFallback(task);
+  writeServiceTasks([task, ...readServiceTasks().filter((item) => item.id !== task.id)]);
+  return task;
 }
 
 export async function updateServiceTaskStatus(

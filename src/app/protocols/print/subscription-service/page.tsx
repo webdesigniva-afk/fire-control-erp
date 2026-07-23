@@ -1,4 +1,5 @@
 import { PrintButton } from "../../../../components/print-button";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { PrintPhotoAttachments, PrintSignatureLine } from "../signature-preview";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +7,15 @@ export const dynamic = "force-dynamic";
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
 type ChecklistState = "good" | "bad" | null;
+
+const COMPANY_SETTINGS_KEY = "firecontrol:settings:company";
+
+type CompanyPrintSettings = {
+  companyName: string;
+  address: string;
+  phone: string;
+  email: string;
+};
 
 type SubscriptionProtocolData = {
   protocolNumber: string;
@@ -135,6 +145,42 @@ function valueFromQuery(
   }
 
   return value ?? fallback;
+}
+
+function valueFromSettingsOrQuery(
+  settingsValue: string,
+  query: Record<string, string | string[] | undefined>,
+  key: string,
+  fallback: string
+) {
+  return settingsValue.trim() || valueFromQuery(query, key, fallback);
+}
+
+async function readCompanyPrintSettings(): Promise<CompanyPrintSettings> {
+  try {
+    const supabase = createSupabaseServerClient();
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", COMPANY_SETTINGS_KEY)
+      .maybeSingle();
+
+    if (error) return { companyName: "", address: "", phone: "", email: "" };
+    const value = data?.value;
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return { companyName: "", address: "", phone: "", email: "" };
+    }
+
+    const record = value as Partial<CompanyPrintSettings>;
+    return {
+      companyName: typeof record.companyName === "string" ? record.companyName : "",
+      address: typeof record.address === "string" ? record.address : "",
+      phone: typeof record.phone === "string" ? record.phone : "",
+      email: typeof record.email === "string" ? record.email : "",
+    };
+  } catch {
+    return { companyName: "", address: "", phone: "", email: "" };
+  }
 }
 
 function listFromQuery(
@@ -354,32 +400,103 @@ export default async function SubscriptionServicePrintPage({
   searchParams,
 }: SubscriptionServicePrintPageProps) {
   const query = await searchParams;
+  const companySettings = await readCompanyPrintSettings();
   const protocolData = buildProtocolData(query);
   const protocolDate = dateParts(protocolData.date);
   const embedded = valueFromQuery(query, "embedded", "") === "1";
-  const companyName = valueFromQuery(query, "companyName", "Пожарен Контрол ЕООД");
-  const companyAddress = valueFromQuery(query, "companyAddress", "гр. Шумен");
+  const companyName = valueFromSettingsOrQuery(
+    companySettings.companyName,
+    query,
+    "companyName",
+    "Пожарен Контрол ЕООД"
+  );
+  const companyAddress = valueFromSettingsOrQuery(
+    companySettings.address,
+    query,
+    "companyAddress",
+    "гр. Шумен, ул. “Владайско въстание” No 152"
+  );
+  const companyPhone = valueFromSettingsOrQuery(companySettings.phone, query, "companyPhone", "0896 089 991");
+  const companyEmail = valueFromSettingsOrQuery(
+    companySettings.email,
+    query,
+    "companyEmail",
+    "office@firecontrol.bg"
+  );
 
   return (
-    <main className="min-h-screen bg-neutral-200 px-3 py-5 font-[Arial] text-black print:bg-white print:p-0">
+    <main className="min-h-screen bg-slate-100 px-4 py-6 text-black print:bg-white print:p-0">
       {embedded ? null : (
-        <div className="no-print mx-auto mb-3 flex w-[210mm] max-w-full justify-end">
+        <div className="no-print mx-auto mb-4 flex w-full max-w-[980px] justify-end">
           <PrintButton />
         </div>
       )}
 
-      <article className="main-protocol mx-auto min-h-[297mm] w-[210mm] max-w-full bg-white px-[12mm] py-[11mm] text-[11.8px] leading-[1.3] text-black shadow-sm print:m-0 print:min-h-0 print:w-auto print:max-w-none print:p-0 print:shadow-none">
-        <header className="text-center">
-          <h1 className="text-[22px] font-bold leading-none tracking-normal">
-            ПРОТОКОЛ
-          </h1>
-          <div className="mt-2.5 text-[14px] leading-tight">
-            № {protocolData.protocolNumber} / {protocolDate.display} г.
+      <article className="main-protocol mx-auto w-full max-w-[980px] bg-white p-6 text-[9.8px] leading-[1.2] text-black shadow-sm print:m-0 print:max-w-none print:p-0 print:shadow-none">
+        <header className="avoid-break border border-black">
+          <div className="grid grid-cols-[1.05fr_1.35fr_1.05fr]">
+            <div className="border-r border-black p-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/firecontrol-header-logo.png"
+                alt="FireControl"
+                className="h-auto w-32 object-contain object-left"
+              />
+              <div className="mt-1 text-[8.5px] font-bold uppercase leading-tight">
+                Пожарна безопасност и сервиз
+              </div>
+              <div className="mt-3 space-y-0.5 text-[9px] leading-tight">
+                <div>{companyAddress}</div>
+                <div>Тел.: {companyPhone}</div>
+                <div>{companyEmail}</div>
+              </div>
+            </div>
+
+            <div className="flex flex-col items-center justify-center border-r border-black px-4 py-3 text-center">
+              <h1 className="text-[20px] font-black leading-[1.08] tracking-normal">
+                ПРОТОКОЛ ЗА<br />
+                АБОНАМЕНТНО ОБСЛУЖВАНЕ
+              </h1>
+              <div className="mt-4 grid w-[78%] grid-cols-2 border border-black text-[10px] leading-tight">
+                <div className="border-r border-black px-2 py-1.5">
+                  № <span className="font-bold">{protocolData.protocolNumber}</span>
+                </div>
+                <div className="px-2 py-1.5">
+                  Дата <span className="font-bold">{protocolDate.display}</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-[0.68fr_1fr] text-[9.8px] leading-tight">
+              {[
+                ["Клиент", protocolData.clientName],
+                ["Обект", protocolData.objectName],
+                ["Адрес", protocolData.address],
+                ["Техник", protocolData.technician],
+              ].map(([label, value], index, rows) => (
+                <div key={label} className="contents">
+                  <div
+                    className={`border-r border-black px-2 py-1.5 font-bold ${
+                      index < rows.length - 1 ? "border-b" : ""
+                    }`}
+                  >
+                    {label}
+                  </div>
+                  <div
+                    className={`px-2 py-1.5 ${
+                      index < rows.length - 1 ? "border-b border-black" : ""
+                    }`}
+                  >
+                    {value}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </header>
 
-        <section className="mt-4">
-          <p className="whitespace-normal break-words text-justify indent-8 leading-[1.38]">
+        <section className="avoid-break mt-3 border border-black p-3">
+          <p className="whitespace-normal break-words text-justify text-[10.6px] font-semibold leading-[1.35]">
             Днес {protocolDate.day} / {protocolDate.month} / {protocolDate.year} г. на основание на сключен договор{" "}
             <span className="font-bold">{protocolData.contractReference}</span>,
             бе извършен абонаментен сервиз на пожарогасителната инсталация,
@@ -483,7 +600,7 @@ export default async function SubscriptionServicePrintPage({
           </table>
         </section>
 
-        <section className="mt-4 grid grid-cols-2 gap-7 text-[10.8px] leading-[1.28]">
+        <section className="mt-4 text-[10.8px] leading-[1.28]">
           <div className="whitespace-normal break-words">
             Персонал, изпълняващ функцията A{" "}
             <FunctionBox checked={protocolData.personnelFunctions.A} />, B{" "}
@@ -491,10 +608,6 @@ export default async function SubscriptionServicePrintPage({
             <FunctionBox checked={protocolData.personnelFunctions.C} />
             <br />
             на стандарта БДС EN 12845:2015+A1:2020
-          </div>
-          <div className="whitespace-normal break-words">
-            Клиент: Всяка работа бе разрешена от мен и изпълнена според
-            изискванията ми
           </div>
         </section>
 
@@ -525,57 +638,34 @@ export default async function SubscriptionServicePrintPage({
           </section>
         ) : null}
 
-        <footer className="mt-10">
-          <div className="signatures grid grid-cols-2 gap-10 text-[11.5px] leading-[1.55]">
+        <footer className="mt-8">
+          <div className="signatures grid grid-cols-2 gap-14 text-[9.8px] leading-[1.35]">
             <div>
-              <div>
-                Име, подпис:{" "}
-                <PrintSignatureLine
-                  previewId={protocolData.previewId}
-                  role="technician"
-                  fallbackName={protocolData.technicianSignature}
-                  showFallbackName={false}
-                />
+              <div className="min-h-12 font-bold italic">
+                Персонал, изпълняващ функцията на стандарта БДС EN 12845:2015+A1:2020
               </div>
-              <div>
-                Име:{" "}
-                <span className="font-bold">{protocolData.technician}</span>
-              </div>
-              <div>
-                Дата:{" "}
-                <span className="inline-block min-w-24 border-b border-black">
-                  {protocolDate.display}
-                </span>{" "}
-                г.
-              </div>
+              <PrintSignatureLine
+                previewId={protocolData.previewId}
+                role="technician"
+                fallbackName={protocolData.technicianSignature || protocolData.technician}
+                showFallbackName={false}
+                showNameWithSignature
+                namePlacement="below"
+              />
             </div>
             <div>
-              <div>
-                Име, подпис:{" "}
-                <PrintSignatureLine
-                  previewId={protocolData.previewId}
-                  role="client"
-                  fallbackName={protocolData.clientSignature}
-                  showFallbackName={false}
-                />
+              <div className="min-h-12 font-bold italic">
+                Клиент: Всяка работа бе разрешена от мен и изпълнена според изискванията ми
               </div>
-              <div>
-                Име:{" "}
-                <span className="font-bold">
-                  {protocolData.clientName} - {protocolData.clientRepresentative}
-                </span>
-              </div>
-              <div>
-                Дата:{" "}
-                <span className="inline-block min-w-24 border-b border-black">
-                  {protocolDate.display}
-                </span>{" "}
-                г.
-              </div>
+              <PrintSignatureLine
+                previewId={protocolData.previewId}
+                role="client"
+                fallbackName={protocolData.clientSignature || protocolData.clientRepresentative || protocolData.clientName}
+                showFallbackName={false}
+                showNameWithSignature
+                namePlacement="below"
+              />
             </div>
-          </div>
-          <div className="mt-5 text-center text-[11.5px]">
-            Протоколът е съставен двустранно
           </div>
         </footer>
       </article>

@@ -11,6 +11,8 @@ type PrintSignatureLineProps = {
   className?: string;
   imageClassName?: string;
   showFallbackName?: boolean;
+  showNameWithSignature?: boolean;
+  namePlacement?: "inline" | "below";
 };
 
 type PreviewSignaturePayload = {
@@ -34,6 +36,8 @@ export function PrintSignatureLine({
   className = "inline-flex min-h-10 min-w-44 items-end border-b border-black align-bottom",
   imageClassName = "max-h-10 max-w-44 object-contain",
   showFallbackName = true,
+  showNameWithSignature = false,
+  namePlacement = "inline",
 }: PrintSignatureLineProps) {
   const [signatureDataUrl, setSignatureDataUrl] = useState("");
 
@@ -70,19 +74,29 @@ export function PrintSignatureLine({
   }, [previewId, role]);
 
   return (
-    <span className={className}>
-      {signatureDataUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={signatureDataUrl}
-          alt={`Подпис - ${fallbackName}`}
-          className={imageClassName}
-        />
-      ) : showFallbackName ? (
-        <span className="px-1 font-bold">{fallbackName}</span>
-      ) : (
-        <span />
-      )}
+    <span className={namePlacement === "below" ? "inline-flex flex-col items-start align-bottom" : className}>
+      <span className={namePlacement === "below" ? className : ""}>
+        {signatureDataUrl ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={signatureDataUrl}
+            alt={`Подпис - ${fallbackName}`}
+            className={imageClassName}
+          />
+          {showNameWithSignature && fallbackName && namePlacement === "inline" ? (
+            <span className="px-1 font-bold">{fallbackName}</span>
+          ) : null}
+        </>
+        ) : showFallbackName && namePlacement === "inline" ? (
+          <span className="px-1 font-bold">{fallbackName}</span>
+        ) : (
+          <span />
+        )}
+      </span>
+      {fallbackName && namePlacement === "below" ? (
+        <span className="mt-1 text-[9px] font-bold leading-none">{fallbackName}</span>
+      ) : null}
     </span>
   );
 }
