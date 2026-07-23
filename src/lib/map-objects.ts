@@ -191,6 +191,7 @@ export async function geocodeMissingLocationCoordinates<T extends MapLocationIte
         ...location,
         latitude: geocoded.latitude,
         longitude: geocoded.longitude,
+        geocodedAddress: geocoded.displayName,
       };
       geocodedCount += 1;
 
