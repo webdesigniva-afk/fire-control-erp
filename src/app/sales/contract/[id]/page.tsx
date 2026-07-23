@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Loader2, Mail, Plus, Printer, Save, Trash2 } from "lucide-react";
+import { BackButton } from "../../../../components/back-button";
 import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
 import { publishSavedDocumentToClientPortal } from "../../../../lib/client-portal";
+import { contractLifecycleFromPayload } from "../../../../lib/contracts";
 import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 
 type ContractLine = {
@@ -46,6 +47,7 @@ type TeamSession = {
 
 type SignatureMethod = "onsite" | "portal" | "paper" | null;
 type SignatureStatus = "draft" | "sent_to_portal" | "signed";
+type ContractStatus = "draft" | "accepted" | "terminated";
 
 type DocumentSignature = {
   status: SignatureStatus;
@@ -152,9 +154,8 @@ function readDraftContract(payload: unknown): Partial<ContractData> | null {
   return payload.contract as Partial<ContractData>;
 }
 
-function readDraftContractStatus(payload: unknown): "draft" | "accepted" {
-  if (!isRecord(payload)) return "draft";
-  return payload.status === "accepted" ? "accepted" : "draft";
+function readDraftContractStatus(payload: unknown): ContractStatus {
+  return contractLifecycleFromPayload(payload).status;
 }
 
 function defaultDocumentSignature(signedByName = ""): DocumentSignature {
@@ -208,6 +209,24 @@ function signatureStatusLabel(signature: DocumentSignature) {
   if (signature.method === "portal") return "Подписан през клиентски портал";
   if (signature.method === "paper") return "Подписан на хартия";
   return "Подписан";
+}
+
+function contractStatusClassName(status: ContractStatus) {
+  if (status === "terminated") return "border-red-200 bg-red-50 text-red-700";
+  if (status === "accepted") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  return "border-orange-200 bg-orange-50 text-orange-700";
+}
+
+function contractStatusPanelClassName(status: ContractStatus) {
+  if (status === "terminated") return "border-red-200 bg-red-50 text-red-800";
+  if (status === "accepted") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  return "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function contractStatusLabel(status: ContractStatus) {
+  if (status === "terminated") return "Прекратен";
+  if (status === "accepted") return "Активен / приет";
+  return "Чернова на договор";
 }
 
 function SignaturePad({
@@ -420,7 +439,7 @@ export default function ContractEditorPage() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [acceptState, setAcceptState] = useState<"idle" | "saving" | "accepted" | "error">("idle");
   const [portalState, setPortalState] = useState<"idle" | "saving" | "published" | "error">("idle");
-  const [contractStatus, setContractStatus] = useState<"draft" | "accepted">("draft");
+  const [contractStatus, setContractStatus] = useState<ContractStatus>("draft");
   const [documentSignature, setDocumentSignature] = useState<DocumentSignature>(() => defaultDocumentSignature());
 
   useEffect(() => {
@@ -524,7 +543,7 @@ export default function ContractEditorPage() {
           terms: Array.isArray(draft?.terms) && draft.terms.length ? draft.terms as ContractData["terms"] : defaultContract.terms,
         });
         setDocumentSignature(loadedSignature);
-        setContractStatus(isAccepted ? "accepted" : "draft");
+        setContractStatus(savedStatus === "terminated" ? "terminated" : isAccepted ? "accepted" : "draft");
         setAcceptState(isAccepted ? "accepted" : "idle");
         setPortalState(loadedSignature.status === "sent_to_portal" ? "published" : "idle");
         setLoadState("ready");
@@ -733,7 +752,7 @@ export default function ContractEditorPage() {
       <main className="min-h-screen bg-slate-100 p-6">
         <Card className="mx-auto max-w-xl p-6 text-center">
           <h1 className="text-xl font-black text-slate-950">Договорът не може да се зареди.</h1>
-          <Link href="/sales" className="mt-4 inline-flex text-sm font-bold text-orange-600">Назад към продажби</Link>
+          <BackButton fallbackHref="/sales" className="mt-4 inline-flex text-sm font-bold text-orange-600">Назад към продажби</BackButton>
         </Card>
       </main>
     );
@@ -742,10 +761,10 @@ export default function ContractEditorPage() {
   return (
     <main className="contract-page min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:p-0">
       <div className="no-print mx-auto mb-4 flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link href={`/sales/${contract.opportunityId}`} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm">
+        <BackButton fallbackHref={`/sales/${contract.opportunityId}`} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm">
           <ArrowLeft size={18} />
           Назад
-        </Link>
+        </BackButton>
         <div className="flex flex-wrap gap-2">
           {!isReadOnly ? (
             <>
@@ -775,13 +794,9 @@ export default function ContractEditorPage() {
       </div>
 
       <div className="no-print mx-auto mb-4 w-full max-w-6xl">
-        <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-black ${
-          contractStatus === "accepted"
-            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-            : "border-orange-200 bg-orange-50 text-orange-700"
-        }`}>
+        <div className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-black ${contractStatusClassName(contractStatus)}`}>
           <CheckCircle2 size={17} />
-          {signatureStatusLabel(documentSignature)}
+          {contractStatus === "terminated" ? contractStatusLabel(contractStatus) : signatureStatusLabel(documentSignature)}
         </div>
       </div>
 
@@ -1198,12 +1213,11 @@ export default function ContractEditorPage() {
           </div>
         ) : null}
 
-        <div className={`no-print mt-4 rounded-xl border px-4 py-3 text-sm font-bold ${
-          contractStatus === "accepted"
-            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-            : "border-slate-200 bg-slate-50 text-slate-600"
-        }`}>
+        <div className={`no-print mt-4 rounded-xl border px-4 py-3 text-sm font-bold ${contractStatusPanelClassName(contractStatus)}`}>
+          <span>Статус: {contractStatusLabel(contractStatus)}</span>
+          <span className="hidden">
           Статус: {contractStatus === "accepted" ? "Договор приет" : "Чернова на договор"}
+          </span>
         </div>
 
         <section className="contract-party-grid mt-7 grid gap-8 border-b border-slate-200 pb-7 md:grid-cols-2">

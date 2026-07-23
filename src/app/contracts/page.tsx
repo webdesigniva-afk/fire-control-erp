@@ -18,6 +18,7 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
+import { contractLifecycleFromPayload } from "../../lib/contracts";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
 
 type DataRecord = Record<string, unknown>;
@@ -138,12 +139,6 @@ function contractState(contract: ContractListItem, todayKey: string) {
   return { label: "Чернова", variant: "neutral" as const };
 }
 
-function savedContractIsAccepted(payload: unknown) {
-  if (!isRecord(payload)) return false;
-  const signature = isRecord(payload.signature) ? payload.signature : {};
-  return payload.status === "accepted" || signature.status === "signed";
-}
-
 function opportunityIdFromContract(row: DataRecord, href: string) {
   const payload = isRecord(row.payload) ? row.payload : {};
   const contract = isRecord(payload.contract) ? payload.contract : {};
@@ -168,7 +163,7 @@ function mapContract(row: DataRecord): ContractListItem {
   const createdAt =
     textValue(contract, ["date", "createdAt", "created_at"]) ||
     textValue(row, ["updated_at", "created_at"]).slice(0, 10);
-  const status = textValue(payload, ["status"]) || textValue(contract, ["status"]);
+  const lifecycle = contractLifecycleFromPayload(payload);
   const expiresAt =
     textValue(contract, ["expiresAt", "expires_at", "endDate", "end_date"]) ||
     textValue(payload, ["expiresAt", "expires_at"]) ||
@@ -183,7 +178,7 @@ function mapContract(row: DataRecord): ContractListItem {
     href: `${href}${href.includes("?") ? "&" : "?"}mode=view`,
     offerHref: opportunityId ? `/sales/offer/${encodeURIComponent(opportunityId)}?mode=view` : "",
     offerNumber,
-    status: status === "terminated" ? "terminated" : savedContractIsAccepted(payload) ? "accepted" : "draft",
+    status: lifecycle.status,
     createdAt,
     expiresAt,
     terminatedAt: textValue(contract, ["terminatedAt", "terminated_at"]) || textValue(payload, ["terminatedAt", "terminated_at"]),
@@ -517,7 +512,13 @@ export default function ContractsPage() {
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="font-black text-slate-950">{contract.number}</div>
-                        <Badge variant={state.variant}>{state.label}</Badge>
+                        <Badge variant={state.variant}>
+                          {contract.status === "terminated"
+                            ? "Прекратен"
+                            : contract.status === "accepted"
+                              ? "Активен / приет"
+                              : state.label}
+                        </Badge>
                         {contract.offerHref ? (
                           <Link
                             href={contract.offerHref}

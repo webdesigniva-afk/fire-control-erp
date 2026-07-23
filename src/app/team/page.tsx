@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
+import { ContactLink } from "../../components/contact-link";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -968,12 +969,18 @@ export default function TeamPage() {
                           <Avatar member={member} size="sm" />
                           <div className="min-w-0">
                             <div className="font-black text-slate-950">{member.name}</div>
-                            {member.email ? <div className="mt-1 truncate text-xs font-semibold text-slate-500">{member.email}</div> : null}
+                            {member.email ? (
+                              <div className="mt-1 truncate text-xs font-semibold text-slate-500">
+                                <ContactLink kind="email" value={member.email} />
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       </td>
                       <td className="px-4 py-4 font-mono text-sm font-black text-slate-700">{member.employee_code}</td>
-                      <td className="px-4 py-4 text-sm font-semibold text-slate-600">{member.phone}</td>
+                      <td className="px-4 py-4 text-sm font-semibold text-slate-600">
+                        <ContactLink kind="phone" value={member.phone} fallback="—" />
+                      </td>
                       <td className="px-4 py-4">
                         <div>
                           <Badge variant={member.role === "Администратор" ? "danger" : member.role === "Техник" ? "info" : "orange"}>

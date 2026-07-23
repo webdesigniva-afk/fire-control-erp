@@ -22,6 +22,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { AppShell } from "../../../components/app-shell";
+import { BackButton } from "../../../components/back-button";
+import { ContactLink } from "../../../components/contact-link";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
 import { Input } from "../../../components/ui/input";
@@ -155,9 +157,11 @@ function locationColumnError(error: Error) {
 function ClientSummaryRow({
   label,
   value,
+  contactKind,
 }: {
   label: string;
   value: string;
+  contactKind?: "phone" | "email";
 }) {
   if (!value.trim()) return null;
 
@@ -165,7 +169,7 @@ function ClientSummaryRow({
     <div className="border-t border-slate-200 py-3 first:border-t-0 first:pt-0 last:pb-0">
       <div className="text-xs font-black uppercase text-slate-400">{label}</div>
       <div className="mt-1 break-words text-sm font-bold leading-5 text-slate-700">
-        {value}
+        {contactKind ? <ContactLink kind={contactKind} value={value} /> : value}
       </div>
     </div>
   );
@@ -408,13 +412,13 @@ function NewLocationContent() {
         title="Нов обект"
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link
-              href="/locations"
+            <BackButton
+              fallbackHref="/locations"
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
             >
               <ArrowLeft size={17} />
               Назад
-            </Link>
+            </BackButton>
             <Link
               href="/locations"
               className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
@@ -617,8 +621,8 @@ function NewLocationContent() {
                       label="Контактно лице"
                       value={selectedClient.contactPerson}
                     />
-                    <ClientSummaryRow label="Телефон" value={selectedClient.phone} />
-                    <ClientSummaryRow label="Имейл" value={selectedClient.email} />
+                    <ClientSummaryRow label="Телефон" value={selectedClient.phone} contactKind="phone" />
+                    <ClientSummaryRow label="Имейл" value={selectedClient.email} contactKind="email" />
                     <ClientSummaryRow label="Адрес" value={selectedClient.address} />
                   </div>
                 </>

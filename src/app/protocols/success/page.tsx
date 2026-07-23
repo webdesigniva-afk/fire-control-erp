@@ -8,6 +8,7 @@ import {
   Printer,
 } from "lucide-react";
 import { Badge } from "../../../components/ui/badge";
+import { BackButton } from "../../../components/back-button";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
 
@@ -129,13 +130,13 @@ export default async function ProtocolSuccessPage({
               <Mail size={18} />
               Изпрати по имейл
             </Button>
-            <Link
-              href="/protocols"
+            <BackButton
+              fallbackHref="/protocols"
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
             >
               <ArrowLeft size={18} />
               Към протоколите
-            </Link>
+            </BackButton>
           </div>
         </Card>
       </div>

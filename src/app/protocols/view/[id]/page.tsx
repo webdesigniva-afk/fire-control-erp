@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Download, Frown, Meh, PenLine, Printer, Smile, Trash2 } from "lucide-react";
+import { BackButton } from "../../../../components/back-button";
 import { Badge } from "../../../../components/ui/badge";
 import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
@@ -541,13 +542,13 @@ export default function ProtocolViewPage() {
             Не успяхме да намерим протокол с номер „{protocolNumber}". Възможно
             е да е изтрит или да не е бил запазен на това устройство.
           </p>
-          <Link
-            href={backHref}
+          <BackButton
+            fallbackHref={backHref}
             className="mt-6 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-500 to-orange-400 px-5 text-sm font-black text-white shadow-sm transition hover:shadow-md"
           >
             <ArrowLeft size={18} />
             Към протоколите
-          </Link>
+          </BackButton>
         </Card>
       </main>
     );
@@ -558,13 +559,13 @@ export default function ProtocolViewPage() {
       <main className="min-h-screen bg-[#f7f8fb] px-4 py-6 text-slate-900">
         <div className="mx-auto max-w-6xl">
           <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link
-              href={backHref}
+            <BackButton
+              fallbackHref={backHref}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
             >
               <ArrowLeft size={18} />
               Назад
-            </Link>
+            </BackButton>
 
             <div className="flex flex-col gap-3 sm:flex-row">
               {protocol.status === "draft" ? (
@@ -646,13 +647,13 @@ export default function ProtocolViewPage() {
           </Card>
         ) : null}
         <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Link
-            href={backHref}
+          <BackButton
+            fallbackHref={backHref}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
           >
             <ArrowLeft size={18} />
             Назад
-          </Link>
+          </BackButton>
 
           <div className="flex flex-col gap-3 sm:flex-row">
             {protocol.status === "draft" ? (

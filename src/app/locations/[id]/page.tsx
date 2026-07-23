@@ -62,6 +62,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AppShell } from "../../../components/app-shell";
+import { ContactLink } from "../../../components/contact-link";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
@@ -72,6 +73,7 @@ import { TabButton, Tabs } from "../../../components/ui/tabs";
 import { generateQRCode } from "../../../lib/qr";
 import { createEquipmentQrCode, equipmentQrPath } from "../../../lib/equipment-qr";
 import { geocodeAddress } from "../../../lib/geocoding";
+import { contractLifecycleFromPayload, type ContractLifecycleState } from "../../../lib/contracts";
 import {
   deleteProtocolPhoto,
   protocolPhotosBucket,
@@ -200,6 +202,7 @@ type LocationContractDocument = {
   object: string;
   href: string;
   status: string;
+  statusVariant: ContractLifecycleState["variant"];
   createdAt: string;
   expiresAt: string;
   updatedAt: string;
@@ -2010,10 +2013,12 @@ function InfoRow({
   icon: Icon,
   label,
   value,
+  contactKind,
 }: {
   icon: LucideIcon;
   label: string;
   value: string;
+  contactKind?: "phone" | "email";
 }) {
   return (
     <div className="flex items-start gap-3 rounded-2xl bg-slate-50 p-4">
@@ -2022,7 +2027,13 @@ function InfoRow({
       </div>
       <div>
         <div className="text-xs font-bold uppercase text-slate-400">{label}</div>
-        <div className="mt-1 text-sm font-bold text-slate-800">{value}</div>
+        <div className="mt-1 text-sm font-bold text-slate-800">
+          {contactKind ? (
+            <ContactLink kind={contactKind} value={value} fallback="-" />
+          ) : (
+            value || "-"
+          )}
+        </div>
       </div>
     </div>
   );
@@ -2424,7 +2435,7 @@ function OverviewTab() {
                 value={location.contact}
               />
             ) : null}
-            <InfoRow icon={Phone} label="Телефон" value={location.phone} />
+            <InfoRow icon={Phone} label="Телефон" value={location.phone} contactKind="phone" />
           </div>
         </Card>
 
@@ -5662,9 +5673,13 @@ function ContractsTab() {
           .map((row) => {
             const payload = isRecord(row.payload) ? row.payload : {};
             const contract = isRecord(payload.contract) ? payload.contract : {};
-            const status = payload.status === "accepted" ? "Договор приет" : "Чернова";
+            const lifecycle = contractLifecycleFromPayload(payload);
             const href = String(row.href || `/sales/contract/${String(row.id).replace(/^contract-/, "")}`);
             const createdAt = textValue(contract, ["date", "createdAt", "created_at"]) || String(row.updated_at || "").slice(0, 10);
+            const expiresAt =
+              textValue(contract, ["expiresAt", "expires_at", "endDate", "end_date"]) ||
+              textValue(payload, ["expiresAt", "expires_at"]) ||
+              addYearsToDateValue(createdAt, 1);
 
             return {
               id: String(row.id),
@@ -5673,9 +5688,10 @@ function ContractsTab() {
               client: String(row.client || contract.client || location.client || "Без клиент"),
               object: String(row.object || contract.object || location.name || "Без обект"),
               href: `${href}${href.includes("?") ? "&" : "?"}mode=view`,
-              status,
+              status: lifecycle.label,
+              statusVariant: lifecycle.variant,
               createdAt,
-              expiresAt: addYearsToDateValue(createdAt, 1),
+              expiresAt,
               updatedAt: String(row.updated_at || ""),
             };
           });
@@ -5731,7 +5747,7 @@ function ContractsTab() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="font-black text-slate-950">{contract.number}</div>
-                  <Badge variant={contract.status === "Договор приет" ? "success" : "neutral"}>{contract.status}</Badge>
+                  <Badge variant={contract.statusVariant}>{contract.status}</Badge>
                 </div>
                 <div className="mt-1 text-sm font-semibold text-slate-600">{contract.client}</div>
                 <div className="mt-0.5 text-xs font-medium text-slate-400">{contract.object}</div>

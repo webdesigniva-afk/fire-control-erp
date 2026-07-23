@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, ExternalLink, Loader2, Mail, Plus, Printer, Save, Trash2 } from "lucide-react";
+import { BackButton } from "../../../../components/back-button";
 import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
 import { publishSavedDocumentToClientPortal } from "../../../../lib/client-portal";
@@ -644,7 +645,7 @@ export default function SalesOfferEditorPage() {
         .from("sales_opportunities")
         .update({
           stage: "order",
-          status: "Потвърден",
+          status: "Приета оферта",
           last_activity_at: now,
           updated_at: now,
         })
@@ -740,9 +741,9 @@ export default function SalesOfferEditorPage() {
       <main className="min-h-screen bg-slate-100 p-6">
         <Card className="mx-auto max-w-xl p-6 text-center">
           <h1 className="text-xl font-black text-slate-950">Офертата не може да се зареди.</h1>
-          <Link href="/sales" className="mt-4 inline-flex text-sm font-bold text-orange-600">
+          <BackButton fallbackHref="/sales" className="mt-4 inline-flex text-sm font-bold text-orange-600">
             Назад към продажби
-          </Link>
+          </BackButton>
         </Card>
       </main>
     );
@@ -751,10 +752,10 @@ export default function SalesOfferEditorPage() {
   return (
     <main className="offer-page min-h-screen bg-slate-100 px-4 py-6 text-slate-950 print:bg-white print:p-0">
       <div className="no-print mx-auto mb-4 flex w-full max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link href={`/sales/${offer.opportunityId}`} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm">
+        <BackButton fallbackHref={`/sales/${offer.opportunityId}`} className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-700 shadow-sm">
           <ArrowLeft size={18} />
           Назад
-        </Link>
+        </BackButton>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" onClick={saveOffer} disabled={saveState === "saving"}>
             {saveState === "saving" ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}

@@ -23,6 +23,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
+import { ContactLink } from "../../../components/contact-link";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
@@ -690,7 +691,7 @@ function PublicPassport({ data }: { data: PassportData }) {
           </a>
           {maintenanceCompany.email ? (
             <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-bold text-slate-700">
-              {maintenanceCompany.email}
+              <ContactLink kind="email" value={maintenanceCompany.email} />
             </div>
           ) : null}
         </Card>

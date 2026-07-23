@@ -24,6 +24,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AppShell } from "../../../components/app-shell";
+import { BackButton } from "../../../components/back-button";
+import { ContactLink } from "../../../components/contact-link";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
@@ -122,7 +124,7 @@ const NEXT_STAGE_BUTTON: Record<Stage, string> = {
 };
 
 const NEXT_STAGE_STATUS: Partial<Record<Stage, string>> = {
-  order: "Потвърден",
+  order: "Приета оферта",
   contract: "Потвърден",
 };
 
@@ -130,6 +132,7 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   "Нов": "orange", "В контакт": "info", "Чака оферта": "warning",
   "Изпратена оферта": "orange", "Чака потвърждение": "warning",
   "Запазена като чернова": "warning",
+  "Приета оферта": "success",
   "Потвърден": "success", "Отказан": "danger",
 };
 
@@ -146,7 +149,7 @@ const NEXT_ACTIONS = [
 
 const STATUSES = [
   "Нов", "В контакт", "Чака оферта", "Изпратена оферта",
-  "Чака потвърждение", "Потвърден", "Отказан",
+  "Чака потвърждение", "Приета оферта", "Потвърден", "Отказан",
 ];
 
 const ACTIVITY_DOT: Record<string, string> = {
@@ -270,11 +273,25 @@ function displayOpportunityStatus(opportunity: Opportunity) {
     return "Запазена като чернова";
   }
 
+  if (opportunity.stage === "order" && opportunity.status === "Потвърден") {
+    return "Приета оферта";
+  }
+
   return opportunity.status;
 }
 
 // Sub-components
-function InfoRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+function InfoRow({
+  icon: Icon,
+  label,
+  value,
+  contactKind,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  contactKind?: "phone" | "email";
+}) {
   return (
     <div className="flex gap-3 rounded-2xl bg-slate-50 p-4">
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white text-orange-500 shadow-sm">
@@ -282,7 +299,13 @@ function InfoRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string
       </div>
       <div>
         <div className="text-xs font-black uppercase tracking-wide text-slate-400">{label}</div>
-        <div className="mt-1 text-sm font-bold text-slate-800">{value || "—"}</div>
+        <div className="mt-1 text-sm font-bold text-slate-800">
+          {contactKind ? (
+            <ContactLink kind={contactKind} value={value} fallback="-" />
+          ) : (
+            value || "-"
+          )}
+        </div>
       </div>
     </div>
   );
@@ -954,9 +977,9 @@ export default function SalesDealPage() {
       <AppShell title="Продажби" description="Записът не е намерен" showSearch={false}>
         <Card className="p-8 text-center">
           <p className="text-lg font-black text-slate-600">Записът не е намерен.</p>
-          <Link href="/sales" className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-orange-600 hover:text-orange-700">
+          <BackButton fallbackHref="/sales" className="mt-4 inline-flex items-center gap-2 text-sm font-bold text-orange-600 hover:text-orange-700">
             <ArrowLeft size={16} /> Назад към продажби
-          </Link>
+          </BackButton>
         </Card>
       </AppShell>
     );
@@ -988,10 +1011,10 @@ export default function SalesDealPage() {
           description={opportunity.object_name ? `Обект: ${opportunity.object_name}` : undefined}
           actions={
             <>
-              <Link href="/sales" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700">
+              <BackButton fallbackHref="/sales" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700">
                 <ArrowLeft size={18} />
                 Назад
-              </Link>
+              </BackButton>
               <button
                 type="button"
                 onClick={() => setArchiveOpen(true)}
@@ -1004,6 +1027,12 @@ export default function SalesDealPage() {
                 <Link href={`/sales/offer/${opportunity.id}`} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-5 text-sm font-black text-orange-700 transition hover:bg-orange-100">
                   <FileText size={18} />
                   {opportunity.hasOfferDraft ? "Отвори чернова" : "Създай оферта"}
+                </Link>
+              )}
+              {opportunity.stage === "order" && opportunity.hasOfferDraft && (
+                <Link href={`/sales/offer/${opportunity.id}`} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700">
+                  <FileText size={18} />
+                  Виж оферта
                 </Link>
               )}
               {opportunity.stage === "contract" && (
@@ -1069,8 +1098,8 @@ export default function SalesDealPage() {
                   <InfoRow icon={UserRound} label="Контакт" value={opportunity.contact_name} />
                 </>
               )}
-              <InfoRow icon={Phone} label="Телефон" value={opportunity.phone} />
-              <InfoRow icon={Mail} label="Email" value={opportunity.email} />
+              <InfoRow icon={Phone} label="Телефон" value={opportunity.phone} contactKind="phone" />
+              <InfoRow icon={Mail} label="Email" value={opportunity.email} contactKind="email" />
               {opportunity.object_type && <InfoRow icon={Building2} label="Тип обект" value={opportunity.object_type} />}
               {opportunity.object_name && <InfoRow icon={Building2} label="Обект" value={opportunity.object_name} />}
               {opportunity.object_address && <InfoRow icon={MapPin} label="Адрес" value={opportunity.object_address} />}
@@ -1170,10 +1199,10 @@ export default function SalesDealPage() {
             <Archive size={18} />
             Архивирай
           </button>
-          <Link href="/sales" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700">
+          <BackButton fallbackHref="/sales" className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 text-sm font-black text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700">
             <ArrowLeft size={18} />
             Назад към продажби
-          </Link>
+          </BackButton>
         </div>
       </div>
 

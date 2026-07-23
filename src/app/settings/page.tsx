@@ -16,6 +16,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
+import { ContactLink } from "../../components/contact-link";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -239,11 +240,11 @@ function ServiceContactInfo({
     >
       <div className="flex min-w-0 items-center gap-2">
         <Phone size={15} className="shrink-0 text-orange-500" />
-        <span className="truncate">{phone || "Без телефон"}</span>
+        <ContactLink kind="phone" value={phone} fallback="Без телефон" />
       </div>
       <div className="flex min-w-0 items-center gap-2">
         <Mail size={15} className="shrink-0 text-orange-500" />
-        <span className="truncate">{email || "Без email"}</span>
+        <ContactLink kind="email" value={email} fallback="Без email" />
       </div>
     </div>
   );

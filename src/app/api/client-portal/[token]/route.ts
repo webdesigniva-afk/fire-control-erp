@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { contractLifecycleFromPayload } from "../../../../lib/contracts";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -83,6 +84,9 @@ function normalizeEquipment(row: DataRecord) {
 
 function normalizeDocument(row: DataRecord, savedDocument?: DataRecord | null) {
   const payload = isRecord(savedDocument?.payload) ? savedDocument.payload : {};
+  const lifecycle = textValue(row, ["kind"]) === "contract"
+    ? contractLifecycleFromPayload(payload)
+    : null;
   const signature = isRecord(payload.signature) ? payload.signature : {};
   const offer = isRecord(payload.offer) ? payload.offer : null;
   const contract = isRecord(payload.contract) ? payload.contract : null;
@@ -97,7 +101,9 @@ function normalizeDocument(row: DataRecord, savedDocument?: DataRecord | null) {
     kind: textValue(row, ["kind"]),
     title: textValue(row, ["title"]) || textValue(savedDocument, ["title"]) || textValue(savedDocument, ["number"]),
     number: textValue(savedDocument, ["number"]),
-    status: textValue(row, ["status"]) || textValue(payload, ["status"]) || "published",
+    status: lifecycle?.status === "terminated"
+      ? "terminated"
+      : textValue(row, ["status"]) || textValue(payload, ["status"]) || "published",
     requiresSignature: boolValue(row, ["requires_signature", "requiresSignature"]),
     signatureMethod: textValue(row, ["signature_method", "signatureMethod"]) || textValue(signature, ["method"]),
     signedAt: textValue(row, ["signed_at", "signedAt"]) || textValue(signature, ["signedAt"]),

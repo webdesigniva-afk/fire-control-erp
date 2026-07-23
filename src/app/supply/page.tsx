@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
+import { ContactLink } from "../../components/contact-link";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -478,7 +479,9 @@ function OrderCard({
             <Badge variant={statusVariants[order.status]}>{statusLabels[order.status]}</Badge>
           </div>
           <div className="mt-2 text-sm font-black text-slate-800">{order.supplier}</div>
-          <div className="mt-1 text-xs font-bold text-slate-500">{order.contact}</div>
+          <div className="mt-1 text-xs font-bold text-slate-500">
+            <ContactLink kind="phone" value={order.contact} fallback={order.contact} />
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 text-sm font-bold text-slate-600 sm:grid-cols-4 xl:min-w-[520px]">

@@ -164,6 +164,7 @@ type AttentionItem = {
 };
 
 type DayTask = {
+  id: string;
   due: string;
   object: string;
   type: string;
@@ -838,36 +839,29 @@ function TodayTasksCard({ tasks }: { tasks: DayTask[] }) {
         </div>
       </div>
 
-      <div className="mt-4 max-h-[420px] space-y-3 overflow-y-auto pr-1">
+      <div className="mt-4 max-h-[420px] space-y-2 overflow-y-auto pr-1">
         {tasks.length ? (
           tasks.map((task) => (
-            <div
-              key={`${task.due}-${task.object}-${task.type}`}
-              className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-4 transition hover:-translate-y-0.5 hover:border-orange-200 hover:bg-white hover:shadow-md"
+            <Link
+              key={task.id}
+              href={task.href}
+              className="block rounded-xl border border-slate-200/80 bg-slate-50/80 px-3 py-2.5 transition hover:border-orange-200 hover:bg-white hover:shadow-sm"
             >
               <div className="min-w-0">
-                <div className="font-black text-slate-950">{task.object}</div>
-                <p className="mt-1 text-sm font-medium leading-5 text-slate-500">
+                <div className="truncate text-sm font-black text-slate-950">
                   {task.type}
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-bold text-slate-500">
-                  {task.technician ? (
-                    <span>Техник: {task.technician}</span>
-                  ) : (
-                    <span>Техник: не е зададен</span>
-                  )}
+                </div>
+                <div className="mt-1 truncate text-xs font-bold text-slate-500">
+                  {task.object}
+                </div>
+                <div className="mt-2 flex min-w-0 items-center gap-2 text-[11px] font-black uppercase text-slate-400">
                   {task.sourceLabel && task.sourceLabel !== "—" ? (
-                    <span>Източник: {task.sourceLabel}</span>
+                    <span className="shrink-0">{task.sourceLabel}</span>
                   ) : null}
+                  {task.technician ? <span className="truncate">{task.technician}</span> : null}
                 </div>
               </div>
-              <Link
-                href={task.href}
-                className="mt-4 inline-flex h-9 w-full items-center justify-center rounded-xl border border-slate-200 bg-white text-sm font-bold text-slate-700 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
-              >
-                Отвори
-              </Link>
-            </div>
+            </Link>
           ))
         ) : (
           <EmptyState label="Няма задачи за днес." />
@@ -1108,13 +1102,20 @@ export default function DashboardPage() {
           !isSalesFlowTask(task)
       )
     );
+    const plannedSalesTasks = data.tasks.filter(
+      (task) =>
+        task.status === "planned" &&
+        task.dueDate &&
+        isSalesFlowTask(task) &&
+        taskHasActiveDashboardContext(task)
+    );
     const openDefectTasks = data.tasks.filter(
       (task) =>
         task.taskType === "defect" &&
         task.status === "open" &&
         taskHasActiveDashboardContext(task)
     );
-    const todayTasks = plannedTasks
+    const todayTasks = [...plannedTasks, ...plannedSalesTasks]
       .filter((task) => task.dueDate === todayKey)
       .sort((first, second) => first.dueDate.localeCompare(second.dueDate));
 
@@ -1219,8 +1220,11 @@ export default function DashboardPage() {
     }
     const attentionItems = Array.from(attentionItemsByIdentity.values());
     const dayTasks: DayTask[] = todayTasks.map((task) => ({
+      id: task.id,
       due: formatDate(task.dueDate),
-      object: task.objectName,
+      object: task.client && task.client !== task.objectName
+        ? `${task.client} - ${task.objectName}`
+        : task.objectName,
       type: task.title,
       technician: technicianForTask(task),
       sourceLabel: task.sourceLabel || task.sourceProtocolType || "—",

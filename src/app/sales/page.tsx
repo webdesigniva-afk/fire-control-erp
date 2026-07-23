@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
+import { ContactLink } from "../../components/contact-link";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -123,7 +124,7 @@ const NEXT_STAGE_LABEL: Record<Stage, string> = {
 };
 
 const NEXT_STAGE_STATUS: Partial<Record<Stage, string>> = {
-  order:    "Потвърден",
+  order:    "Приета оферта",
   contract: "Потвърден",
 };
 
@@ -141,6 +142,7 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
   "Изпратена оферта":  "orange",
   "Запазена като чернова": "warning",
   "Чака потвърждение": "warning",
+  "Приета оферта":       "success",
   "Потвърден":         "success",
   "Отказан":           "danger",
 };
@@ -268,6 +270,10 @@ function displayOpportunityStatus(opportunity: Opportunity) {
 
   if (opportunity.stage === "order" && opportunity.hasContractDraft) {
     return "Чернова на договор";
+  }
+
+  if (opportunity.stage === "order" && opportunity.status === "Потвърден") {
+    return "Приета оферта";
   }
 
   return opportunity.status;
@@ -478,7 +484,7 @@ function PipelineCard({
         {item.phone && (
           <div className="grid grid-cols-[18px_1fr] items-start gap-2 text-slate-600">
             <Phone size={15} className="mt-0.5 text-orange-500" />
-            <span className="break-words font-bold leading-5">{item.phone}</span>
+            <ContactLink kind="phone" value={item.phone} className="break-words font-bold leading-5" />
           </div>
         )}
         {item.object_name && (

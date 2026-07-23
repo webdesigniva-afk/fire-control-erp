@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { AppShell } from "../../../components/app-shell";
+import { BackButton } from "../../../components/back-button";
+import { ContactLink } from "../../../components/contact-link";
 import { Badge } from "../../../components/ui/badge";
 import { Button } from "../../../components/ui/button";
 import { Card } from "../../../components/ui/card";
@@ -57,7 +59,7 @@ const STAGE_BADGE: Record<Stage, BadgeVariant> = {
 const STATUS_VARIANT: Record<string, BadgeVariant> = {
   "Нов": "orange", "В контакт": "info", "Чака оферта": "warning",
   "Изпратена оферта": "orange", "Чака потвърждение": "warning",
-  "Потвърден": "success", "Отказан": "danger",
+  "Приета оферта": "success", "Потвърден": "success", "Отказан": "danger",
 };
 
 // Helpers
@@ -348,13 +350,13 @@ export default function SalesArchivePage() {
                 <RefreshCw size={16} className={loadState === "loading" ? "animate-spin" : ""} />
                 Обнови
               </button>
-              <Link
-                href="/sales"
+              <BackButton
+                fallbackHref="/sales"
                 className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-slate-600 transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
               >
                 <ArrowLeft size={15} />
                 Назад към продажби
-              </Link>
+              </BackButton>
             </div>
           </div>
         </Card>
@@ -401,13 +403,13 @@ export default function SalesArchivePage() {
                       {item.phone && (
                         <div className="flex items-center gap-2 text-slate-600">
                           <Phone size={13} className="shrink-0 text-orange-500" />
-                          <span className="font-semibold">{item.phone}</span>
+                          <ContactLink kind="phone" value={item.phone} className="font-semibold" />
                         </div>
                       )}
                       {item.email && (
                         <div className="flex items-center gap-2 text-slate-600">
                           <Mail size={13} className="shrink-0 text-orange-500" />
-                          <span className="font-semibold truncate">{item.email}</span>
+                          <ContactLink kind="email" value={item.email} className="font-semibold" />
                         </div>
                       )}
                       {item.archived_at && (

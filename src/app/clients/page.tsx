@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
+import { ContactLink } from "../../components/contact-link";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -910,11 +911,11 @@ export default function ClientsPage() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3 font-medium text-slate-600">
-                          {client.phone || "Няма телефон"}
+                          <ContactLink kind="phone" value={client.phone} fallback="Няма телефон" />
                         </td>
                         {showEmailColumn ? (
                           <td className="px-4 py-3 font-medium text-slate-600">
-                            {client.email || "—"}
+                            <ContactLink kind="email" value={client.email} fallback="—" />
                           </td>
                         ) : null}
                         {showCorporateColumns ? (
@@ -1061,12 +1062,12 @@ export default function ClientsPage() {
                     )}
                     <div className="mt-2 flex items-center gap-2 text-sm font-bold text-slate-700">
                       <Phone size={16} />
-                      {selectedClient.phone || "Няма телефон"}
+                      <ContactLink kind="phone" value={selectedClient.phone} fallback="Няма телефон" />
                     </div>
                     {selectedClient.email ? (
                       <div className="mt-2 flex items-center gap-2 text-sm font-bold text-slate-700">
                         <Mail size={16} />
-                        <span className="min-w-0 truncate">{selectedClient.email}</span>
+                        <ContactLink kind="email" value={selectedClient.email} />
                       </div>
                     ) : null}
                   </div>

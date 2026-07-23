@@ -33,6 +33,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { ContactLink } from "../../../components/contact-link";
 
 type PortalClient = {
   id: string;
@@ -211,6 +212,13 @@ function textValue(record: Record<string, unknown> | null | undefined, keys: str
   return "";
 }
 
+function splitServiceList(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -323,6 +331,9 @@ function documentTerms(document: PortalDocument) {
 }
 
 function documentStatus(document: PortalDocument) {
+  if (document.kind === "contract" && document.status === "terminated") {
+    return "Прекратен";
+  }
   if (document.status === "signed") {
     return document.signatureMethod === "paper" ? "Подписан на хартия" : "Подписан онлайн";
   }
@@ -609,8 +620,9 @@ function documentNumberIsInTitle(document: PortalDocument) {
   return Boolean(document.number && document.title.toLowerCase().includes(document.number.toLowerCase()));
 }
 
-function libraryItemTone(item: PortalLibraryItem): "green" | "orange" | "blue" | "slate" {
+function libraryItemTone(item: PortalLibraryItem): "green" | "orange" | "blue" | "slate" | "red" {
   if (item.itemType === "protocol") return "blue";
+  if (item.document.status === "terminated") return "red";
   if (item.document.status === "signed") return "green";
   if (item.document.requiresSignature) return "orange";
   return "slate";
@@ -650,10 +662,11 @@ function equipmentPublicDetails(item: PortalEquipment) {
   ].filter(Boolean);
 }
 
-function badgeClass(tone: "green" | "orange" | "blue" | "slate") {
+function badgeClass(tone: "green" | "orange" | "blue" | "slate" | "red") {
   if (tone === "green") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (tone === "orange") return "border-orange-200 bg-orange-50 text-orange-700";
   if (tone === "blue") return "border-blue-200 bg-blue-50 text-blue-700";
+  if (tone === "red") return "border-red-200 bg-red-50 text-red-700";
   return "border-slate-200 bg-slate-50 text-slate-600";
 }
 
@@ -662,7 +675,7 @@ function Badge({
   tone = "slate",
 }: {
   children: React.ReactNode;
-  tone?: "green" | "orange" | "blue" | "slate";
+  tone?: "green" | "orange" | "blue" | "slate" | "red";
 }) {
   return (
     <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${badgeClass(tone)}`}>
@@ -1164,8 +1177,16 @@ function DocumentPreview({
           <div className="mt-3 space-y-1.5">
             <div className="text-xl font-black leading-7 text-slate-950">{source?.client || document.title}</div>
             {source?.contact ? <div className="text-sm font-bold leading-6 text-slate-700">{source.contact}</div> : null}
-            {source?.phone ? <div className="text-sm font-semibold leading-6 text-slate-600">{source.phone}</div> : null}
-            {source?.email ? <div className="text-sm font-semibold leading-6 text-slate-600">{source.email}</div> : null}
+            {source?.phone ? (
+              <div className="text-sm font-semibold leading-6 text-slate-600">
+                <ContactLink kind="phone" value={source.phone} />
+              </div>
+            ) : null}
+            {source?.email ? (
+              <div className="text-sm font-semibold leading-6 text-slate-600">
+                <ContactLink kind="email" value={source.email} />
+              </div>
+            ) : null}
           </div>
         </div>
         <div>
@@ -1719,13 +1740,13 @@ export default function ClientPortalPage() {
                 {data.client.phone ? (
                   <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm font-semibold text-slate-700">
                     <Phone size={16} className="text-orange-500" />
-                    {data.client.phone}
+                    <ContactLink kind="phone" value={data.client.phone} />
                   </span>
                 ) : null}
                 {data.client.email ? (
                   <span className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 text-sm font-semibold text-slate-700">
                     <Mail size={16} className="text-orange-500" />
-                    {data.client.email}
+                    <ContactLink kind="email" value={data.client.email} />
                   </span>
                 ) : null}
                 {data.client.address ? (
@@ -1871,6 +1892,7 @@ export default function ClientPortalPage() {
             <div className="mt-4 space-y-4">
               {data.locations.length ? data.locations.map((location) => {
                 const equipmentOpen = openLocationEquipmentIds.includes(location.id);
+                const serviceItems = splitServiceList(location.service);
 
                 return (
                 <div key={location.id} className="overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/50">
@@ -1906,10 +1928,15 @@ export default function ClientPortalPage() {
                         />
                       </button>
                     </div>
-                    {location.service ? (
-                      <div className="mt-3 text-sm font-semibold leading-6 text-slate-500">
-                        {location.service}
-                      </div>
+                    {serviceItems.length ? (
+                      <ul className="mt-3 space-y-1.5 text-sm font-semibold leading-6 text-slate-500">
+                        {serviceItems.map((service) => (
+                          <li key={service} className="flex gap-2">
+                            <span className="mt-2.5 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-500" />
+                            <span>{service}</span>
+                          </li>
+                        ))}
+                      </ul>
                     ) : null}
                   </div>
 
@@ -2097,7 +2124,7 @@ export default function ClientPortalPage() {
           <div className="mx-auto max-w-5xl rounded-[28px] bg-[#f3f7fb] p-4 shadow-2xl">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <Badge tone={selectedDocument.status === "signed" ? "green" : "orange"}>{documentStatus(selectedDocument)}</Badge>
+                <Badge tone={selectedDocument.status === "terminated" ? "red" : selectedDocument.status === "signed" ? "green" : "orange"}>{documentStatus(selectedDocument)}</Badge>
                 <h2 className="mt-2 text-xl font-black">{selectedDocument.title}</h2>
               </div>
               <div className="flex gap-2">

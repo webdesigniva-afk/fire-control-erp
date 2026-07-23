@@ -152,7 +152,7 @@ export async function POST(
           .from("sales_opportunities")
           .update({
             stage,
-            status: "Потвърден",
+            status: kind === "offer" ? "Приета оферта" : "Потвърден",
             last_activity_at: now,
             updated_at: now,
           })

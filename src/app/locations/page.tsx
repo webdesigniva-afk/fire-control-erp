@@ -746,7 +746,9 @@ export default function LocationsPage() {
 
               <div>
                 {location.objectType ? (
-                  <Badge variant="neutral">{location.objectType}</Badge>
+                  <span className="text-sm font-bold leading-5 text-slate-600">
+                    {location.objectType}
+                  </span>
                 ) : (
                   <span className="text-sm font-bold text-slate-400">Без тип</span>
                 )}
