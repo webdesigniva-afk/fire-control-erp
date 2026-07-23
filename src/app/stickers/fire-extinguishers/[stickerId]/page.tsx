@@ -25,6 +25,7 @@ type StickerRecord = {
   object_name: string;
   object_location: string;
   technician: string;
+  service_type?: string;
   service_date: string | null;
   next_service_date: string | null;
   extinguisher_type: string;
@@ -47,6 +48,7 @@ const defaultSticker: StickerRecord = {
   object_name: "Kaufland \u0441\u0435\u0432\u0435\u0440",
   object_location: "\u0412\u0445\u043e\u0434 - \u043a\u043b\u0438\u0435\u043d\u0442\u0441\u043a\u0430 \u0437\u043e\u043d\u0430",
   technician: "\u041c\u0435\u0445\u043c\u0435\u0434 \u041c\u0435\u0445\u043c\u0435\u0434",
+  service_type: "\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435",
   service_date: "2026-05-22",
   next_service_date: "2027-05-22",
   extinguisher_type: "ABC \u043f\u0440\u0430\u0445\u043e\u0432 6 kg",
@@ -105,6 +107,16 @@ function normalizeExtinguisherType(value: string) {
     .trim();
 }
 
+function isInvalidServiceSticker(record: StickerRecord) {
+  return Boolean(
+    record.service_type?.trim() &&
+      !record.service_type
+        .trim()
+        .toLocaleLowerCase("bg-BG")
+        .includes("\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435")
+  );
+}
+
 export default function FireExtinguisherStickerPage({ params }: StickerPageProps) {
   const { stickerId } = use(params);
   const [record, setRecord] = useState<StickerRecord | null>(null);
@@ -128,7 +140,7 @@ export default function FireExtinguisherStickerPage({ params }: StickerPageProps
 
         if (!isMounted) return;
 
-        if (error || !data) {
+        if (error || !data || isInvalidServiceSticker(data as StickerRecord)) {
           setRecord(null);
           setStatus("missing");
           return;

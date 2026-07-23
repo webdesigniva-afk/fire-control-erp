@@ -64,10 +64,10 @@ import {
 } from "../../../lib/protocol-photos";
 import { syncProtocolsToSupabase } from "../../../lib/protocols-sync";
 import {
-  clearPlannedSubscriptionTasksForObject,
-  completePlannedEquipmentTasks,
   recurrenceMonthsFromPeriodicity,
   upsertDefectTask,
+  upsertPlannedEquipmentServiceTask,
+  upsertPlannedSubscriptionTaskForObject,
   upsertServiceTask,
 } from "../../../lib/tasks";
 import {
@@ -1190,6 +1190,16 @@ function extinguisherResultNeedsAttention(value: string) {
   );
 }
 
+function equipmentStatusFromExtinguisherResult(value: string) {
+  const result = value.toLowerCase();
+  if (result.includes("бракуване")) return "За бракуване";
+  if (result.includes("негоден")) return "Негоден";
+  if (result.includes("ремонт")) return "Подлежи на ремонт";
+  if (result.includes("проблем")) return "Проблем";
+  if (result.includes("годен")) return "Изряден";
+  return "";
+}
+
 function extinguisherFollowUpTaskContent(
   resultStatus: string,
   extinguisherTitle: string,
@@ -1276,6 +1286,7 @@ async function saveFireExtinguisherStickerRow({
     object_name: objectName,
     object_location: row.location,
     technician: row.servicePersonName,
+    service_type: row.serviceType,
     service_date: row.serviceDate || null,
     next_service_date: row.nextServiceDate || null,
     extinguisher_type: buildExtinguisherType(row),
@@ -1321,6 +1332,7 @@ async function saveProtocolFireExtinguisherRow(rowPayload: {
   object_name: string;
   object_location: string;
   technician: string;
+  service_type: string;
   service_date: string | null;
   next_service_date: string | null;
   extinguisher_type: string;
@@ -1345,6 +1357,8 @@ async function saveProtocolFireExtinguisherRow(rowPayload: {
   }
 
   const existingId = existingResult.data?.[0]?.id;
+  const { service_type: _serviceType, ...legacyRowPayload } = rowPayload;
+
   if (existingId) {
     const updateResult = await supabase
       .from("protocol_fire_extinguisher_rows")
@@ -1352,6 +1366,16 @@ async function saveProtocolFireExtinguisherRow(rowPayload: {
       .eq("id", existingId);
 
     if (updateResult.error) {
+      if (updateResult.error.message.includes("service_type")) {
+        const legacyUpdateResult = await supabase
+          .from("protocol_fire_extinguisher_rows")
+          .update(legacyRowPayload)
+          .eq("id", existingId);
+
+        if (!legacyUpdateResult.error) return;
+        throw new Error(legacyUpdateResult.error.message);
+      }
+
       throw new Error(updateResult.error.message);
     }
 
@@ -1363,6 +1387,15 @@ async function saveProtocolFireExtinguisherRow(rowPayload: {
     .insert(rowPayload);
 
   if (insertResult.error) {
+    if (insertResult.error.message.includes("service_type")) {
+      const legacyInsertResult = await supabase
+        .from("protocol_fire_extinguisher_rows")
+        .insert(legacyRowPayload);
+
+      if (!legacyInsertResult.error) return;
+      throw new Error(legacyInsertResult.error.message);
+    }
+
     throw new Error(insertResult.error.message);
   }
 }
@@ -2439,9 +2472,14 @@ function ExtinguisherProtocolSection({
   );
   const selectedRows = rows.filter((row) => selectedRowIdSet.has(row.id));
   const selectedRowsNeedingStickers = selectedRows.filter(
-    (row) => row.equipmentId && !row.stickerNumber
+    (row) =>
+      row.equipmentId &&
+      !row.stickerNumber &&
+      isTechnicalExtinguisherService(row.serviceType)
   );
-  const rowsWithStickers = rows.filter((row) => row.stickerNumber);
+  const rowsWithStickers = rows.filter(
+    (row) => row.stickerNumber && isTechnicalExtinguisherService(row.serviceType)
+  );
   const selectableRowsCount = rows.length;
   const allRowsSelected =
     selectableRowsCount > 0 && selectedRows.length === selectableRowsCount;
@@ -2493,6 +2531,10 @@ function ExtinguisherProtocolSection({
     const nextRow = { ...row, [key]: value };
 
     if (key === "serviceType") {
+      if (!isTechnicalExtinguisherService(value)) {
+        nextRow.stickerNumber = "";
+      }
+
       const nextAutoServiceDate = nextServiceDateForExtinguisherService(
         nextRow.serviceType,
         nextRow.serviceDate
@@ -2563,6 +2605,13 @@ function ExtinguisherProtocolSection({
         const nextRow = { ...row, [key]: value };
 
         if (key === "serviceType" || key === "serviceDate") {
+          if (
+            key === "serviceType" &&
+            !isTechnicalExtinguisherService(nextRow.serviceType)
+          ) {
+            nextRow.stickerNumber = "";
+          }
+
           const nextAutoServiceDate = nextServiceDateForExtinguisherService(
             nextRow.serviceType,
             nextRow.serviceDate
@@ -2630,6 +2679,13 @@ function ExtinguisherProtocolSection({
 
     setStickerError("");
 
+    if (!isTechnicalExtinguisherService(row.serviceType)) {
+      setStickerError(
+        "\u0421\u0442\u0438\u043a\u0435\u0440\u044a\u0442 \u043c\u043e\u0436\u0435 \u0434\u0430 \u0441\u0435 \u043f\u0435\u0447\u0430\u0442\u0430 \u0441\u0430\u043c\u043e \u0437\u0430 \u0440\u0435\u0434 \u0441 \u0442\u0438\u043f \u0443\u0441\u043b\u0443\u0433\u0430 \"\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435\"."
+      );
+      return;
+    }
+
     try {
       const protocolId = protocolNumber ? await getProtocolDatabaseId(protocolNumber) : "";
       await saveFireExtinguisherStickerRow({
@@ -2648,7 +2704,9 @@ function ExtinguisherProtocolSection({
   }
 
   async function handlePrintAllStickers() {
-    const printableRows = rows.filter((row) => row.stickerNumber);
+    const printableRows = rows.filter(
+      (row) => row.stickerNumber && isTechnicalExtinguisherService(row.serviceType)
+    );
     if (!printableRows.length) return;
 
     setStickerError("");
@@ -2678,6 +2736,12 @@ function ExtinguisherProtocolSection({
     row: ExtinguisherProtocolRow,
     protocolId: string
   ) {
+    if (!isTechnicalExtinguisherService(row.serviceType)) {
+      throw new Error(
+        "\u0421\u0442\u0438\u043a\u0435\u0440 \u0441\u0435 \u0433\u0435\u043d\u0435\u0440\u0438\u0440\u0430 \u0441\u0430\u043c\u043e \u043f\u0440\u0438 \u0443\u0441\u043b\u0443\u0433\u0430 \"\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435\"."
+      );
+    }
+
     const supabase = createSupabaseBrowserClient();
     const { data, error } = await supabase.rpc(
       "claim_fire_extinguisher_sticker_number"
@@ -2715,6 +2779,13 @@ function ExtinguisherProtocolSection({
   }
 
   async function generateSticker(row: ExtinguisherProtocolRow) {
+    if (!isTechnicalExtinguisherService(row.serviceType)) {
+      setStickerError(
+        "\u0421\u0442\u0438\u043a\u0435\u0440\u0438 \u0437\u0430 \u043f\u043e\u0436\u0430\u0440\u043e\u0433\u0430\u0441\u0438\u0442\u0435\u043b\u0438 \u0441\u0435 \u0433\u0435\u043d\u0435\u0440\u0438\u0440\u0430\u0442 \u0441\u0430\u043c\u043e \u043f\u0440\u0438 \u0442\u0438\u043f \u0443\u0441\u043b\u0443\u0433\u0430 \"\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435\"."
+      );
+      return;
+    }
+
     if (row.stickerNumber) {
       printSticker(row.stickerNumber);
       return;
@@ -2739,7 +2810,10 @@ function ExtinguisherProtocolSection({
 
   async function generateStickersForSelectedRows() {
     const rowsToGenerate = selectedRows.filter(
-      (row) => row.equipmentId && !row.stickerNumber
+      (row) =>
+        row.equipmentId &&
+        !row.stickerNumber &&
+        isTechnicalExtinguisherService(row.serviceType)
     );
 
     if (!rowsToGenerate.length) return;
@@ -3209,7 +3283,10 @@ function ExtinguisherProtocolSection({
       </div>
 
       <div className="mt-5 space-y-4">
-        {rows.map((row) => (
+        {rows.map((row) => {
+          const canUseServiceSticker = isTechnicalExtinguisherService(row.serviceType);
+
+          return (
           <div
             key={row.id}
             className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
@@ -3249,13 +3326,15 @@ function ExtinguisherProtocolSection({
             <div className="mt-3 flex flex-col gap-2 rounded-xl border border-red-100 bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2 text-sm font-black text-slate-800">
                 <Tags size={16} className="text-red-600" />
-                {row.stickerNumber ? (
+                {row.stickerNumber && canUseServiceSticker ? (
                   <span>{"\u0421\u0442\u0438\u043a\u0435\u0440 \u2116"}{row.stickerNumber}</span>
+                ) : !canUseServiceSticker ? (
+                  <span>{"\u0421\u0442\u0438\u043a\u0435\u0440: \u0441\u0430\u043c\u043e \u043f\u0440\u0438 \u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435"}</span>
                 ) : (
                   <span>{"\u0421\u0442\u0438\u043a\u0435\u0440: \u043d\u044f\u043c\u0430"}</span>
                 )}
               </div>
-              {row.stickerNumber ? (
+              {row.stickerNumber && canUseServiceSticker ? (
                 <Button
                   type="button"
                   size="sm"
@@ -3265,7 +3344,7 @@ function ExtinguisherProtocolSection({
                   <Printer size={15} />
                   {"\u041f\u0440\u0438\u043d\u0442\u0438\u0440\u0430\u0439 \u0441\u0442\u0438\u043a\u0435\u0440"}
                 </Button>
-              ) : (
+              ) : canUseServiceSticker ? (
                 <Button
                   type="button"
                   size="sm"
@@ -3279,6 +3358,10 @@ function ExtinguisherProtocolSection({
                   )}
                   {"\u0413\u0435\u043d\u0435\u0440\u0438\u0440\u0430\u0439 \u0441\u0442\u0438\u043a\u0435\u0440"}
                 </Button>
+              ) : (
+                <div className="text-xs font-bold text-slate-500">
+                  {"\u0418\u0437\u0431\u0435\u0440\u0435\u0442\u0435 \"\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435\", \u0437\u0430 \u0434\u0430 \u0438\u043c\u0430 \u0441\u0442\u0438\u043a\u0435\u0440."}
+                </div>
               )}
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -3441,7 +3524,8 @@ function ExtinguisherProtocolSection({
               ) : null}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
     </Card>
   );
@@ -4991,17 +5075,6 @@ export function ProtocolForm({
           });
         }
 
-        if (plannedSubscriptionTasks.length > 0) {
-          await clearPlannedSubscriptionTasksForObject([
-            objectId,
-            selectedObjectDetails?.code || "",
-            selectedObjectCode,
-            printObjectName,
-          ],
-          plannedSubscriptionTasks.map((task) => task.recurrenceMonths),
-          plannedSubscriptionTasks.map((task) => task.dueDate));
-        }
-
         for (const [dueDate, groupedTasks] of tasksByDate) {
           const activities = groupedTasks.map((plannedTask) => ({
             row: plannedTask.row.number,
@@ -5010,7 +5083,12 @@ export function ProtocolForm({
             recurrenceMonths: plannedTask.recurrenceMonths,
           }));
 
-          await upsertServiceTask({
+          await upsertPlannedSubscriptionTaskForObject([
+            objectId,
+            selectedObjectDetails?.code || "",
+            selectedObjectCode,
+            printObjectName,
+          ], {
             title: "Планирано посещение – Абонаментно обслужване",
             description: activities
               .map((activity) => `• ${activity.title}`)
@@ -5143,11 +5221,14 @@ export function ProtocolForm({
             .join(" ");
           const serviceType = row.serviceType.trim() || "техническо обслужване";
           const taskTitle = `${serviceType} на ${serviceSubject}`.trim();
+          const canUseServiceSticker = isTechnicalExtinguisherService(serviceType);
+          const serviceStickerNumber = canUseServiceSticker ? row.stickerNumber : "";
+          const equipmentStatus = equipmentStatusFromExtinguisherResult(row.resultStatus || "");
 
-          if (row.stickerNumber) {
+          if (serviceStickerNumber) {
             await saveFireExtinguisherStickerRow({
               row,
-              stickerNumber: row.stickerNumber,
+              stickerNumber: serviceStickerNumber,
               protocolNumber: finalNumber,
               protocolId,
               objectId,
@@ -5163,7 +5244,8 @@ export function ProtocolForm({
               last_service_date: row.serviceDate || protocolDate || null,
               next_check_date: row.nextServiceDate || null,
               next_service_date: row.nextServiceDate || null,
-              sticker_number: row.stickerNumber ? Number(row.stickerNumber) : null,
+              sticker_number: serviceStickerNumber ? Number(serviceStickerNumber) : null,
+              ...(equipmentStatus ? { status: equipmentStatus } : {}),
               updated_at: new Date().toISOString(),
             })
             .eq("id", row.equipmentId);
@@ -5172,7 +5254,7 @@ export function ProtocolForm({
             throw new Error(updateEquipmentResult.error.message);
           }
 
-          if (!row.stickerNumber) {
+          if (!serviceStickerNumber) {
             await saveFireExtinguisherServiceHistory({
                 equipment_id: row.equipmentId,
                 object_id: objectId,
@@ -5187,10 +5269,8 @@ export function ProtocolForm({
               });
           }
 
-          await completePlannedEquipmentTasks(row.equipmentId, finalNumber);
-
           if (row.nextServiceDate) {
-            await upsertServiceTask({
+            await upsertPlannedEquipmentServiceTask({
               title: taskTitle,
               description: `${taskTitle}\nСледващо обслужване: ${row.nextServiceDate}`,
               taskType: "Планирано посещение",

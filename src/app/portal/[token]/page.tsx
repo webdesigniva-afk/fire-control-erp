@@ -234,6 +234,10 @@ function documentKindLabel(kind: string) {
   return "Документ";
 }
 
+function countLabel(count: number, singular: string, plural: string) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 function taskIsDone(task: PortalTask) {
   const status = task.status.toLowerCase();
   return Boolean(task.completedAt) || ["done", "completed", "resolved", "приключена", "готово"].includes(status);
@@ -426,6 +430,18 @@ function subscriptionDefaultScope() {
     .map((row) => row.label);
 }
 
+function subscriptionCheckStatus(value: unknown) {
+  if (value === true) return "";
+  if (typeof value !== "string") return null;
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || ["непопълнено", "unfilled", "unchecked", "none", "false", "0"].includes(normalized)) {
+    return null;
+  }
+  if (["лошо", "bad", "problem"].includes(normalized)) return "лошо";
+  return "";
+}
+
 function monthsBetweenDates(from: string | undefined, to: string | undefined) {
   if (!from || !to) return 0;
   const start = new Date(from.includes("T") ? from : `${from}T00:00:00`);
@@ -438,14 +454,18 @@ function subscriptionProtocolScope(protocol: PortalProtocol) {
   if (!isSubscriptionProtocol(protocol)) return [];
   const checks = protocol.protocolPayload?.["subscriptionChecks"];
   if (!checks || typeof checks !== "object" || Array.isArray(checks)) {
-    return subscriptionDefaultScope();
+    return [];
   }
 
   const selectedRows = subscriptionScopeRows
-    .filter((row) => Boolean((checks as Record<string, unknown>)[row.number]))
-    .map((row) => row.label);
+    .map((row) => {
+      const status = subscriptionCheckStatus((checks as Record<string, unknown>)[row.number]);
+      if (status === null) return "";
+      return status ? `${row.label} - ${status}` : row.label;
+    })
+    .filter(Boolean);
 
-  return selectedRows.length ? selectedRows : subscriptionDefaultScope();
+  return selectedRows;
 }
 
 function subscriptionTaskScope(task: PortalTask, lastVisitDate: string) {
@@ -508,22 +528,56 @@ function protocolPayloadRows(protocol: PortalProtocol) {
   return Array.isArray(rows) ? rows : [];
 }
 
-function protocolNextVisitDates(protocol: PortalProtocol) {
-  const payload = protocol.protocolPayload ?? {};
-  const dates = [textFromRecord(payload, "nextVisitDate")];
+function sentenceCaseLabel(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
+}
 
-  for (const row of protocolPayloadRows(protocol)) {
-    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
-    const rowRecord = row as Record<string, unknown>;
-    dates.push(
-      textFromRecord(rowRecord, "nextServiceDate"),
-      textFromRecord(rowRecord, "next_service_date"),
-      textFromRecord(rowRecord, "nextCheckDate"),
-      textFromRecord(rowRecord, "next_check_date")
+function protocolExtinguisherActivities(rows: Record<string, unknown>[]) {
+  const grouped = new Map<string, string[]>();
+
+  for (const row of rows) {
+    const serviceType = sentenceCaseLabel(
+      textFromRecord(row, "serviceType") || textFromRecord(row, "service_type") || "Обслужване"
     );
+    const serial = textFromRecord(row, "serialNumber") || textFromRecord(row, "serial_number");
+    const serialLabel = serial ? `SN ${serial}` : "без сериен номер";
+    grouped.set(serviceType, [...(grouped.get(serviceType) ?? []), serialLabel]);
   }
 
-  return dates.filter(Boolean);
+  return [...grouped.entries()].map(([serviceType, serials]) => `${serviceType} - ${serials.join(", ")}`);
+}
+
+function protocolHistoryActivities(protocol: PortalProtocol) {
+  const title = protocolTitle(protocol);
+  const payload = protocol.protocolPayload ?? {};
+
+  if (title.toLowerCase().includes("пожарогас")) {
+    const rows = protocolPayloadRows(protocol)
+      .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object" && !Array.isArray(row)));
+    const activities = protocolExtinguisherActivities(rows);
+
+    return activities.length ? activities : ["Обслужване на пожарогасители"];
+  }
+
+  if (isSubscriptionProtocol(protocol)) {
+    return subscriptionProtocolScope(protocol);
+  }
+
+  const checks = payload["checks"];
+  if (checks && typeof checks === "object" && !Array.isArray(checks)) {
+    const selected = Object.entries(checks as Record<string, unknown>)
+      .filter(([, value]) => Boolean(value))
+      .map(([key]) => key);
+    if (selected.length) return selected;
+  }
+
+  return [
+    textFromRecord(payload, "serviceSystemStatus"),
+    textFromRecord(payload, "serviceDefects"),
+    textFromRecord(payload, "serviceDeviations"),
+  ].filter(Boolean);
 }
 
 function protocolPayloadPhotos(protocol: PortalProtocol) {
@@ -1480,6 +1534,7 @@ export default function ClientPortalPage() {
   const [signState, setSignState] = useState<"idle" | "saving" | "error">("idle");
   const [signError, setSignError] = useState("");
   const [openLocationEquipmentIds, setOpenLocationEquipmentIds] = useState<string[]>([]);
+  const [scheduleMode, setScheduleMode] = useState<"upcoming" | "past">("upcoming");
 
   async function loadPortal() {
     const response = await fetch(`/api/client-portal/${token}`, { cache: "no-store" });
@@ -1568,40 +1623,49 @@ export default function ClientPortalPage() {
       .sort((a, b) => dateTimestamp(b.date) - dateTimestamp(a.date))[0];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const nextVisitDate = protocols
-      .flatMap(protocolNextVisitDates)
-      .filter((value) => dateTimestamp(value) >= today.getTime())
+    const nextVisitDate = upcomingTasks
+      .map((task) => task.dueDate)
+      .filter((value) => value && dateTimestamp(value) >= today.getTime())
       .sort((a, b) => dateTimestamp(a) - dateTimestamp(b))[0];
 
     return {
       lastVisitDate: lastProtocol?.date || "",
       nextVisitDate: nextVisitDate || "",
     };
-  }, [data]);
-  const timelineTasks = useMemo(
+  }, [data, upcomingTasks]);
+  const upcomingTimelineTasks = useMemo(
     () =>
-      [
-        ...upcomingTasks.map((task) => ({
+      upcomingTasks
+        .map((task) => ({
           ...task,
-          timelineStatus: "upcoming" as const,
           timelineDate: task.dueDate,
-        })),
-        ...completedTasks.map((task) => ({
-          ...task,
-          timelineStatus: "completed" as const,
-          timelineDate: task.completedAt || task.dueDate,
-        })),
-      ]
+        }))
         .filter((task) => task.timelineDate || task.title)
         .sort((a, b) => {
-          if (a.timelineStatus !== b.timelineStatus) return a.timelineStatus === "upcoming" ? -1 : 1;
           const aTime = a.timelineDate ? new Date(a.timelineDate).getTime() : 0;
           const bTime = b.timelineDate ? new Date(b.timelineDate).getTime() : 0;
-          return a.timelineStatus === "upcoming" ? aTime - bTime : bTime - aTime;
+          return aTime - bTime;
         })
         .slice(0, 10),
-    [upcomingTasks, completedTasks]
+    [upcomingTasks]
   );
+  const pastProtocolTimeline = useMemo(
+    () =>
+      (data?.protocols ?? [])
+        .filter((protocol) => protocol.date || protocolTitle(protocol))
+        .map((protocol) => ({
+          id: protocol.id || protocol.number,
+          protocol,
+          timelineDate: protocol.date,
+          title: protocolTitle(protocol),
+          objectName: protocol.objectName,
+          activities: protocolHistoryActivities(protocol),
+        }))
+        .sort((a, b) => dateTimestamp(b.timelineDate) - dateTimestamp(a.timelineDate))
+        .slice(0, 10),
+    [data]
+  );
+  const visibleTimelineCount = scheduleMode === "upcoming" ? upcomingTimelineTasks.length : pastProtocolTimeline.length;
   const selectedDocument = visibleDocuments.find((document) => document.id === selectedDocumentId) || null;
   const selectedProtocol = data?.protocols.find((protocol) => protocol.id === selectedProtocolId) || null;
 
@@ -1812,10 +1876,26 @@ export default function ClientPortalPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge tone="slate">{data.documents.filter((document) => document.kind === "offer").length} оферти</Badge>
-              <Badge tone="blue">{data.documents.filter((document) => document.kind === "contract").length} договори</Badge>
-              <Badge tone="slate">{data.protocols.length} протоколи</Badge>
-              <Badge tone="orange">{documentsForSignature.length} за подпис</Badge>
+              <Badge tone="slate">
+                {countLabel(
+                  data.documents.filter((document) => document.kind === "offer").length,
+                  "оферта",
+                  "оферти"
+                )}
+              </Badge>
+              <Badge tone="blue">
+                {countLabel(
+                  data.documents.filter((document) => document.kind === "contract").length,
+                  "договор",
+                  "договори"
+                )}
+              </Badge>
+              <Badge tone="slate">
+                {countLabel(data.protocols.length, "протокол", "протоколи")}
+              </Badge>
+              <Badge tone="orange">
+                {countLabel(documentsForSignature.length, "за подпис", "за подпис")}
+              </Badge>
             </div>
           </div>
           </div>
@@ -1991,32 +2071,50 @@ export default function ClientPortalPage() {
           </div>
 
           <div className="rounded-[22px] border border-slate-200/80 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-extrabold">График и история</h2>
-              <Badge tone="blue">{timelineTasks.length}</Badge>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-xl font-extrabold">График и история</h2>
+                <p className="mt-1 text-sm font-semibold text-slate-500">
+                  {scheduleMode === "upcoming"
+                    ? "Предстоящи посещения и сервизни задачи."
+                    : "Съставени протоколи и дейностите в тях."}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="inline-flex rounded-2xl bg-slate-100 p-1">
+                  {(["upcoming", "past"] as const).map((mode) => (
+                    <button
+                      key={mode}
+                      type="button"
+                      onClick={() => setScheduleMode(mode)}
+                      className={`rounded-xl px-4 py-2 text-sm font-extrabold transition ${
+                        scheduleMode === mode
+                          ? "bg-white text-orange-700 shadow-sm"
+                          : "text-slate-500 hover:text-slate-900"
+                      }`}
+                    >
+                      {mode === "upcoming" ? "Предстоящи" : "Минали"}
+                    </button>
+                  ))}
+                </div>
+                <Badge tone="blue">{visibleTimelineCount}</Badge>
+              </div>
             </div>
             <div className="mt-4">
-              {timelineTasks.length ? (
+              {scheduleMode === "upcoming" && upcomingTimelineTasks.length ? (
                 <div className="relative pl-8">
-                  <div className="absolute bottom-2 left-[11px] top-2 w-px bg-gradient-to-b from-orange-300 via-slate-200 to-emerald-200" />
+                  <div className="absolute bottom-2 left-[11px] top-2 w-px bg-gradient-to-b from-orange-300 via-slate-200 to-slate-100" />
                   <div className="divide-y divide-slate-100">
-                    {timelineTasks.map((task) => {
-                      const upcoming = task.timelineStatus === "upcoming";
-                      const markerClass = upcoming
-                        ? "border-orange-200 bg-orange-50 text-orange-600"
-                        : "border-emerald-200 bg-emerald-50 text-emerald-600";
-                      const Icon = upcoming ? Clock3 : CheckCircle2;
+                    {upcomingTimelineTasks.map((task) => {
                       const scopeLines = subscriptionTaskScope(task, protocolVisitSummary.lastVisitDate);
 
                       return (
-                        <div key={`${task.timelineStatus}-${task.id}`} className="relative py-4 first:pt-1 last:pb-1">
-                          <div className={`absolute -left-8 top-4 flex h-6 w-6 items-center justify-center rounded-full border-2 ${markerClass}`}>
-                            <Icon size={14} />
+                        <div key={`upcoming-${task.id}`} className="relative py-4 first:pt-1 last:pb-1">
+                          <div className="absolute -left-8 top-4 flex h-6 w-6 items-center justify-center rounded-full border-2 border-orange-200 bg-orange-50 text-orange-600">
+                            <Clock3 size={14} />
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge tone={upcoming ? "orange" : "green"}>
-                              {upcoming ? "Предстояща" : "Приключена"}
-                            </Badge>
+                            <Badge tone="orange">Предстояща</Badge>
                             {task.timelineDate ? (
                               <span className="text-xs font-bold uppercase text-slate-400">
                                 {formatDate(task.timelineDate)}
@@ -2054,15 +2152,82 @@ export default function ClientPortalPage() {
                     })}
                   </div>
                 </div>
-              ) : (
+              ) : null}
+              {scheduleMode === "past" && pastProtocolTimeline.length ? (
+                <div className="relative pl-8">
+                  <div className="absolute bottom-2 left-[11px] top-2 w-px bg-gradient-to-b from-emerald-300 via-slate-200 to-slate-100" />
+                  <div className="divide-y divide-slate-100">
+                    {pastProtocolTimeline.map((item) => {
+                      const activities = item.activities.slice(0, 6);
+                      const extraCount = Math.max(item.activities.length - activities.length, 0);
+
+                      return (
+                        <div key={`past-${item.id}`} className="relative py-4 first:pt-1 last:pb-1">
+                          <div className="absolute -left-8 top-4 flex h-6 w-6 items-center justify-center rounded-full border-2 border-emerald-200 bg-emerald-50 text-emerald-600">
+                            <CheckCircle2 size={14} />
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge tone="green">Минал протокол</Badge>
+                            {item.timelineDate ? (
+                              <span className="text-xs font-bold uppercase text-slate-400">
+                                {formatDate(item.timelineDate)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="text-base font-extrabold leading-snug text-slate-950">
+                                {item.title}
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm font-bold text-slate-500">
+                                {item.objectName ? (
+                                  <span className="inline-flex items-center gap-2">
+                                    <Building2 size={15} className="shrink-0 text-slate-400" />
+                                    {item.objectName}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openProtocol(item.protocol)}
+                              className="inline-flex shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-extrabold text-slate-700 shadow-sm transition hover:border-orange-200 hover:text-orange-700"
+                            >
+                              Отвори протокол
+                            </button>
+                          </div>
+                          {activities.length ? (
+                            <div className="mt-3 space-y-1.5 text-sm font-semibold leading-5 text-slate-500">
+                              {activities.map((activity) => (
+                                <div key={activity} className="flex gap-2">
+                                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+                                  <span>{activity}</span>
+                                </div>
+                              ))}
+                              {extraCount ? (
+                                <div className="text-sm font-bold text-slate-400">+ още {extraCount}</div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              {visibleTimelineCount === 0 ? (
                 <div className="rounded-2xl bg-slate-50 p-6 text-center">
                   <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-400 shadow-sm">
                     <Clock3 size={20} />
                   </div>
                   <div className="mt-3 text-sm font-bold text-slate-500">
-                    Все още няма планирани или приключени дейности.
+                    {scheduleMode === "upcoming"
+                      ? "Все още няма предстоящи дейности."
+                      : "Все още няма съставени протоколи в историята."}
                   </div>
                 </div>
+              ) : (
+                null
               )}
             </div>
           </div>

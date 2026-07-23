@@ -615,6 +615,28 @@ function uniqueValues(values: string[]) {
     });
 }
 
+function protocolPayloadRecord(value: unknown): DataRecord | null {
+  if (isRecord(value)) return value;
+
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function protocolPayloadRows(payload: DataRecord | null, key: string) {
+  const rows = payload?.[key];
+  return Array.isArray(rows)
+    ? rows.filter((row): row is DataRecord => isRecord(row))
+    : [];
+}
+
 function objectTypeOptions(settings: ProtocolSettings, selectedValue = "") {
   return uniqueValues([
     ...(settings.objectTypes?.length
@@ -764,6 +786,10 @@ function fireExtinguisherActionName(action: UpcomingObjectAction) {
 function cleanFireExtinguisherName(value: string) {
   const cleaned = value
     .replace(/^техническо обслужване\s*[:\-–]?\s*/i, "")
+    .replace(/^презареждане\s*[:\-–]?\s*/i, "")
+    .replace(/^презарядка\s*[:\-–]?\s*/i, "")
+    .replace(/^хидростатичен тест\s*[:\-–]?\s*/i, "")
+    .replace(/^хидростатично изпитване\s*[:\-–]?\s*/i, "")
     .replace(/^на\s+пожарогасител\s*/i, "")
     .replace(/^пожарогасител\s*[:\-–]?\s*/i, "")
     .replace(/\s+/g, " ")
@@ -782,7 +808,6 @@ function fireExtinguisherEquipmentLabel(
       equipmentItem.capacity,
       equipmentItem.brand,
       equipmentItem.model,
-      equipmentItem.serialNumber ? `SN ${equipmentItem.serialNumber}` : "",
     ].filter(Boolean);
 
     return cleanFireExtinguisherName(
@@ -793,9 +818,42 @@ function fireExtinguisherEquipmentLabel(
   return cleanFireExtinguisherName(fireExtinguisherActionName(action));
 }
 
+function fireExtinguisherServiceActionLabel(action: UpcomingObjectAction) {
+  const haystack = [
+    action.title,
+    action.description,
+    action.taskType,
+    ...action.activities.flatMap((activity) => [
+      activity.title,
+      activity.description,
+    ]),
+  ]
+    .join(" ")
+    .toLocaleLowerCase("bg-BG");
+
+  if (haystack.includes("хидростат")) return "Хидростатичен тест";
+  if (haystack.includes("презареж") || haystack.includes("презаряд")) {
+    return "Презареждане";
+  }
+  if (haystack.includes("техническо обслуж")) {
+    return "Техническо обслужване";
+  }
+
+  return "Проверка на пожарогасители";
+}
+
+function fireExtinguisherCountLabel(count: number) {
+  return count === 1 ? "1 пожарогасител" : `${count} пожарогасителя`;
+}
+
+function protocolKindLabel(action: UpcomingObjectAction) {
+  if (isFireExtinguisherAction(action)) return "Протокол за пожарогасители";
+  return actionSourceLabel(action).replace(/\s*№.*$/, "").trim() || "Протокол";
+}
+
 function visitDisplayTitle(action: UpcomingObjectAction) {
   if (isFireExtinguisherAction(action)) {
-    return `Пожарогасител: ${fireExtinguisherActionName(action)}`;
+    return fireExtinguisherServiceActionLabel(action);
   }
 
   const recurrenceMonths = actionRecurrenceMonths(action);
@@ -860,14 +918,15 @@ type UpcomingVisitRenderItem =
       id: string;
       actions: UpcomingObjectAction[];
       dueDate: string;
+      actionLabel: string;
       sourceLabel: string;
       sourceProtocolNumber: string;
       items: {
         action: UpcomingObjectAction;
         equipmentItem?: EquipmentItem;
         label: string;
-        stickerNumber: string;
         location: string;
+        serialNumber: string;
       }[];
     };
 
@@ -887,6 +946,7 @@ function buildUpcomingVisitRenderItems(
     const groupKey = [
       action.dueDate || "no-date",
       action.sourceProtocolNumber || action.sourceProtocolId || action.sourceLabel || "no-protocol",
+      fireExtinguisherServiceActionLabel(action),
     ].join("|");
     let group = fireGroups.get(groupKey);
 
@@ -896,6 +956,7 @@ function buildUpcomingVisitRenderItems(
         id: `fire-extinguishers-${groupKey}`,
         actions: [],
         dueDate: action.dueDate,
+        actionLabel: fireExtinguisherServiceActionLabel(action),
         sourceLabel: actionSourceLabel(action),
         sourceProtocolNumber: action.sourceProtocolNumber,
         items: [],
@@ -910,8 +971,8 @@ function buildUpcomingVisitRenderItems(
       action,
       equipmentItem,
       label: fireExtinguisherEquipmentLabel(action, equipmentItem),
-      stickerNumber: equipmentItem?.stickerNumber || "",
       location: equipmentItem?.location || "",
+      serialNumber: equipmentItem?.serialNumber || "",
     });
   });
 
@@ -1003,6 +1064,30 @@ function actionSourceLabel(action: UpcomingObjectAction) {
   return (
     action.sourceLabel ||
     (action.sourceProtocolNumber ? `Протокол №${action.sourceProtocolNumber}` : "")
+  );
+}
+
+function splitProtocolSourceLabel(label: string) {
+  const match = label.match(/^(.*?)(?:\s*№\s*|\s+#\s*)(.+)$/);
+  if (!match) return { label, number: "" };
+  return {
+    label: match[1].trim(),
+    number: match[2].trim(),
+  };
+}
+
+function ProtocolSourceText({ label }: { label: string }) {
+  const source = splitProtocolSourceLabel(label);
+
+  return (
+    <span className="block min-w-0 leading-tight">
+      <span>{source.label}</span>
+      {source.number ? (
+        <span className="mt-0.5 block font-mono text-xs font-black text-slate-400">
+          №{source.number}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -1315,6 +1400,8 @@ function taskGroupKey(
       "extinguisher-service",
       normalizeGroupPart(dueDate, "date"),
       normalizeGroupPart(sourceProtocolId, "protocol"),
+      normalizeGroupPart(sourceProtocolRow, "row"),
+      normalizeGroupPart(title, "title"),
     ].join("|");
   }
 
@@ -1510,6 +1597,7 @@ function mapEquipment(rows: DataRecord[]): EquipmentItem[] {
 }
 
 type EquipmentFormState = {
+  name: string;
   type: string;
   subtype: string;
   category: string;
@@ -1554,6 +1642,7 @@ type EquipmentCatalogKey =
   | "evacuationPlanTypes";
 
 const emptyEquipmentForm: EquipmentFormState = {
+  name: "",
   type: "",
   subtype: "",
   category: "",
@@ -1616,6 +1705,10 @@ function normalizeDisplayPart(value: string) {
 function generatedEquipmentName(form: EquipmentFormState) {
   const type = normalizeDisplayPart(form.type);
   if (!type) return "";
+
+  if (type === "Друго") {
+    return normalizeDisplayPart(form.name);
+  }
 
   if (type === "Пожарогасител") {
     return [type, normalizeDisplayPart(form.extinguisherCategory), normalizeDisplayPart(form.capacity)]
@@ -1725,6 +1818,36 @@ function isFireExtinguisherEquipment(item: EquipmentItem) {
   return haystack.includes("пожарогас") || haystack.includes("extinguisher");
 }
 
+function isTechnicalExtinguisherService(serviceType: string) {
+  return serviceType
+    .trim()
+    .toLocaleLowerCase("bg-BG")
+    .includes("техническо обслужване");
+}
+
+function hasNonTechnicalStickerHistory(
+  stickerNumber: string,
+  history: FireExtinguisherServiceHistoryItem[]
+) {
+  if (!stickerNumber) return false;
+
+  return history.some(
+    (entry) =>
+      entry.stickerNumber === stickerNumber &&
+      entry.serviceType.trim() &&
+      !isTechnicalExtinguisherService(entry.serviceType)
+  );
+}
+
+function activeServiceStickerNumber(
+  item: EquipmentItem,
+  history: FireExtinguisherServiceHistoryItem[]
+) {
+  return hasNonTechnicalStickerHistory(item.stickerNumber, history)
+    ? ""
+    : item.stickerNumber;
+}
+
 function isFireHydrantEquipment(item: EquipmentItem) {
   const haystack = [item.type, item.category, item.name]
     .join(" ")
@@ -1829,9 +1952,11 @@ function equipmentDetailRows(item: EquipmentItem) {
   if (item.model) rows.push({ label: "Модел", value: item.model });
   if (item.lastCheckDate) rows.push({ label: "Последна проверка", value: formatDateValue(item.lastCheckDate) });
   if (item.nextCheckDate) rows.push({ label: "Следваща проверка", value: formatDateValue(item.nextCheckDate) });
-  if (item.equipmentQrCode) rows.push({ label: "QR код", value: item.equipmentQrCode });
-  if (item.equipmentQrGeneratedAt) rows.push({ label: "QR генериран", value: formatDateTimeValue(item.equipmentQrGeneratedAt) });
-  if (item.equipmentQrPrintedAt) rows.push({ label: "QR принтиран", value: formatDateTimeValue(item.equipmentQrPrintedAt) });
+  if (isExtinguisher) {
+    if (item.equipmentQrCode) rows.push({ label: "QR код", value: item.equipmentQrCode });
+    if (item.equipmentQrGeneratedAt) rows.push({ label: "QR генериран", value: formatDateTimeValue(item.equipmentQrGeneratedAt) });
+    if (item.equipmentQrPrintedAt) rows.push({ label: "QR принтиран", value: formatDateTimeValue(item.equipmentQrPrintedAt) });
+  }
   if (item.createdAt) rows.push({ label: "Създадено", value: formatDateTimeValue(item.createdAt) });
   if (item.updatedAt) rows.push({ label: "Обновено", value: formatDateTimeValue(item.updatedAt) });
 
@@ -1865,6 +1990,7 @@ function equipmentTypeFromItem(item: EquipmentItem) {
 function equipmentFormWithType(current: EquipmentFormState, type: string): EquipmentFormState {
   return {
     ...current,
+    name: type === "Друго" ? current.name : "",
     type,
     subtype: "",
     category: equipmentCategoryByType[type] ?? current.category,
@@ -2382,6 +2508,10 @@ function OverviewTab() {
   const [expandedUpcomingActionIds, setExpandedUpcomingActionIds] = useState<
     Set<string>
   >(new Set());
+  const [viewingFireExtinguisherGroup, setViewingFireExtinguisherGroup] =
+    useState<
+      Extract<UpcomingVisitRenderItem, { kind: "fireExtinguisherGroup" }> | null
+    >(null);
   const recentProtocols = protocols.slice(0, 3);
   const activeProblems = upcomingActions.filter(
     (action) => action.source === "defect" && !isCompletedAction(action)
@@ -2540,11 +2670,15 @@ function OverviewTab() {
         ) : null}
 
         <Card className="p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-black">Предстоящи посещения и действия</h3>
-            <Badge variant="orange">{upcomingVisitActions.length}</Badge>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-lg font-black">Планирани дейности</h3>
+              <p className="text-sm font-semibold text-slate-500">
+                Следващи посещения, задачи от протоколи и последващи действия за обекта.
+              </p>
+            </div>
           </div>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 divide-y divide-slate-100 border-y border-slate-100">
             {upcomingActionsLoadState === "loading" ? (
               <div className="rounded-2xl bg-slate-50 p-4 text-sm font-bold text-slate-400">
                 Зареждане...
@@ -2567,79 +2701,49 @@ function OverviewTab() {
               ? upcomingVisitRenderItems.map((renderItem) => {
                   if (renderItem.kind === "fireExtinguisherGroup") {
                     const proximity = dateProximityLabel(renderItem.dueDate);
-                    const isExpanded = expandedUpcomingActionIds.has(renderItem.id);
-                    const visibleItems = isExpanded
-                      ? renderItem.items
-                      : renderItem.items.slice(0, 6);
-                    const hiddenItemCount =
-                      renderItem.items.length - visibleItems.length;
-                    const protocolText =
+                    const protocolDisplay =
                       renderItem.sourceProtocolNumber
-                        ? `Протокол №${renderItem.sourceProtocolNumber}`
-                        : renderItem.sourceLabel;
+                        ? `${protocolKindLabel(renderItem.actions[0])} №${renderItem.sourceProtocolNumber}`
+                        : protocolKindLabel(renderItem.actions[0]);
 
                     return (
-                      <div
-                        key={renderItem.id}
-                        className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-slate-400">
-                            <CalendarDays size={14} />
-                            {formatDateValue(renderItem.dueDate) || "Без дата"}
+                      <div key={renderItem.id} className="py-4">
+                        <div className="grid gap-4 lg:grid-cols-[118px_minmax(0,1fr)_auto] lg:items-start">
+                          <div className="space-y-1">
+                            <div className="inline-flex items-center gap-1.5 text-sm font-black text-slate-800">
+                              <CalendarDays size={15} className="text-slate-400" />
+                              {formatDateValue(renderItem.dueDate) || "Без дата"}
+                            </div>
+                            <Badge variant={proximity.variant}>{proximity.label}</Badge>
                           </div>
-                          <Badge variant={proximity.variant}>{proximity.label}</Badge>
-                        </div>
 
-                        <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="flex items-start gap-2 font-black leading-tight text-slate-950">
-                              <Wrench size={17} className="mt-0.5 shrink-0 text-blue-600" />
-                              <span>Пожарогасители за обслужване</span>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <div className="text-base font-black leading-tight text-slate-950">
+                                {renderItem.actionLabel}
+                              </div>
                             </div>
-                            <div className="mt-1 text-sm font-bold text-slate-500">
-                              {renderItem.items.length} бр.
-                              {protocolText ? ` · ${protocolText}` : ""}
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-bold text-slate-500">
+                              {protocolDisplay ? <ProtocolSourceText label={`От ${protocolDisplay}`} /> : null}
+                              {renderItem.actions[0]?.assignee ? (
+                                <span>Техник: {renderItem.actions[0].assignee}</span>
+                              ) : null}
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={() => setViewingFireExtinguisherGroup(renderItem)}
+                              className="mt-3 inline-flex h-8 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-600 shadow-sm transition hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700"
+                            >
+                              <ExternalLink size={15} />
+                              Виж {fireExtinguisherCountLabel(renderItem.items.length)}
+                            </button>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 lg:justify-end">
+                            <ProtocolSourceLink action={renderItem.actions[0]} />
                           </div>
                         </div>
-
-                        <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
-                          {visibleItems.map((item) => (
-                            <div
-                              key={item.action.id}
-                              className="grid gap-1 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0 md:grid-cols-[minmax(0,1fr)_120px_minmax(120px,0.55fr)] md:items-center"
-                            >
-                              <div className="min-w-0 font-black leading-5 text-slate-900">
-                                {item.label}
-                              </div>
-                              <div className="font-bold text-slate-500">
-                                {item.stickerNumber ? `Стикер №${item.stickerNumber}` : "Без стикер"}
-                              </div>
-                              <div className="min-w-0 font-bold text-slate-500">
-                                {item.location || "Без локация"}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {hiddenItemCount > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => toggleUpcomingActionActivities(renderItem.id)}
-                            className="mt-3 text-sm font-black text-orange-600 transition hover:text-orange-700"
-                          >
-                            +{hiddenItemCount} още
-                          </button>
-                        ) : isExpanded && renderItem.items.length > 6 ? (
-                          <button
-                            type="button"
-                            onClick={() => toggleUpcomingActionActivities(renderItem.id)}
-                            className="mt-3 text-sm font-black text-orange-600 transition hover:text-orange-700"
-                          >
-                            Покажи по-малко
-                          </button>
-                        ) : null}
                       </div>
                     );
                   }
@@ -2658,99 +2762,107 @@ function OverviewTab() {
                   return (
                     <div
                       key={action.id}
-                      className={
-                        action.source === "defect"
-                          ? "rounded-2xl border border-red-100 bg-red-50 p-4"
-                          : "rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                      }
+                      className="py-4"
                     >
                       {action.source === "defect" ? (
-                        <>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="danger">Проблем</Badge>
-                            <Badge variant="warning">
-                              {taskStatusLabel(action.status)}
-                            </Badge>
-                          </div>
-                          <div className="mt-2 whitespace-pre-line font-black text-red-950">
-                            {action.title}
-                          </div>
-                          {sourceLabel ? (
-                            <div className="mt-3 text-sm font-medium leading-6 text-red-900">
-                              <div className="font-black">Източник:</div>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span>{sourceLabel}</span>
-                                <ProtocolSourceLink action={action} />
-                              </div>
+                        <div className="grid gap-4 lg:grid-cols-[118px_minmax(0,1fr)_auto] lg:items-start">
+                          <div className="space-y-1">
+                            <div className="inline-flex items-center gap-1.5 text-sm font-black text-red-700">
+                              <AlertTriangle size={15} className="text-red-500" />
+                              Проблем
                             </div>
-                          ) : null}
-                          <div className="mt-4">
+                            {action.createdAt ? (
+                              <div className="text-xs font-black text-slate-400">
+                                {formatTaskCreatedDate(action.createdAt)}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant="danger">Проблем</Badge>
+                              <Badge variant="warning">
+                                {taskStatusLabel(action.status)}
+                              </Badge>
+                            </div>
+                            <div className="mt-2 whitespace-pre-line text-base font-black leading-tight text-red-950">
+                              {action.title}
+                            </div>
+                            {sourceLabel ? (
+                              <div className="mt-2 flex flex-wrap items-start gap-2 text-sm font-bold text-red-900">
+                                <span className="text-red-600">Източник:</span>
+                                <ProtocolSourceText label={sourceLabel} />
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div className="flex flex-wrap gap-2 lg:justify-end">
+                            <ProtocolSourceLink action={action} />
                             <Button
                               type="button"
                               variant="outline"
+                              size="sm"
                               onClick={() => completeUpcomingAction(action)}
                             >
                               <CheckCircle2 size={17} />
                               Маркирай като решен
                             </Button>
                           </div>
-                        </>
+                        </div>
                       ) : (
-                        <>
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="inline-flex items-center gap-1.5 text-xs font-black uppercase text-slate-400">
-                              <CalendarDays size={14} />
+                        <div className="grid gap-4 lg:grid-cols-[118px_minmax(0,1fr)_auto] lg:items-start">
+                          <div className="space-y-1">
+                            <div className="inline-flex items-center gap-1.5 text-sm font-black text-slate-800">
+                              <CalendarDays size={15} className="text-slate-400" />
                               {formatDateValue(action.dueDate) || "Без дата"}
                             </div>
                             <Badge variant={proximity.variant}>
                               {proximity.label}
                             </Badge>
                           </div>
-                          <div className="mt-3">
-                            <div className="font-black leading-tight text-slate-950">
+
+                          <div className="min-w-0">
+                            <div className="text-base font-black leading-tight text-slate-950">
                               {visitDisplayTitle(action)}
                             </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-bold text-slate-500">
+                              {sourceLabel ? <ProtocolSourceText label={sourceLabel} /> : null}
+                              {action.assignee ? <span>Техник: {action.assignee}</span> : null}
+                            </div>
+
+                            {visibleActivities.length > 0 ? (
+                              <div className="mt-3 space-y-1.5 text-sm font-semibold leading-5 text-slate-600">
+                                {visibleActivities.map((title) => (
+                                  <div key={`${action.id}-${title}`} className="flex gap-2">
+                                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-orange-400" />
+                                    <span>{title}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                            {hiddenActivityCount > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleUpcomingActionActivities(action.id)}
+                                className="mt-2 text-sm font-black text-orange-600 transition hover:text-orange-700"
+                              >
+                                +{hiddenActivityCount} още
+                              </button>
+                            ) : isExpanded && activityTitles.length > 3 ? (
+                              <button
+                                type="button"
+                                onClick={() => toggleUpcomingActionActivities(action.id)}
+                                className="mt-2 text-sm font-black text-orange-600 transition hover:text-orange-700"
+                              >
+                                Покажи по-малко
+                              </button>
+                            ) : null}
                           </div>
-                          {activityTitles.length > 0 ? (
-                            <div className="mt-3 text-sm font-black text-slate-700">
-                              {activityTitles.length === 1
-                                ? "1 дейност"
-                                : `${activityTitles.length} дейности`}
-                            </div>
-                          ) : null}
-                          {visibleActivities.length > 0 ? (
-                            <ul className="mt-2 space-y-1 text-sm font-medium leading-6 text-slate-600">
-                              {visibleActivities.map((title) => (
-                                <li key={`${action.id}-${title}`} className="flex gap-2">
-                                  <span className="text-orange-500">•</span>
-                                  <span>{title}</span>
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                          {hiddenActivityCount > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleUpcomingActionActivities(action.id)}
-                              className="mt-2 text-sm font-black text-orange-600 transition hover:text-orange-700"
-                            >
-                              +{hiddenActivityCount} още
-                            </button>
-                          ) : isExpanded && activityTitles.length > 3 ? (
-                            <button
-                              type="button"
-                              onClick={() => toggleUpcomingActionActivities(action.id)}
-                              className="mt-2 text-sm font-black text-orange-600 transition hover:text-orange-700"
-                            >
-                              Покажи по-малко
-                            </button>
-                          ) : null}
-                          {sourceLabel ? (
-                            <div className="mt-3 text-sm font-bold text-slate-500">
-                              {sourceLabel}
-                            </div>
-                          ) : null}
-                        </>
+
+                          <div className="flex flex-wrap gap-2 lg:justify-end">
+                            <ProtocolSourceLink action={action} />
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
@@ -2814,6 +2926,75 @@ function OverviewTab() {
           </div>
         </Card>
       </div>
+
+      {viewingFireExtinguisherGroup ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 px-4 py-6 backdrop-blur-sm"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              setViewingFireExtinguisherGroup(null);
+            }
+          }}
+        >
+          <div className="flex max-h-[86vh] w-full max-w-4xl flex-col rounded-2xl border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)]">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0">
+                <h3 className="text-lg font-black text-slate-950">
+                  {viewingFireExtinguisherGroup.actionLabel}
+                </h3>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm font-bold text-slate-500">
+                  <span>
+                    {fireExtinguisherCountLabel(
+                      viewingFireExtinguisherGroup.items.length
+                    )}
+                  </span>
+                  <span>{formatDateValue(viewingFireExtinguisherGroup.dueDate) || "Без дата"}</span>
+                  {viewingFireExtinguisherGroup.sourceProtocolNumber ? (
+                    <span>
+                      Протокол за пожарогасители №
+                      {viewingFireExtinguisherGroup.sourceProtocolNumber}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingFireExtinguisherGroup(null)}
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-500 transition hover:bg-slate-50"
+                aria-label="Затвори"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="overflow-x-auto p-5">
+              <div className="min-w-[680px] overflow-hidden rounded-xl border border-slate-100">
+                <div className="grid grid-cols-[minmax(220px,1.4fr)_150px_minmax(200px,1fr)] gap-4 border-b border-slate-100 bg-slate-50 px-4 py-2 text-[11px] font-black uppercase text-slate-400">
+                  <div>Пожарогасител</div>
+                  <div>Сериен номер</div>
+                  <div>Локация</div>
+                </div>
+                {viewingFireExtinguisherGroup.items.map((item) => (
+                  <div
+                    key={item.action.id}
+                    className="grid grid-cols-[minmax(220px,1.4fr)_150px_minmax(200px,1fr)] gap-4 border-b border-slate-100 px-4 py-2.5 text-sm last:border-b-0"
+                  >
+                    <div className="font-bold leading-5 text-slate-900">
+                      {item.label}
+                    </div>
+                    <div className="font-bold leading-5 text-slate-500">
+                      {item.serialNumber || "Без сериен номер"}
+                    </div>
+                    <div className="font-bold leading-5 text-slate-500">
+                      {item.location || "Без локация"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -2993,7 +3174,18 @@ function EquipmentTab() {
           return;
         }
 
-        setServiceHistory(mapFireExtinguisherServiceHistory((data as DataRecord[]) ?? []));
+        const mappedHistory = mapFireExtinguisherServiceHistory((data as DataRecord[]) ?? []);
+        setServiceHistory(mappedHistory);
+        if (
+          currentEquipment.stickerNumber &&
+          hasNonTechnicalStickerHistory(currentEquipment.stickerNumber, mappedHistory)
+        ) {
+          updateEquipmentStickerState(currentEquipment.id, {
+            stickerNumber: "",
+            stickerGeneratedAt: "",
+            stickerPrintedAt: "",
+          });
+        }
         setHistoryLoadState("ready");
       } catch {
         if (isMounted) {
@@ -3224,6 +3416,7 @@ function EquipmentTab() {
       object_name: location.name,
       object_location: item.location,
       technician: latestHistory?.technician || "",
+      service_type: latestHistory?.serviceType || "",
       service_date: serviceDate,
       next_service_date: nextServiceDate,
       extinguisher_type: extinguisherDisplayType(item),
@@ -3242,95 +3435,41 @@ function EquipmentTab() {
       .from("protocol_fire_extinguisher_rows")
       .upsert(rowPayload, { onConflict: "sticker_number" });
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.message.includes("service_type")) {
+        const { service_type: _serviceType, ...legacyRowPayload } = rowPayload;
+        const legacyResult = await supabase
+          .from("protocol_fire_extinguisher_rows")
+          .upsert(legacyRowPayload, { onConflict: "sticker_number" });
+
+        if (!legacyResult.error) return;
+        throw new Error(legacyResult.error.message);
+      }
+
+      throw new Error(error.message);
+    }
   }
 
   async function generateEquipmentSticker(item: EquipmentItem) {
     if (item.stickerNumber) return;
 
-    setStickerActionState("generating");
-    setErrorMessage("");
-
-    try {
-      const supabase = createSupabaseBrowserClient();
-      const { data, error } = await supabase.rpc(
-        "claim_fire_extinguisher_sticker_number"
-      );
-
-      if (error || data === null) {
-        throw new Error(error?.message || "Не беше върнат номер на стикер.");
-      }
-
-      const stickerNumber = String(data);
-      const now = new Date().toISOString();
-      const updateResult = await supabase
-        .from("equipment")
-        .update({
-          sticker_number: Number(stickerNumber),
-          sticker_generated_at: now,
-          updated_at: now,
-        })
-        .eq("id", item.id);
-
-      if (updateResult.error) throw new Error(updateResult.error.message);
-
-      const historyResult = await supabase
-        .from("fire_extinguisher_service_history")
-        .insert({
-          equipment_id: item.id,
-          object_id: location.databaseId || location.qrCode,
-          protocol_id: null,
-          protocol_number: "",
-          sticker_number: Number(stickerNumber),
-          service_type: "Генериран стикер",
-          service_date: item.lastCheckDate || null,
-          next_service_date: item.nextCheckDate || null,
-          technician_id: "",
-          technician: "",
-        });
-
-      if (historyResult.error) throw new Error(historyResult.error.message);
-
-      const nextValues = {
-        stickerNumber,
-        stickerGeneratedAt: now,
-        updatedAt: now,
-      };
-      updateEquipmentStickerState(item.id, nextValues);
-      await createStickerSnapshot({ ...item, ...nextValues }, stickerNumber);
-      setServiceHistory((current) => [
-        {
-          id: `generated-${Date.now()}`,
-          equipmentId: item.id,
-          objectId: location.databaseId || location.qrCode,
-          protocolId: "",
-          protocolNumber: "",
-          stickerNumber,
-          serviceType: "Генериран стикер",
-          serviceDate: item.lastCheckDate,
-          nextServiceDate: item.nextCheckDate,
-          technician: "",
-          createdAt: now,
-        },
-        ...current,
-      ]);
-      setHistoryLoadState("ready");
-      setToastMessage(`Генериран е стикер №${stickerNumber}`);
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "Стикерът не беше генериран. Проверете SQL миграциите."
-      );
-      setSaveState("error");
-    } finally {
-      setStickerActionState("idle");
-    }
+    setErrorMessage(
+      "Стикер за пожарогасител се генерира само от протокол за пожарогасители с тип услуга „Техническо обслужване“."
+    );
+    setSaveState("error");
   }
 
   async function printEquipmentSticker(item: EquipmentItem, stickerNumber?: string) {
     const number = stickerNumber || item.stickerNumber;
     if (!number) return;
+
+    if (hasNonTechnicalStickerHistory(number, serviceHistory)) {
+      setErrorMessage(
+        "Този стар стикер е от услуга, различна от „Техническо обслужване“, и не може да се принтира като сервизен стикер."
+      );
+      setSaveState("error");
+      return;
+    }
 
     setStickerActionState("printing");
     setErrorMessage("");
@@ -3395,6 +3534,7 @@ function EquipmentTab() {
     const type = equipmentTypeFromItem(item);
     setEditingEquipmentId(item.id);
     setForm({
+      name: type === "Друго" ? item.name : "",
       type,
       subtype: item.subtype,
       category: item.category || equipmentCategoryByType[type] || "",
@@ -3424,6 +3564,7 @@ function EquipmentTab() {
     const type = equipmentTypeFromItem(item);
     setEditingEquipmentId(null);
     setForm({
+      name: type === "Друго" ? item.name : "",
       type,
       subtype: item.subtype,
       category: item.category || equipmentCategoryByType[type] || "",
@@ -3572,14 +3713,15 @@ function EquipmentTab() {
         location.databaseId,
         displayName
       );
-      const equipmentQrCode = createEquipmentQrCode();
-      const payloadWithQr = editingEquipmentId
-        ? payload
-        : {
-            ...payload,
-            equipment_qr_code: equipmentQrCode,
-            equipment_qr_generated_at: new Date().toISOString(),
-          };
+      const shouldCreateEquipmentQr = form.type.trim() === "Пожарогасител";
+      const payloadWithQr =
+        !editingEquipmentId && shouldCreateEquipmentQr
+          ? {
+              ...payload,
+              equipment_qr_code: createEquipmentQrCode(),
+              equipment_qr_generated_at: new Date().toISOString(),
+            }
+          : payload;
       const legacyPayload = {
         location_id: location.databaseId,
         name: displayName,
@@ -3664,21 +3806,25 @@ function EquipmentTab() {
 
     try {
       const supabase = createSupabaseBrowserClient();
-      const payloads = rowsToSave.map((row) =>
-        ({
-          ...buildEquipmentPayload(
-            {
-              ...bulkTemplate,
-              serialNumber: row.serialNumber,
-              location: row.location,
-            },
-            location.databaseId,
-            displayName
-          ),
-          equipment_qr_code: createEquipmentQrCode(),
-          equipment_qr_generated_at: new Date().toISOString(),
-        })
-      );
+      const payloads = rowsToSave.map((row) => {
+        const payload = buildEquipmentPayload(
+          {
+            ...bulkTemplate,
+            serialNumber: row.serialNumber,
+            location: row.location,
+          },
+          location.databaseId,
+          displayName
+        );
+
+        return bulkEquipmentKind === "extinguisher"
+          ? {
+              ...payload,
+              equipment_qr_code: createEquipmentQrCode(),
+              equipment_qr_generated_at: new Date().toISOString(),
+            }
+          : payload;
+      });
 
       const { error } = await supabase.from("equipment").insert(payloads);
 
@@ -3806,6 +3952,9 @@ function EquipmentTab() {
         ? row.location.trim()
         : row.serialNumber.trim() || row.location.trim()
   ).length;
+  const viewingEquipmentServiceStickerNumber = viewingEquipment
+    ? activeServiceStickerNumber(viewingEquipment, serviceHistory)
+    : "";
 
   return (
     <Card className="p-5">
@@ -4187,6 +4336,16 @@ function EquipmentTab() {
                 options={equipmentTypeOptions}
                 onChange={(value) => updateForm("type", value)}
               />
+
+              {form.type === "Друго" ? (
+                <EquipmentField
+                  label="Наименование"
+                  value={form.name}
+                  required
+                  placeholder="Напр. противопожарно одеяло"
+                  onChange={(value) => updateForm("name", value)}
+                />
+              ) : null}
 
               {!editingEquipmentId &&
               (form.type === "Пожарогасител" ||
@@ -4653,7 +4812,8 @@ function EquipmentTab() {
               </Button>
             </div>
 
-            {viewingEquipment.equipmentQrCode ? (
+            {isFireExtinguisherEquipment(viewingEquipment) &&
+            viewingEquipment.equipmentQrCode ? (
               <div className="mt-5 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
                 <div className="grid gap-4 md:grid-cols-[190px_1fr] md:items-center">
                   <div className="flex justify-center md:justify-start">
@@ -4702,11 +4862,11 @@ function EquipmentTab() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : isFireExtinguisherEquipment(viewingEquipment) ? (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
                 Това оборудване няма QR код. Пуснете sql/equipment_qr_stability.sql и презапишете записа при нужда.
               </div>
-            )}
+            ) : null}
 
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               {equipmentDetailRows(viewingEquipment).map((row) => (
@@ -4744,10 +4904,10 @@ function EquipmentTab() {
                       <h4 className="text-sm font-black uppercase text-slate-500">
                         Стикер
                       </h4>
-                      {viewingEquipment.stickerNumber ? (
+                      {viewingEquipmentServiceStickerNumber ? (
                         <div className="mt-2 space-y-1 text-sm font-bold text-slate-700">
                           <div className="text-lg font-black text-slate-950">
-                            Стикер №{viewingEquipment.stickerNumber}
+                            Стикер №{viewingEquipmentServiceStickerNumber}
                           </div>
                           <div>Статус: Активен</div>
                           <div>
@@ -4763,16 +4923,21 @@ function EquipmentTab() {
                         </div>
                       ) : (
                         <div className="mt-2 text-sm font-bold text-slate-600">
-                          Няма генериран стикер
+                          Няма валиден сервизен стикер
                         </div>
                       )}
                     </div>
                     <div className="shrink-0">
-                      {viewingEquipment.stickerNumber ? (
+                      {viewingEquipmentServiceStickerNumber ? (
                         <Button
                           type="button"
                           variant="outline"
-                          onClick={() => printEquipmentSticker(viewingEquipment)}
+                          onClick={() =>
+                            printEquipmentSticker(
+                              viewingEquipment,
+                              viewingEquipmentServiceStickerNumber
+                            )
+                          }
                           disabled={stickerActionState !== "idle"}
                         >
                           {stickerActionState === "printing" ? (
@@ -4783,18 +4948,10 @@ function EquipmentTab() {
                           Принтирай стикер
                         </Button>
                       ) : (
-                        <Button
-                          type="button"
-                          onClick={() => generateEquipmentSticker(viewingEquipment)}
-                          disabled={stickerActionState !== "idle"}
-                        >
-                          {stickerActionState === "generating" ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            <Printer size={16} />
-                          )}
-                          Генерирай стикер
-                        </Button>
+                        <div className="max-w-64 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold leading-5 text-slate-500">
+                          Генерира се от протокол за пожарогасители при услуга
+                          „Техническо обслужване“.
+                        </div>
                       )}
                     </div>
                   </div>
@@ -4828,11 +4985,17 @@ function EquipmentTab() {
 
                   {serviceHistory.length > 0 ? (
                     <div className="mt-4 space-y-3">
-                      {serviceHistory.map((history) => (
-                        <div
-                          key={history.id}
-                          className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
-                        >
+                      {serviceHistory.map((history) => {
+                        const canPrintHistorySticker =
+                          history.stickerNumber &&
+                          (!history.serviceType ||
+                            isTechnicalExtinguisherService(history.serviceType));
+
+                        return (
+                          <div
+                            key={history.id}
+                            className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                          >
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div className="space-y-1 text-sm font-bold text-slate-700">
                               <div className="text-base font-black text-slate-950">
@@ -4851,7 +5014,7 @@ function EquipmentTab() {
                                 {formatDateValue(history.nextServiceDate) || "—"}
                               </div>
                             </div>
-                            {history.stickerNumber ? (
+                            {canPrintHistorySticker ? (
                               <Button
                                 type="button"
                                 variant="outline"
@@ -4870,7 +5033,8 @@ function EquipmentTab() {
                             ) : null}
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>
@@ -5002,10 +5166,6 @@ function EquipmentTab() {
                                 <div className="mt-1 text-xs font-bold text-slate-400">
                                   Сериен номер: {item.serialNumber}
                                 </div>
-                              ) : item.equipmentQrCode ? (
-                                <div className="mt-1 text-xs font-bold text-slate-400">
-                                  QR: {item.equipmentQrCode}
-                                </div>
                               ) : null}
                             </div>
                           </div>
@@ -5042,19 +5202,17 @@ function EquipmentTab() {
                         >
                           <Edit3 size={15} />
                         </Button>
-                        {isFireExtinguisherEquipment(item) ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            title="Клонирай"
-                            aria-label="Клонирай"
-                            onClick={() => openCloneEquipmentForm(item)}
-                            className="h-10 w-10 px-0"
-                          >
-                            <ClipboardPlus size={15} />
-                          </Button>
-                        ) : null}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          title="Клонирай"
+                          aria-label="Клонирай"
+                          onClick={() => openCloneEquipmentForm(item)}
+                          className="h-10 w-10 px-0"
+                        >
+                          <ClipboardPlus size={15} />
+                        </Button>
                         <Button
                           type="button"
                           variant="danger"
@@ -6466,6 +6624,126 @@ export default function LocationProfilePage() {
         }
 
         const displayRows = collapseReplacedEquipmentRows(rows, locationProfile);
+
+        displayRows.sort((first, second) =>
+          textValue(first, ["due_date"]).localeCompare(textValue(second, ["due_date"]))
+        );
+
+        const protocolRows: DataRecord[] = [];
+        const seenProtocolIds = new Set<string>();
+
+        function mergeProtocolRows(nextRows: DataRecord[] | null) {
+          for (const row of nextRows ?? []) {
+            const id =
+              textValue(row, ["id"]) ||
+              textValue(row, ["protocol_number", "number"]);
+            if (id && !seenProtocolIds.has(id)) {
+              seenProtocolIds.add(id);
+              protocolRows.push(row);
+            }
+          }
+        }
+
+        for (const objectCode of objectCodes) {
+          const protocolQueries = await Promise.all([
+            supabase
+              .from("protocols")
+              .select("id, protocol_number, number, protocol_type, type, protocol_payload, technician")
+              .eq("object_code", objectCode),
+            supabase
+              .from("protocols")
+              .select("id, protocol_number, number, protocol_type, type, protocol_payload, technician")
+              .eq("location_id", objectCode),
+          ]);
+
+          if (!isMounted) return;
+
+          for (const result of protocolQueries) {
+            if (!result.error) {
+              mergeProtocolRows((result.data as DataRecord[]) ?? []);
+            }
+          }
+        }
+
+        for (const protocol of protocolRows) {
+          const protocolType = textValue(protocol, ["protocol_type", "type"]);
+          const payload = protocolPayloadRecord(protocol["protocol_payload"]);
+          const payloadType = textValue(payload, ["protocolType", "protocol_type", "type"]);
+          const isExtinguisherProtocol =
+            protocolType.toLowerCase().includes("extinguisher") ||
+            protocolType.toLowerCase().includes("пожарогас") ||
+            payloadType.toLowerCase().includes("пожарогас");
+
+          if (!isExtinguisherProtocol) continue;
+
+          const protocolId = textValue(protocol, ["id"]);
+          const protocolNumber = textValue(protocol, ["protocol_number", "number"]);
+          const protocolTechnician = textValue(protocol, ["technician", "technician_id"]);
+
+          for (const extinguisherRow of protocolPayloadRows(payload, "extinguisherRows")) {
+            const equipmentId = textValue(extinguisherRow, ["equipmentId", "equipment_id"]);
+            const nextServiceDate = inputDateValue(
+              textValue(extinguisherRow, ["nextServiceDate", "next_service_date"])
+            );
+            if (!equipmentId || !nextServiceDate) continue;
+
+            const serviceType =
+              textValue(extinguisherRow, ["serviceType", "service_type"]) ||
+              "Техническо обслужване";
+            const hasExistingTask = displayRows.some((row) => {
+              const sameDate = textValue(row, ["due_date"]).slice(0, 10) === nextServiceDate;
+              const sameEquipment =
+                textValue(row, ["source_protocol_row", "equipment_id"]) === equipmentId;
+              const sameProtocol = taskProtocolRefs(row).some(
+                (ref) => ref === protocolId || ref === protocolNumber
+              );
+
+              return sameDate && sameEquipment && sameProtocol;
+            });
+
+            if (hasExistingTask) continue;
+
+            const subject = [
+              "пожарогасител",
+              textValue(extinguisherRow, ["category"]),
+              textValue(extinguisherRow, ["chargeMassKg", "capacity_mass"]),
+            ]
+              .filter(Boolean)
+              .join(" ");
+            const title = `${serviceType} на ${subject}`.trim();
+
+            displayRows.push({
+              id: `protocol-${protocolNumber || protocolId}-${equipmentId}-${nextServiceDate}-${serviceType}`,
+              title,
+              description: title,
+              task_type: "Планирано посещение",
+              activities: [
+                {
+                  title,
+                  description: title,
+                  recurrenceMonths: 0,
+                },
+              ],
+              object_code:
+                locationProfile.databaseId ||
+                locationProfile.qrCode ||
+                locationProfile.name,
+              object_id:
+                locationProfile.databaseId ||
+                locationProfile.qrCode ||
+                locationProfile.name,
+              object_name: locationProfile.name,
+              due_date: nextServiceDate,
+              status: "planned",
+              source_protocol_id: protocolId || protocolNumber,
+              source_protocol_number: protocolNumber,
+              source_protocol_row: equipmentId,
+              source_protocol_type: "Пожарогасители",
+              source_label: protocolNumber ? `Протокол №${protocolNumber}` : "Протокол",
+              technician: protocolTechnician,
+            });
+          }
+        }
 
         displayRows.sort((first, second) =>
           textValue(first, ["due_date"]).localeCompare(textValue(second, ["due_date"]))

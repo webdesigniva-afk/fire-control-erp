@@ -823,6 +823,99 @@ function taskHasMatchingRecurrence(
   return activities.length === 0 && dueDate && dueDates.has(dueDate);
 }
 
+function normalizedTaskIdentityText(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function taskActivitiesIdentity(activities: ServiceTaskActivity[]) {
+  return activities
+    .map((activity) =>
+      [
+        normalizedTaskIdentityText(activity.row),
+        activity.recurrenceMonths || 0,
+        normalizedTaskIdentityText(activity.title),
+      ].join(":")
+    )
+    .sort()
+    .join("|");
+}
+
+function extinguisherServiceActionKey(task: Pick<ServiceTask, "title" | "description" | "activities">) {
+  const haystack = [
+    task.title,
+    task.description,
+    ...task.activities.flatMap((activity) => [
+      activity.title,
+      activity.description,
+    ]),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (haystack.includes("хидростат")) return "hydrostatic";
+  if (haystack.includes("презареж") || haystack.includes("презаряд")) {
+    return "recharge";
+  }
+  if (haystack.includes("техническо обслуж")) return "technical-service";
+
+  return normalizedTaskIdentityText(task.title);
+}
+
+function isSubscriptionPlannedTask(task: ServiceTask) {
+  const haystack = [
+    task.sourceProtocolType,
+    task.sourceLabel,
+    task.title,
+    task.description,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes("абонамент") || haystack.includes("subscription");
+}
+
+function isExtinguisherPlannedTask(task: ServiceTask) {
+  const haystack = [
+    task.sourceProtocolType,
+    task.sourceLabel,
+    task.title,
+    task.description,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes("пожарогас") || haystack.includes("extinguisher");
+}
+
+async function readPlannedTasksForObjectKeys(objectKeys: string[]) {
+  const supabase = createSupabaseBrowserClient();
+  const keys = Array.from(new Set(objectKeys.map((key) => key.trim()).filter(Boolean)));
+  const rowsById = new Map<string, Record<string, unknown>>();
+
+  async function mergeRows(column: "object_code" | "object_id" | "object_name", value: string) {
+    const { data, error } = await supabase
+      .from("service_tasks")
+      .select("*")
+      .eq("status", "planned")
+      .eq(column, value);
+
+    if (error) throw new Error(error.message);
+
+    for (const row of (data as Record<string, unknown>[] | null) ?? []) {
+      const id = String(row["id"] ?? "");
+      if (id) rowsById.set(id, row);
+    }
+  }
+
+  for (const key of keys) {
+    await mergeRows("object_code", key);
+    await mergeRows("object_id", key);
+    await mergeRows("object_name", key);
+  }
+
+  return Array.from(rowsById.values()).map(mapTaskRow);
+}
+
 export async function clearPlannedSubscriptionTasksForObject(
   objectKeys: string[],
   recurrenceMonthValues: number[],
@@ -896,6 +989,68 @@ export async function clearPlannedSubscriptionTasksForObject(
 
     if (error) throw new Error(error.message);
   }
+}
+
+export async function upsertPlannedSubscriptionTaskForObject(
+  objectKeys: string[],
+  task: Omit<ServiceTask, "id" | "createdAt">
+) {
+  const existing = readServiceTasks();
+  const candidates = await readPlannedTasksForObjectKeys(objectKeys);
+  const nextIdentity = taskActivitiesIdentity(task.activities);
+  const existingDbTask =
+    candidates.find(
+      (candidate) =>
+        isSubscriptionPlannedTask(candidate) &&
+        taskActivitiesIdentity(candidate.activities) === nextIdentity
+    ) ?? null;
+
+  const nextTask = {
+    ...task,
+    id: existingDbTask?.id ?? createTaskId(),
+    createdAt: existingDbTask?.createdAt || Date.now(),
+  };
+
+  await upsertTaskPayloadWithFallback(nextTask);
+  writeServiceTasks([nextTask, ...existing.filter((item) => item.id !== nextTask.id)]);
+}
+
+export async function upsertPlannedEquipmentServiceTask(
+  task: Omit<ServiceTask, "id" | "createdAt">
+) {
+  const existing = readServiceTasks();
+  const supabase = createSupabaseBrowserClient();
+  let existingDbTask: ServiceTask | null = null;
+
+  if (task.sourceProtocolRow) {
+    const { data, error } = await supabase
+      .from("service_tasks")
+      .select("*")
+      .eq("status", "planned")
+      .eq("source_protocol_row", task.sourceProtocolRow)
+      .order("created_at_ms", { ascending: true });
+
+    if (error) throw new Error(error.message);
+
+    const serviceActionKey = extinguisherServiceActionKey(task);
+    existingDbTask =
+      ((data as Record<string, unknown>[] | null) ?? [])
+        .map(mapTaskRow)
+        .find(
+          (candidate) =>
+            isExtinguisherPlannedTask(candidate) &&
+            extinguisherServiceActionKey(candidate) === serviceActionKey
+        ) ?? null;
+  }
+
+  const nextTask = {
+    ...task,
+    id: existingDbTask?.id ?? createTaskId(),
+    createdAt: existingDbTask?.createdAt || Date.now(),
+  };
+
+  await upsertTaskPayloadWithFallback(nextTask);
+  writeServiceTasks([nextTask, ...existing.filter((item) => item.id !== nextTask.id)]);
 }
 
 export async function completePlannedEquipmentTasks(

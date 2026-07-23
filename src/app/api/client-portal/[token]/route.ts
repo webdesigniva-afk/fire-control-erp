@@ -82,6 +82,36 @@ function normalizeEquipment(row: DataRecord) {
   };
 }
 
+function equipmentStatusFromExtinguisherResult(value: string) {
+  const result = value.toLowerCase();
+  if (result.includes("бракуване")) return "За бракуване";
+  if (result.includes("негоден")) return "Негоден";
+  if (result.includes("ремонт")) return "Подлежи на ремонт";
+  if (result.includes("проблем")) return "Проблем";
+  if (result.includes("годен")) return "Изряден";
+  return "";
+}
+
+function latestEquipmentStatusesFromProtocols(protocols: DataRecord[]) {
+  const statusByEquipmentId = new Map<string, string>();
+
+  for (const protocol of protocols) {
+    const payload = isRecord(protocol["protocol_payload"]) ? protocol["protocol_payload"] : {};
+    const rows = Array.isArray(payload["extinguisherRows"]) ? payload["extinguisherRows"] : [];
+
+    for (const row of rows) {
+      if (!isRecord(row)) continue;
+      const equipmentId = textValue(row, ["equipmentId", "equipment_id"]);
+      if (!equipmentId || statusByEquipmentId.has(equipmentId)) continue;
+
+      const status = equipmentStatusFromExtinguisherResult(textValue(row, ["resultStatus", "result_status"]));
+      if (status) statusByEquipmentId.set(equipmentId, status);
+    }
+  }
+
+  return statusByEquipmentId;
+}
+
 function normalizeDocument(row: DataRecord, savedDocument?: DataRecord | null) {
   const payload = isRecord(savedDocument?.payload) ? savedDocument.payload : {};
   const lifecycle = textValue(row, ["kind"]) === "contract"
@@ -425,8 +455,15 @@ export async function GET(
 
     if (equipmentResult.error) throw new Error(equipmentResult.error.message);
 
+    const equipmentStatusById = latestEquipmentStatusesFromProtocols((protocolsResult.data ?? []) as DataRecord[]);
     const equipmentByLocationId = new Map<string, ReturnType<typeof normalizeEquipment>[]>();
-    for (const row of ((equipmentResult.data ?? []) as DataRecord[]).map(normalizeEquipment)) {
+    for (const row of ((equipmentResult.data ?? []) as DataRecord[]).map((equipmentRow) => {
+      const equipment = normalizeEquipment(equipmentRow);
+      return {
+        ...equipment,
+        status: equipmentStatusById.get(equipment.id) || equipment.status,
+      };
+    })) {
       if (!row.locationId) continue;
       equipmentByLocationId.set(row.locationId, [
         ...(equipmentByLocationId.get(row.locationId) ?? []),

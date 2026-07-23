@@ -1199,9 +1199,7 @@ export default function DashboardPage() {
         description: task.title,
         date: task.dueDate
           ? `Срок: ${formatDate(task.dueDate)}`
-          : task.sourceProtocolNumber
-            ? `Протокол ${task.sourceProtocolNumber}`
-            : "Без дата",
+          : "Без дата",
         severity: "attention" as const,
         href: protocolHref || objectHref || "/tasks",
         protocolHref: protocolHref || undefined,

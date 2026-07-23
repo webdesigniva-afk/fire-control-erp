@@ -34,6 +34,7 @@ type StickerRecord = {
   object_name: string;
   object_location: string;
   technician: string;
+  service_type?: string;
   service_date: string | null;
   next_service_date: string | null;
   extinguisher_type: string;
@@ -92,6 +93,16 @@ function normalizeExtinguisherType(value: string) {
     .trim();
 }
 
+function isInvalidServiceSticker(record: StickerRecord) {
+  return Boolean(
+    record.service_type?.trim() &&
+      !record.service_type
+        .trim()
+        .toLocaleLowerCase("bg-BG")
+        .includes("\u0442\u0435\u0445\u043d\u0438\u0447\u0435\u0441\u043a\u043e \u043e\u0431\u0441\u043b\u0443\u0436\u0432\u0430\u043d\u0435")
+  );
+}
+
 export default function FireExtinguisherStickerQueuePage() {
   return (
     <Suspense fallback={null}>
@@ -143,7 +154,15 @@ function FireExtinguisherStickerQueueContent() {
           return;
         }
 
-        const rows = data as StickerRecord[];
+        const rows = (data as StickerRecord[]).filter(
+          (row) => !isInvalidServiceSticker(row)
+        );
+        if (!rows.length) {
+          setRecords([]);
+          setStatus("missing");
+          return;
+        }
+
         const byNumber = new Map(rows.map((row) => [row.sticker_number, row]));
         const orderedRows = numericIds
           .map((number) => byNumber.get(number))
