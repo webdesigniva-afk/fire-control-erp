@@ -1,7 +1,18 @@
 "use client";
 
+import Image from "next/image";
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, KeyRound, Loader2, LogIn, ShieldCheck } from "lucide-react";
+import {
+  ArrowRight,
+  BarChart3,
+  Check,
+  CheckCircle2,
+  Clock3,
+  KeyRound,
+  Loader2,
+  LockKeyhole,
+  ShieldCheck,
+} from "lucide-react";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { PinInput } from "../../components/ui/pin-input";
@@ -87,76 +98,147 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(249,115,22,0.12),transparent_32rem),linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] px-4 py-10 text-slate-900">
-      <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-md items-center">
-        <Card className="w-full p-6 sm:p-7">
-          <div className="mb-6 flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-orange-200 bg-orange-50 text-orange-600">
-              <ShieldCheck size={24} />
+    <main className="relative min-h-screen overflow-hidden bg-[#f8fafc] px-5 py-8 text-slate-950 sm:px-8 lg:px-12">
+      <div className="absolute inset-y-0 right-0 hidden w-[38vw] rounded-bl-[48%] bg-[linear-gradient(160deg,#ffbd5a_0%,#ff7b1b_46%,#ef3532_100%)] lg:block" />
+      <Image
+        src="/firecontrol-login-bg-flame.png"
+        alt=""
+        width={610}
+        height={830}
+        className="pointer-events-none absolute -left-24 bottom-0 hidden h-auto w-[360px] opacity-[0.16] mix-blend-multiply [mask-image:radial-gradient(ellipse_at_center,black_42%,rgba(0,0,0,0.76)_58%,transparent_78%)] lg:block xl:w-[430px]"
+        priority
+      />
+      <div className="absolute left-[58%] top-8 hidden h-32 w-52 opacity-35 [background-image:radial-gradient(#fdba74_1.4px,transparent_1.4px)] [background-size:16px_16px] lg:block" />
+
+      <div className="relative z-10 mx-auto grid min-h-[calc(100vh-7rem)] w-full max-w-6xl items-center gap-10 pb-6 lg:grid-cols-[1fr_0.92fr]">
+        <section className="mx-auto flex w-full max-w-md flex-col items-center text-center lg:items-start lg:text-left">
+          <Image
+            src="/firecontrol-login-logo.png"
+            alt="FIREControl"
+            width={591}
+            height={180}
+            priority
+            className="h-auto w-[250px] sm:w-[292px]"
+          />
+
+          <p className="mt-6 text-[0.68rem] font-black uppercase tracking-[0.32em] text-orange-600">
+            ERP система
+          </p>
+          <h1 className="mt-5 max-w-lg text-4xl font-black leading-[1.12] text-slate-950 sm:text-5xl">
+            Оперативен достъп за екипа.
+          </h1>
+          <p className="mt-5 max-w-md text-base font-semibold leading-7 text-slate-600">
+            Управление на обекти, протоколи, задачи и процеси в един модерен и сигурен работен център.
+          </p>
+
+          <div className="mt-10 grid w-full max-w-lg grid-cols-1 gap-5 text-left sm:grid-cols-3">
+            <div>
+              <ShieldCheck className="text-orange-600" size={24} />
+              <p className="mt-4 text-sm font-black text-slate-950">Сигурност</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">Вашите данни са защитени</p>
             </div>
             <div>
-              <h1 className="text-2xl font-black text-slate-950">Вход</h1>
-              <p className="text-sm font-semibold text-slate-500">Въведете служебния си ПИН</p>
+              <Clock3 className="text-orange-600" size={24} />
+              <p className="mt-4 text-sm font-black text-slate-950">Ефективност</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">Всичко необходимо на едно място</p>
+            </div>
+            <div>
+              <BarChart3 className="text-orange-600" size={24} />
+              <p className="mt-4 text-sm font-black text-slate-950">Контрол</p>
+              <p className="mt-2 text-sm font-semibold leading-6 text-slate-500">Пълен поглед върху процесите</p>
             </div>
           </div>
+        </section>
 
-          {member?.must_change_pin ? (
-            <form className="space-y-4" onSubmit={handleChangePin}>
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
-                Създайте нов ПИН
-              </div>
-              <label className="block space-y-2">
-                <span className="text-xs font-black uppercase text-slate-400">Нов ПИН</span>
-                <PinInput
-                  value={newPin}
-                  onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                  required
-                />
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs font-black uppercase text-slate-400">Повтори ПИН</span>
-                <PinInput
-                  value={repeatPin}
-                  onChange={(event) => setRepeatPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                  required
-                />
-              </label>
-              <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
-                Запази ПИН
-              </Button>
-            </form>
-          ) : (
-            <form className="space-y-4" onSubmit={handleLogin}>
-              <label className="block space-y-2">
-                <span className="text-xs font-black uppercase text-slate-400">ПИН</span>
-                <PinInput
-                  value={pin}
-                  onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                  autoFocus
-                  required
-                />
-              </label>
-              <Button type="submit" className="w-full" disabled={busy}>
-                {busy ? <Loader2 size={16} className="animate-spin" /> : <LogIn size={16} />}
-                Вход
-              </Button>
-            </form>
-          )}
+        <section className="mx-auto w-full max-w-[430px]">
+          <Card className="w-full rounded-[1.75rem] border-white/90 bg-white/90 px-7 py-9 shadow-[0_28px_80px_rgba(15,23,42,0.15)] backdrop-blur-xl sm:px-9 sm:py-10">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-white text-orange-600 shadow-[0_16px_38px_rgba(249,115,22,0.17)] ring-1 ring-orange-100">
+              <LockKeyhole size={30} />
+            </div>
 
-          {message ? (
-            <div className="mt-4 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
-              <CheckCircle2 size={16} />
-              {message}
+            <div className="mt-7 text-center">
+              <h2 className="text-3xl font-black leading-tight text-slate-950">Вход</h2>
+              <p className="mt-3 text-sm font-semibold text-slate-500">
+                Въведете служебния си ПИН
+              </p>
             </div>
-          ) : null}
-          {errorMessage ? (
-            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
-              {errorMessage}
+
+            <div className="mt-8">
+              {member?.must_change_pin ? (
+                <form className="space-y-5" onSubmit={handleChangePin}>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
+                    Създайте нов ПИН
+                  </div>
+                  <label className="block space-y-2">
+                    <span className="sr-only">Нов ПИН</span>
+                    <PinInput
+                      value={newPin}
+                      onChange={(event) => setNewPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      required
+                      className="h-14 rounded-2xl border-orange-300 text-center text-lg tracking-[0.45em]"
+                    />
+                  </label>
+                  <label className="block space-y-2">
+                    <span className="sr-only">Повтори ПИН</span>
+                    <PinInput
+                      value={repeatPin}
+                      onChange={(event) => setRepeatPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      required
+                      className="h-14 rounded-2xl border-orange-300 text-center text-lg tracking-[0.45em]"
+                    />
+                  </label>
+                  <Button type="submit" className="h-[3.25rem] w-full rounded-2xl text-base" disabled={busy}>
+                    {busy ? <Loader2 size={18} className="animate-spin" /> : <KeyRound size={18} />}
+                    Запази ПИН
+                  </Button>
+                </form>
+              ) : (
+                <form className="space-y-5" onSubmit={handleLogin}>
+                  <label className="block">
+                    <span className="sr-only">ПИН</span>
+                    <PinInput
+                      value={pin}
+                      onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      autoFocus
+                      required
+                      className="h-14 rounded-2xl border-orange-300 text-center text-lg tracking-[0.45em]"
+                    />
+                  </label>
+
+                  <div className="flex items-center gap-3 text-sm font-semibold text-slate-600">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-md border border-orange-500 bg-orange-500 text-white shadow-sm">
+                      <Check size={14} strokeWidth={3} />
+                    </span>
+                    Запомни ме
+                  </div>
+
+                  <Button type="submit" className="h-[3.25rem] w-full rounded-2xl text-base" disabled={busy}>
+                    {busy ? <Loader2 size={18} className="animate-spin" /> : null}
+                    Вход
+                    {!busy ? <ArrowRight size={18} /> : null}
+                  </Button>
+                </form>
+              )}
+
+              {message ? (
+                <div className="mt-4 flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+                  <CheckCircle2 size={16} />
+                  {message}
+                </div>
+              ) : null}
+              {errorMessage ? (
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-800">
+                  {errorMessage}
+                </div>
+              ) : null}
             </div>
-          ) : null}
-        </Card>
+          </Card>
+        </section>
       </div>
+
+      <p className="relative z-10 hidden text-center text-sm font-semibold text-slate-500 lg:block">
+        © 2026 FireControl. Всички права запазени.
+      </p>
     </main>
   );
 }
