@@ -24,9 +24,8 @@ import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { PinInput } from "../../components/ui/pin-input";
+import { readTeamSession, writeTeamSession } from "../../lib/team-session";
 import { getTeamMemberInitials, isValidPin, type TeamMember } from "../../lib/team-members";
-
-const sessionKey = "firecontrol:team-session";
 
 type Notice = { type: "success" | "error"; text: string } | null;
 
@@ -65,8 +64,7 @@ function normalizePin(value: string) {
 }
 
 function saveSession(member: TeamMember) {
-  localStorage.setItem(sessionKey, JSON.stringify(member));
-  window.dispatchEvent(new Event("firecontrol:team-session-updated"));
+  writeTeamSession(member);
 }
 
 function fileToDataUrl(file: File) {
@@ -221,16 +219,16 @@ export default function ProfilePage() {
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    const rawProfile = localStorage.getItem(sessionKey);
-    if (!rawProfile) {
+    const storedMember = readTeamSession<TeamMember>();
+    if (!storedMember) {
       window.location.href = "/login";
       return;
     }
+    const sessionMember = storedMember;
 
     async function loadProfile() {
       try {
-        const storedMember = JSON.parse(rawProfile as string) as TeamMember;
-        const response = await fetch(`/api/team-profile?memberId=${encodeURIComponent(storedMember.id)}`);
+        const response = await fetch(`/api/team-profile?memberId=${encodeURIComponent(sessionMember.id)}`);
         const result = (await response.json()) as ProfileResponse;
 
         if (!response.ok || !result.member) {

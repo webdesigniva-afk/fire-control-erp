@@ -70,6 +70,7 @@ import {
   upsertPlannedSubscriptionTaskForObject,
   upsertServiceTask,
 } from "../../../lib/tasks";
+import { readTeamSession as readStoredTeamSession } from "../../../lib/team-session";
 import {
   finalizeProtocolUsedWarehouseItems,
   readWarehouseItems,
@@ -84,7 +85,6 @@ import {
 
 const PROTOCOLS_STORAGE_KEY = "firecontrol:protocols";
 const PROTOCOLS_UPDATED_EVENT = "firecontrol:protocols-updated";
-const TEAM_SESSION_STORAGE_KEY = "firecontrol:team-session";
 const STICKER_PRINT_QUEUE_STORAGE_KEY = "firecontrol:sticker-print-queue";
 
 type TeamSession = {
@@ -964,14 +964,7 @@ async function loadDraftProtocolForEdit(number: string) {
 }
 
 function readTeamSession(): TeamSession | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const raw = window.localStorage.getItem(TEAM_SESSION_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as TeamSession) : null;
-  } catch {
-    return null;
-  }
+  return readStoredTeamSession<TeamSession>();
 }
 
 function contractNumberFromSavedDocument(row: DataRecord) {

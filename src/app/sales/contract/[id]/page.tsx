@@ -8,6 +8,7 @@ import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
 import { publishSavedDocumentToClientPortal } from "../../../../lib/client-portal";
 import { contractLifecycleFromPayload } from "../../../../lib/contracts";
+import { readTeamSession } from "../../../../lib/team-session";
 import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 
 type ContractLine = {
@@ -58,8 +59,6 @@ type DocumentSignature = {
   paperNote: string;
 };
 
-const sessionKey = "firecontrol:team-session";
-
 function dateKey(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -69,15 +68,6 @@ function dateKey(date: Date) {
 
 function money(value: number) {
   return `${new Intl.NumberFormat("bg-BG", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value || 0)} €`;
-}
-
-function readSession(): TeamSession | null {
-  try {
-    const raw = localStorage.getItem(sessionKey);
-    return raw ? (JSON.parse(raw) as TeamSession) : null;
-  } catch {
-    return null;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -503,7 +493,7 @@ export default function ContractEditorPage() {
       setLoadState("loading");
       try {
         const supabase = createSupabaseBrowserClient();
-        const session = readSession();
+        const session = readTeamSession<TeamSession>();
         const [oppResult, offerDocResult, contractDocResult, servicePricesResult] = await Promise.all([
           supabase
             .from("sales_opportunities")

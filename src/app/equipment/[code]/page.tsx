@@ -14,11 +14,10 @@ import {
 import { Badge } from "../../../components/ui/badge";
 import { Card } from "../../../components/ui/card";
 import { createSupabaseBrowserClient } from "../../../lib/supabase/client";
+import { readTeamSession } from "../../../lib/team-session";
 
 type DataRecord = Record<string, unknown>;
 type StatusTone = "neutral" | "danger" | "warning" | "success";
-
-const TEAM_SESSION_STORAGE_KEY = "firecontrol:team-session";
 
 type EquipmentPassport = {
   id: string;
@@ -94,20 +93,12 @@ function statusLabel(nextCheckDate: string) {
 }
 
 function hasLocalTeamSession() {
-  if (typeof window === "undefined") return false;
-
-  try {
-    const raw = window.localStorage.getItem(TEAM_SESSION_STORAGE_KEY);
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as DataRecord;
-    return Boolean(
-      textValue(parsed, ["id"]) ||
-        textValue(parsed, ["email"]) ||
-        textValue(parsed, ["name"])
-    );
-  } catch {
-    return false;
-  }
+  const session = readTeamSession<DataRecord>();
+  return Boolean(
+    textValue(session, ["id"]) ||
+      textValue(session, ["email"]) ||
+      textValue(session, ["name"])
+  );
 }
 
 function mapEquipment(

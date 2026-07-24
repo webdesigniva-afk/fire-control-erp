@@ -8,6 +8,7 @@ import { BackButton } from "../../../../components/back-button";
 import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
 import { publishSavedDocumentToClientPortal } from "../../../../lib/client-portal";
+import { readTeamSession } from "../../../../lib/team-session";
 import { createSupabaseBrowserClient } from "../../../../lib/supabase/client";
 
 type OfferLine = {
@@ -60,8 +61,6 @@ type DocumentSignature = {
   signatureDataUrl: string;
   paperNote: string;
 };
-
-const sessionKey = "firecontrol:team-session";
 
 function dateKey(date: Date) {
   const year = date.getFullYear();
@@ -216,15 +215,6 @@ async function nextOfferNumber(supabase: SupabaseBrowserClient, date: Date) {
   const nextSequence = Math.max(100, maxSequence + 1);
 
   return `${shortYear}${String(nextSequence).padStart(4, "0")}/${formatDocumentDateForNumber(date)}`;
-}
-
-function readSession(): TeamSession | null {
-  try {
-    const raw = localStorage.getItem(sessionKey);
-    return raw ? (JSON.parse(raw) as TeamSession) : null;
-  } catch {
-    return null;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -484,7 +474,7 @@ export default function SalesOfferEditorPage() {
             .from("services")
             .select("*")
             .is("archived_at", null),
-          Promise.resolve(readSession()),
+          Promise.resolve(readTeamSession<TeamSession>()),
         ]);
 
         if (error || !data) throw new Error(error?.message || "Липсва оферта.");

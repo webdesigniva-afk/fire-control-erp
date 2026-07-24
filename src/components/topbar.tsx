@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Bell, LogOut, Search, UserRound } from "lucide-react";
+import { clearTeamSession, readTeamSession, teamSessionUpdatedEvent } from "../lib/team-session";
 import { getTeamMemberInitials, type TeamMember } from "../lib/team-members";
 
 type TopbarProps = {
@@ -23,26 +24,15 @@ export function Topbar({
 
   useEffect(() => {
     function refreshProfile() {
-      const rawProfile = localStorage.getItem("firecontrol:team-session");
-      if (!rawProfile) {
-        setProfile(null);
-        return;
-      }
-
-      try {
-        setProfile(JSON.parse(rawProfile) as TeamMember);
-      } catch {
-        localStorage.removeItem("firecontrol:team-session");
-        setProfile(null);
-      }
+      setProfile(readTeamSession<TeamMember>());
     }
 
     refreshProfile();
-    window.addEventListener("firecontrol:team-session-updated", refreshProfile);
+    window.addEventListener(teamSessionUpdatedEvent, refreshProfile);
     window.addEventListener("storage", refreshProfile);
 
     return () => {
-      window.removeEventListener("firecontrol:team-session-updated", refreshProfile);
+      window.removeEventListener(teamSessionUpdatedEvent, refreshProfile);
       window.removeEventListener("storage", refreshProfile);
     };
   }, []);
@@ -55,7 +45,7 @@ export function Topbar({
   }, []);
 
   function handleLogout() {
-    localStorage.removeItem("firecontrol:team-session");
+    clearTeamSession();
     window.location.href = "/login";
   }
 

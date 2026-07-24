@@ -25,6 +25,7 @@ import { Card } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { PinInput } from "../../components/ui/pin-input";
 import { createSupabaseBrowserClient } from "../../lib/supabase/client";
+import { clearTeamSession, readTeamSession, writeTeamSession } from "../../lib/team-session";
 import {
   getTeamMemberInitials,
   teamMemberSelect,
@@ -497,15 +498,8 @@ export default function TeamPage() {
   }, [loadMembers]);
 
   useEffect(() => {
-    const rawProfile = localStorage.getItem("firecontrol:team-session");
-    if (!rawProfile) return;
-
-    try {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setCurrentProfile(JSON.parse(rawProfile) as TeamMember);
-    } catch {
-      localStorage.removeItem("firecontrol:team-session");
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentProfile(readTeamSession<TeamMember>());
   }, []);
 
   function addAccessRole() {
@@ -726,16 +720,11 @@ export default function TeamPage() {
         savedMember = await uploadMemberPhoto(savedMember, photoFile);
       }
 
-      const rawSession = localStorage.getItem("firecontrol:team-session");
-      if (rawSession) {
-        try {
-          const sessionMember = JSON.parse(rawSession) as TeamMember;
-          if (sessionMember.id === savedMember.id) {
-            localStorage.setItem("firecontrol:team-session", JSON.stringify(savedMember));
-          }
-        } catch {
-          localStorage.removeItem("firecontrol:team-session");
-        }
+      const sessionMember = readTeamSession<TeamMember>();
+      if (sessionMember?.id === savedMember.id) {
+        writeTeamSession(savedMember);
+      } else if (!sessionMember) {
+        clearTeamSession();
       }
 
       setMembers((items) => items.map((item) => (item.id === editingMember.id ? savedMember : item)));
