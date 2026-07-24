@@ -37,7 +37,7 @@ import {
 } from "../../lib/tasks";
 
 const PROTOCOLS_LS_KEY = "firecontrol:protocols";
-const UNASSIGNED_TECHNICIAN = "Не е зададен";
+const UNASSIGNED_TECHNICIAN = "Без отговорник";
 
 const manualTaskTypeOptions = [
   "Административна задача",
@@ -431,7 +431,7 @@ function taskDisplayTitle(task: ServiceTask) {
 
 function technicianName(task: TaskListItem) {
   if (task.assignedTo?.trim()) return task.assignedTo.trim();
-  return isManualTask(task) ? "Без отговорник" : UNASSIGNED_TECHNICIAN;
+  return UNASSIGNED_TECHNICIAN;
 }
 
 function sourceText(task: ServiceTask) {
@@ -1007,15 +1007,7 @@ export default function TasksPage() {
     void loadAssignees();
   }, []);
 
-  const technicianOptions = useMemo(
-    () =>
-      uniqueValues([...tasks.map((task) => technicianName(task)), ...technicians]).sort((first, second) =>
-        first.localeCompare(second, "bg-BG")
-      ),
-    [tasks, technicians]
-  );
-
-  const filteredTasks = useMemo(() => {
+  const assigneeFilterTasks = useMemo(() => {
     const today = dateKey(new Date());
     const weekEnd = dateKey(addDays(new Date(), 7));
     const monthEnd = dateKey(addDays(new Date(), 30));
@@ -1040,8 +1032,6 @@ export default function TasksPage() {
           if (periodFilter === "overdue" && !(dueDate && dueDate < today && !completed)) return false;
         }
 
-        if (technicianFilter !== "all" && technicianName(task) !== technicianFilter) return false;
-
         if (query) {
           const haystack = [
             task.title,
@@ -1063,7 +1053,31 @@ export default function TasksPage() {
         return true;
       })
       .sort((first, second) => (first.dueDate || "9999").localeCompare(second.dueDate || "9999"));
-  }, [periodFilter, searchQuery, selectedDate, statusFilter, tasks, technicianFilter]);
+  }, [periodFilter, searchQuery, selectedDate, statusFilter, tasks]);
+
+  const technicianOptions = useMemo(
+    () =>
+      uniqueValues(assigneeFilterTasks.map((task) => technicianName(task))).sort((first, second) =>
+        first.localeCompare(second, "bg-BG")
+      ),
+    [assigneeFilterTasks]
+  );
+
+  useEffect(() => {
+    if (technicianFilter !== "all" && !technicianOptions.includes(technicianFilter)) {
+      setTechnicianFilter("all");
+    }
+  }, [technicianFilter, technicianOptions]);
+
+  const filteredTasks = useMemo(() => {
+    let result = assigneeFilterTasks;
+
+    if (technicianFilter !== "all") {
+      result = result.filter((task) => technicianName(task) === technicianFilter);
+    }
+
+    return result;
+  }, [assigneeFilterTasks, technicianFilter]);
 
   const summaryTasks = useMemo(() => {
     const today = dateKey(new Date());
@@ -1149,6 +1163,7 @@ export default function TasksPage() {
 
   const scheduleGroups = useMemo(() => buildScheduleGroups(filteredTasks), [filteredTasks]);
   const summaryGroups = useMemo(() => buildScheduleGroups(summaryTasks), [summaryTasks]);
+  const assigneeGroups = useMemo(() => buildScheduleGroups(assigneeFilterTasks), [assigneeFilterTasks]);
 
   async function completeTask(taskId: string) {
     const task = tasks.find((item) => item.id === taskId);
@@ -1357,11 +1372,11 @@ export default function TasksPage() {
           <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
             <select
               value={technicianFilter}
-              aria-label="Техник"
+              aria-label="Техник или отговорник"
               onChange={(event) => setTechnicianFilter(event.target.value)}
               className="h-9 min-w-[170px] rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 shadow-sm transition focus:border-orange-300 focus:outline-none focus:ring-4 focus:ring-orange-100"
             >
-              <option value="all">Всички техници</option>
+              <option value="all">Всички отговорници</option>
               {technicianOptions.map((technician) => (
                 <option key={technician} value={technician}>
                   {technician}
@@ -1718,11 +1733,11 @@ export default function TasksPage() {
             </Card>
 
             <Card className="p-5">
-              <h3 className="text-lg font-black text-slate-950">Техници</h3>
+              <h3 className="text-lg font-black text-slate-950">Техници / отговорници</h3>
               <div className="mt-4 space-y-2">
                 {technicianOptions.length ? (
                   technicianOptions.map((technician) => {
-                    const count = scheduleGroups.filter((group) => group.technician === technician).length;
+                    const count = assigneeGroups.filter((group) => group.technician === technician).length;
                     return (
                       <button
                         key={technician}
@@ -1741,7 +1756,7 @@ export default function TasksPage() {
                   })
                 ) : (
                   <div className="rounded-xl bg-slate-50 p-3 text-sm font-bold text-slate-400">
-                    Няма зададени техници.
+                    Няма задачи с техник или отговорник за този изглед.
                   </div>
                 )}
               </div>

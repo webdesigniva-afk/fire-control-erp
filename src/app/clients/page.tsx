@@ -202,12 +202,14 @@ function ClientField({
   onChange,
   type = "text",
   required = false,
+  placeholder = "",
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
   required?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div className="space-y-2">
@@ -218,6 +220,7 @@ function ClientField({
         type={type}
         required={required}
         value={value}
+        placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         className="w-full"
       />
@@ -689,119 +692,165 @@ export default function ClientsPage() {
             </div>
 
             <form onSubmit={handleSubmit} className="mt-5 space-y-5">
-              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <div className="text-xs font-black uppercase text-slate-400">
-                  Тип клиент
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {[
-                    { value: "corporate", label: "Корпоративен" },
-                    { value: "private", label: "Частен" },
-                  ].map((option) => {
-                    const selected = form.clientType === option.value;
+              <section className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                <div className="grid gap-2 md:grid-cols-2">
+                {[
+                  {
+                    value: "corporate",
+                    label: "Корпоративен",
+                    description: "Фирма с обекти, договори и контактно лице.",
+                    icon: Building2,
+                  },
+                  {
+                    value: "private",
+                    label: "Частен",
+                    description: "Физическо лице, телефон и имот/място по желание.",
+                    icon: UserRound,
+                  },
+                ].map((option) => {
+                  const selected = form.clientType === option.value;
+                  const Icon = option.icon;
 
-                    return (
-                      <label
-                        key={option.value}
-                        className={`inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl border px-4 text-sm font-black transition ${
-                          selected
-                            ? "border-orange-200 bg-orange-50 text-orange-700"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="clientType"
-                          value={option.value}
-                          checked={selected}
-                          onChange={() =>
-                            updateForm(
-                              "clientType",
-                              option.value as ClientFormState["clientType"]
-                            )
-                          }
-                          className="h-4 w-4 accent-orange-600"
-                        />
-                        {option.label}
-                      </label>
-                    );
-                  })}
+                  return (
+                    <label
+                      key={option.value}
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-left transition ${
+                        selected
+                          ? "border-orange-200 bg-white text-orange-700 shadow-sm"
+                          : "border-transparent bg-transparent text-slate-600 hover:bg-white"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="clientType"
+                        value={option.value}
+                        checked={selected}
+                        onChange={() =>
+                          updateForm(
+                            "clientType",
+                            option.value as ClientFormState["clientType"]
+                          )
+                        }
+                        className="h-4 w-4 accent-orange-600"
+                      />
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-orange-600 shadow-sm">
+                        <Icon size={18} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-sm font-black text-slate-900">
+                          {option.label}
+                        </span>
+                        <span className="mt-0.5 block text-xs font-semibold leading-5 text-slate-500">
+                          {option.description}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
                 </div>
-              </div>
+              </section>
 
-              {form.clientType === "corporate" ? (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-                  <ClientField
-                    label="Име на фирма *"
-                    value={form.companyName}
-                    required
-                    onChange={(value) => updateForm("companyName", value)}
-                  />
-                  <ClientField
-                    label="ЕИК / Булстат"
-                    value={form.bulstat}
-                    onChange={(value) => updateForm("bulstat", value)}
-                  />
-                  <ClientField
-                    label="Контактно лице"
-                    value={form.contactPerson}
-                    onChange={(value) => updateForm("contactPerson", value)}
-                  />
-                  <ClientField
-                    label="Телефон *"
-                    type="tel"
-                    value={form.phone}
-                    required
-                    onChange={(value) => updateForm("phone", value)}
-                  />
-                  <ClientField
-                    label="Имейл"
-                    type="email"
-                    value={form.email}
-                    onChange={(value) => updateForm("email", value)}
-                  />
-                  <ClientField
-                    label="Адрес"
-                    value={form.address}
-                    onChange={(value) => updateForm("address", value)}
-                  />
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <ClientField
-                    label="Име *"
-                    value={form.firstName}
-                    required
-                    onChange={(value) => updateForm("firstName", value)}
-                  />
-                  <ClientField
-                    label="Фамилия *"
-                    value={form.lastName}
-                    required
-                    onChange={(value) => updateForm("lastName", value)}
-                  />
-                  <ClientField
-                    label="Телефон *"
-                    type="tel"
-                    value={form.phone}
-                    required
-                    onChange={(value) => updateForm("phone", value)}
-                  />
-                  <ClientField
-                    label="Имейл"
-                    type="email"
-                    value={form.email}
-                    onChange={(value) => updateForm("email", value)}
-                  />
-                  <div className="md:col-span-2">
-                    <ClientField
-                      label="Адрес"
-                      value={form.address}
-                      onChange={(value) => updateForm("address", value)}
-                    />
+              <section className="rounded-2xl border border-slate-100 bg-white p-4">
+                <div className="mb-4 flex items-center gap-3">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-50 text-orange-600">
+                    {form.clientType === "corporate" ? (
+                      <Building2 size={18} />
+                    ) : (
+                      <UserRound size={18} />
+                    )}
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-950">
+                      {form.clientType === "corporate" ? "Данни за фирмата" : "Данни за частен клиент"}
+                    </h3>
+                    <p className="text-xs font-semibold text-slate-500">
+                      {form.clientType === "corporate"
+                        ? "Основни данни, контакт и адрес за документи и портал."
+                        : "Име и телефон за напомняния; имот/адрес може да се добави и по-късно."}
+                    </p>
                   </div>
                 </div>
-              )}
+
+                {form.clientType === "corporate" ? (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    <div className="xl:col-span-2">
+                      <ClientField
+                        label="Име на фирма *"
+                        value={form.companyName}
+                        required
+                        onChange={(value) => updateForm("companyName", value)}
+                      />
+                    </div>
+                    <ClientField
+                      label="ЕИК / Булстат"
+                      value={form.bulstat}
+                      onChange={(value) => updateForm("bulstat", value)}
+                    />
+                    <ClientField
+                      label="Контактно лице"
+                      value={form.contactPerson}
+                      onChange={(value) => updateForm("contactPerson", value)}
+                    />
+                    <ClientField
+                      label="Телефон *"
+                      type="tel"
+                      value={form.phone}
+                      required
+                      onChange={(value) => updateForm("phone", value)}
+                    />
+                    <ClientField
+                      label="Имейл"
+                      type="email"
+                      value={form.email}
+                      onChange={(value) => updateForm("email", value)}
+                    />
+                    <div className="md:col-span-2 xl:col-span-3">
+                      <ClientField
+                        label="Адрес"
+                        value={form.address}
+                        placeholder="Въведете град, улица и номер, за да се позиционира правилно на картата"
+                        onChange={(value) => updateForm("address", value)}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <ClientField
+                      label="Име *"
+                      value={form.firstName}
+                      required
+                      onChange={(value) => updateForm("firstName", value)}
+                    />
+                    <ClientField
+                      label="Фамилия *"
+                      value={form.lastName}
+                      required
+                      onChange={(value) => updateForm("lastName", value)}
+                    />
+                    <ClientField
+                      label="Телефон *"
+                      type="tel"
+                      value={form.phone}
+                      required
+                      onChange={(value) => updateForm("phone", value)}
+                    />
+                    <ClientField
+                      label="Имейл"
+                      type="email"
+                      value={form.email}
+                      onChange={(value) => updateForm("email", value)}
+                    />
+                    <div className="md:col-span-2 xl:col-span-4">
+                      <ClientField
+                        label="Адрес по желание"
+                        value={form.address}
+                        placeholder="Въведете град, улица и номер, ако искате да се показва на картата"
+                        onChange={(value) => updateForm("address", value)}
+                      />
+                    </div>
+                  </div>
+                )}
+              </section>
 
               {errorMessage ? (
                 <div className="rounded-2xl bg-red-50 p-4 text-sm font-bold text-red-700">

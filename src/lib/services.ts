@@ -7,6 +7,7 @@ export type ServiceOption = {
   id: string;
   name: string;
   parentId: string;
+  unitPrice: number;
 };
 
 export type ServiceOptionGroup = {
@@ -33,11 +34,27 @@ function textValue(record: DataRecord | null | undefined, keys: string[]) {
   return "";
 }
 
+function numberValue(record: DataRecord | null | undefined, keys: string[]) {
+  if (!record) return 0;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return 0;
+}
+
 function mapServiceOption(service: DataRecord): ServiceOption {
   return {
     id: textValue(service, ["id"]),
     name: textValue(service, ["name", "title"]).trim(),
     parentId: textValue(service, ["parent_id", "parentId"]),
+    unitPrice: numberValue(service, ["unit_price", "unitPrice"]),
   };
 }
 

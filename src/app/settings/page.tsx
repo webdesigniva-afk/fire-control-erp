@@ -14,6 +14,7 @@ import {
   UserRound,
   Warehouse,
   Wrench,
+  X,
 } from "lucide-react";
 import { AppShell } from "../../components/app-shell";
 import { ContactLink } from "../../components/contact-link";
@@ -75,6 +76,7 @@ type ServiceSetting = {
   id: string;
   name: string;
   parentId: string;
+  unitPrice: number;
   usageCount: number;
   archivedAt: string;
 };
@@ -202,6 +204,28 @@ function serviceUsageCount(service: ServiceSetting, services: ServiceSetting[]) 
     .reduce((total, item) => total + item.usageCount, 0);
 }
 
+function numberValue(record: DataRecord | null | undefined, keys: string[]) {
+  if (!record) return 0;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function formatServicePrice(value: number) {
+  return new Intl.NumberFormat("bg-BG", {
+    minimumFractionDigits: value % 1 ? 2 : 0,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2">
@@ -269,10 +293,15 @@ export default function SettingsPage() {
   const [editingWarehouseLocationId, setEditingWarehouseLocationId] = useState("");
 
   const [services, setServices] = useState<ServiceSetting[]>([]);
+  const [newServiceOpen, setNewServiceOpen] = useState(false);
   const [newServiceName, setNewServiceName] = useState("");
+  const [newServicePrice, setNewServicePrice] = useState("");
+  const [newSubServiceParentId, setNewSubServiceParentId] = useState("");
   const [newSubServiceNames, setNewSubServiceNames] = useState<Record<string, string>>({});
+  const [newSubServicePrices, setNewSubServicePrices] = useState<Record<string, string>>({});
   const [editingServiceId, setEditingServiceId] = useState("");
   const [editingServiceName, setEditingServiceName] = useState("");
+  const [editingServicePrice, setEditingServicePrice] = useState("");
 
   const [protocols, setProtocols] = useState<ProtocolSettings>(defaultProtocolSettings);
   const [newCatalogValues, setNewCatalogValues] = useState<Record<string, string>>({});
@@ -387,6 +416,7 @@ export default function SettingsPage() {
           id,
           name: textValue(row, ["name", "title"]),
           parentId: textValue(row, ["parent_id", "parentId"]),
+          unitPrice: numberValue(row, ["unit_price", "unitPrice"]),
           usageCount: usage.get(id) ?? 0,
           archivedAt: textValue(row, ["archived_at", "archivedAt"]),
         };
@@ -590,13 +620,16 @@ export default function SettingsPage() {
     event.preventDefault();
     const name = newServiceName.trim();
     if (!name) return;
+    const unitPrice = Number(newServicePrice) || 0;
 
     setSaving(true);
     try {
       const supabase = createSupabaseBrowserClient();
-      const { error } = await supabase.from("services").insert({ name, parent_id: null });
+      const { error } = await supabase.from("services").insert({ name, parent_id: null, unit_price: unitPrice });
       if (error) throw new Error(error.message);
       setNewServiceName("");
+      setNewServicePrice("");
+      setNewServiceOpen(false);
       await loadServices();
       showToast("Услугата е добавена.");
     } catch (error) {
@@ -609,16 +642,19 @@ export default function SettingsPage() {
   async function addSubService(parentService: ServiceSetting) {
     const name = (newSubServiceNames[parentService.id] || "").trim();
     if (!name) return;
+    const unitPrice = Number(newSubServicePrices[parentService.id]) || 0;
 
     setSaving(true);
     try {
       const supabase = createSupabaseBrowserClient();
       const { error } = await supabase
         .from("services")
-        .insert({ name, parent_id: parentService.id });
+        .insert({ name, parent_id: parentService.id, unit_price: unitPrice });
       if (error) throw new Error(error.message);
 
       setNewSubServiceNames((current) => ({ ...current, [parentService.id]: "" }));
+      setNewSubServicePrices((current) => ({ ...current, [parentService.id]: "" }));
+      setNewSubServiceParentId("");
       await loadServices();
       showToast("Подуслугата е добавена.");
     } catch (error) {
@@ -631,13 +667,14 @@ export default function SettingsPage() {
   async function saveService(service: ServiceSetting) {
     const name = editingServiceName.trim();
     if (!name) return;
+    const unitPrice = Number(editingServicePrice) || 0;
 
     setSaving(true);
     try {
       const supabase = createSupabaseBrowserClient();
       const updateServiceResult = await supabase
         .from("services")
-        .update({ name })
+        .update({ name, unit_price: unitPrice })
         .eq("id", service.id);
       assertSupabaseResult(updateServiceResult, "Грешка при обновяване на услугата.");
 
@@ -654,6 +691,7 @@ export default function SettingsPage() {
 
       setEditingServiceId("");
       setEditingServiceName("");
+      setEditingServicePrice("");
       await loadServices();
       showToast("Услугата е обновена.");
     } catch (error) {
@@ -1058,61 +1096,162 @@ export default function SettingsPage() {
           ) : null}
 
           {loadState !== "loading" && activeSection === "services" ? (
-            <Card className="p-5">
-              <SectionHeader title="Услуги" description="Кратък списък с услугите, които фирмата предлага." />
-              <div className="mt-5 space-y-3">
+            <Card className="p-0">
+              <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                <SectionHeader title="Услуги" description="Каталогът управлява имената и единичните цени, които се попълват в оферти и договори." />
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setNewServiceOpen(true)}
+                  disabled={saving || newServiceOpen}
+                >
+                  <Plus size={15} />
+                  Добави услуга
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-3 border-b border-slate-200 bg-slate-50 px-5 py-2 text-[11px] font-black uppercase text-slate-400 sm:grid-cols-[minmax(0,1fr)_110px_110px_82px]">
+                <div>Услуга</div>
+                <div className="hidden sm:block">Подуслуги</div>
+                <div className="text-right">Ед. цена</div>
+                <div className="text-right">Действия</div>
+              </div>
+
+              {newServiceOpen ? (
+                <form onSubmit={addService} className="grid gap-2 border-b border-orange-100 bg-orange-50/50 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_140px_auto_auto]">
+                  <Input className="h-9 rounded-lg" value={newServiceName} onChange={(event) => setNewServiceName(event.target.value)} placeholder="Име на услуга" />
+                  <Input
+                    className="h-9 rounded-lg"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={newServicePrice}
+                    onChange={(event) => setNewServicePrice(event.target.value)}
+                    placeholder="Ед. цена"
+                  />
+                  <Button type="submit" size="sm" disabled={saving}><Save size={14} />Запази</Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      setNewServiceOpen(false);
+                      setNewServiceName("");
+                      setNewServicePrice("");
+                    }}
+                    aria-label="Отказ"
+                    title="Отказ"
+                  >
+                    <X size={15} />
+                  </Button>
+                </form>
+              ) : null}
+
+              <div className="divide-y divide-slate-100">
                 {activeServiceGroups.length ? activeServiceGroups.map(({ service, children }) => {
                   const editing = editingServiceId === service.id;
                   return (
-                    <div key={service.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+                    <div key={service.id} className="bg-white">
                       {editing ? (
-                        <div className="flex flex-col gap-3 sm:flex-row">
-                          <Input value={editingServiceName} onChange={(event) => setEditingServiceName(event.target.value)} />
-                          <Button type="button" onClick={() => saveService(service)} disabled={saving}><Save size={15} />Запази</Button>
+                        <div className="grid gap-2 bg-orange-50/50 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_140px_auto_auto]">
+                          <Input className="h-9 rounded-lg" value={editingServiceName} onChange={(event) => setEditingServiceName(event.target.value)} />
+                          <Input
+                            className="h-9 rounded-lg"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={editingServicePrice}
+                            onChange={(event) => setEditingServicePrice(event.target.value)}
+                            placeholder="Ед. цена"
+                          />
+                          <Button type="button" size="sm" onClick={() => saveService(service)} disabled={saving}><Save size={14} />Запази</Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setEditingServiceId("");
+                              setEditingServiceName("");
+                              setEditingServicePrice("");
+                            }}
+                            aria-label="Отказ"
+                            title="Отказ"
+                          >
+                            <X size={15} />
+                          </Button>
                         </div>
                       ) : (
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <div className="font-black text-slate-900">{service.name}</div>
-                            <div className="mt-1 text-xs font-bold text-slate-400">{service.usageCount} обекта</div>
+                        <div className="grid grid-cols-[minmax(0,1fr)_88px_82px] gap-2 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_110px_110px_82px] sm:items-center">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-black text-slate-900">{service.name}</div>
+                            <div className="mt-0.5 text-[11px] font-bold text-slate-400">{serviceUsageCount(service, activeServices)} обекта</div>
                           </div>
-                          <div className="flex gap-2">
-                            <Button type="button" variant="outline" size="sm" onClick={() => { setEditingServiceId(service.id); setEditingServiceName(service.name); }}><PenLine size={14} />Редактирай</Button>
-                            <Button type="button" variant="ghost" size="icon" onClick={() => deleteService(service)} aria-label="Изтрий"><Trash2 size={16} /></Button>
+                          <div className="hidden text-sm font-bold text-slate-500 sm:block">{children.length}</div>
+                          <div className="text-sm font-black text-slate-800 sm:text-right">{formatServicePrice(service.unitPrice)} €</div>
+                          <div className="flex gap-1 sm:justify-end">
+                            <Button type="button" variant="outline" size="icon" onClick={() => { setEditingServiceId(service.id); setEditingServiceName(service.name); setEditingServicePrice(String(service.unitPrice || "")); }} aria-label="Редактирай" title="Редактирай"><PenLine size={14} /></Button>
+                            <Button type="button" variant="ghost" size="icon" onClick={() => deleteService(service)} aria-label="Изтрий" title="Изтрий"><Trash2 size={16} /></Button>
                           </div>
                         </div>
                       )}
-                      <div className="mt-4 space-y-2 border-t border-slate-200 pt-3">
+                      <div className="border-t border-slate-100 bg-slate-50/60">
                         {children.length ? children.map((child) => {
                           const childEditing = editingServiceId === child.id;
                           return (
-                            <div key={child.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div key={child.id} className="border-b border-slate-200/70 last:border-b-0">
                               {childEditing ? (
-                                <div className="flex flex-col gap-3 sm:flex-row">
-                                  <Input value={editingServiceName} onChange={(event) => setEditingServiceName(event.target.value)} />
+                                <div className="grid gap-2 px-5 py-2 sm:grid-cols-[minmax(0,1fr)_140px_auto_auto]">
+                                  <Input className="h-9 rounded-lg" value={editingServiceName} onChange={(event) => setEditingServiceName(event.target.value)} />
+                                  <Input
+                                    className="h-9 rounded-lg"
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={editingServicePrice}
+                                    onChange={(event) => setEditingServicePrice(event.target.value)}
+                                    placeholder="Ед. цена"
+                                  />
                                   <Button type="button" size="sm" onClick={() => saveService(child)} disabled={saving}><Save size={14} />Запази</Button>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setEditingServiceId("");
+                                      setEditingServiceName("");
+                                      setEditingServicePrice("");
+                                    }}
+                                    aria-label="Отказ"
+                                    title="Отказ"
+                                  >
+                                    <X size={15} />
+                                  </Button>
                                 </div>
                               ) : (
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                  <div>
-                                    <div className="text-sm font-black text-slate-800">{child.name}</div>
-                                    <div className="mt-1 text-xs font-bold text-slate-400">{child.usageCount} обекта</div>
+                                <div className="grid grid-cols-[minmax(0,1fr)_88px_82px] gap-2 px-5 py-2 sm:grid-cols-[minmax(0,1fr)_110px_110px_82px] sm:items-center">
+                                  <div className="min-w-0 pl-4">
+                                    <div className="truncate text-sm font-bold text-slate-800">{child.name}</div>
+                                    <div className="mt-0.5 text-[11px] font-bold text-slate-400">{child.usageCount} обекта</div>
                                   </div>
-                                  <div className="flex gap-2">
-                                    <Button type="button" variant="outline" size="sm" onClick={() => { setEditingServiceId(child.id); setEditingServiceName(child.name); }}><PenLine size={14} />Редактирай</Button>
-                                    <Button type="button" variant="ghost" size="icon" onClick={() => deleteService(child)} aria-label="Изтрий"><Trash2 size={16} /></Button>
+                                  <div className="hidden text-xs font-bold uppercase text-slate-400 sm:block">подуслуга</div>
+                                  <div className="text-sm font-black text-slate-700 sm:text-right">{formatServicePrice(child.unitPrice)} €</div>
+                                  <div className="flex gap-1 sm:justify-end">
+                                    <Button type="button" variant="outline" size="icon" onClick={() => { setEditingServiceId(child.id); setEditingServiceName(child.name); setEditingServicePrice(String(child.unitPrice || "")); }} aria-label="Редактирай" title="Редактирай"><PenLine size={14} /></Button>
+                                    <Button type="button" variant="ghost" size="icon" onClick={() => deleteService(child)} aria-label="Изтрий" title="Изтрий"><Trash2 size={16} /></Button>
                                   </div>
                                 </div>
                               )}
                             </div>
                           );
                         }) : (
-                          <div className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-400">
-                            Няма подуслуги.
+                          <div className="px-5 py-2 pl-9 text-xs font-bold text-slate-400">
+                            Без подуслуги
                           </div>
                         )}
-                        <div className="flex flex-col gap-2 sm:flex-row">
+                        {newSubServiceParentId === service.id ? (
+                        <div className="grid gap-2 border-t border-slate-200/70 bg-white px-5 py-2 sm:grid-cols-[minmax(0,1fr)_130px_auto_auto]">
                           <Input
+                            className="h-9 rounded-lg"
                             value={newSubServiceNames[service.id] || ""}
                             onChange={(event) =>
                               setNewSubServiceNames((current) => ({
@@ -1122,19 +1261,55 @@ export default function SettingsPage() {
                             }
                             placeholder="Нова подуслуга"
                           />
-                          <Button type="button" variant="outline" onClick={() => addSubService(service)} disabled={saving}>
-                            <Plus size={15} />Добави подуслуга
+                          <Input
+                            className="h-9 rounded-lg"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={newSubServicePrices[service.id] || ""}
+                            onChange={(event) =>
+                              setNewSubServicePrices((current) => ({
+                                ...current,
+                                [service.id]: event.target.value,
+                              }))
+                            }
+                            placeholder="Ед. цена"
+                          />
+                          <Button type="button" variant="outline" size="sm" onClick={() => addSubService(service)} disabled={saving}>
+                            <Save size={14} />Запази
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => {
+                              setNewSubServiceParentId("");
+                              setNewSubServiceNames((current) => ({ ...current, [service.id]: "" }));
+                              setNewSubServicePrices((current) => ({ ...current, [service.id]: "" }));
+                            }}
+                            aria-label="Отказ"
+                            title="Отказ"
+                          >
+                            <X size={15} />
                           </Button>
                         </div>
+                        ) : (
+                          <div className="border-t border-slate-200/70 px-5 py-2">
+                            <button
+                              type="button"
+                              onClick={() => setNewSubServiceParentId(service.id)}
+                              className="inline-flex items-center gap-1.5 text-xs font-black text-orange-700 transition hover:text-orange-800"
+                            >
+                              <Plus size={13} />
+                              Добави подуслуга
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
                 }) : <EmptyState>Няма активни услуги.</EmptyState>}
               </div>
-              <form onSubmit={addService} className="mt-5 flex flex-col gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 sm:flex-row">
-                <Input value={newServiceName} onChange={(event) => setNewServiceName(event.target.value)} placeholder="Абонаментно обслужване" />
-                <Button type="submit" disabled={saving}><Plus size={16} />Добави услуга</Button>
-              </form>
             </Card>
           ) : null}
 

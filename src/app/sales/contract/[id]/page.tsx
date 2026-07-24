@@ -373,6 +373,60 @@ function serviceLabel(row: { service_category?: string | null; service_name?: st
   return category ? `${category} - ${name}` : name || "Услуга";
 }
 
+function numberValue(record: Record<string, unknown> | null | undefined, keys: string[]) {
+  if (!record) return 0;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function buildServicePriceMap(rows: Record<string, unknown>[]) {
+  const byId = new Map<string, Record<string, unknown>>();
+  const prices = new Map<string, number>();
+
+  for (const row of rows) {
+    const id = String(row.id ?? "").trim();
+    if (id) byId.set(id, row);
+  }
+
+  for (const row of rows) {
+    const name = String(row.name ?? row.title ?? "").trim();
+    if (!name) continue;
+
+    const parentId = String(row.parent_id ?? row.parentId ?? "").trim();
+    const parent = parentId ? byId.get(parentId) : null;
+    const parentName = String(parent?.name ?? parent?.title ?? "").trim();
+    const price = numberValue(row, ["unit_price", "unitPrice"]);
+
+    prices.set(name.toLowerCase(), price);
+    if (parentName) {
+      prices.set(`${parentName} - ${name}`.toLowerCase(), price);
+      prices.set(`${parentName} / ${name}`.toLowerCase(), price);
+    }
+  }
+
+  return prices;
+}
+
+function servicePriceFor(
+  row: { service_category?: string | null; service_name?: string | null },
+  prices: Map<string, number>
+) {
+  const label = serviceLabel(row).toLowerCase();
+  const category = String(row.service_category ?? "").trim().toLowerCase();
+  const name = String(row.service_name ?? "").trim().toLowerCase();
+
+  return prices.get(label) ?? prices.get(name) ?? prices.get(category) ?? 0;
+}
+
 type SupabaseBrowserClient = ReturnType<typeof createSupabaseBrowserClient>;
 
 function formatDocumentDateForNumber(date: Date) {
@@ -450,7 +504,7 @@ export default function ContractEditorPage() {
       try {
         const supabase = createSupabaseBrowserClient();
         const session = readSession();
-        const [oppResult, offerDocResult, contractDocResult] = await Promise.all([
+        const [oppResult, offerDocResult, contractDocResult, servicePricesResult] = await Promise.all([
           supabase
             .from("sales_opportunities")
             .select("*, sales_opportunity_services(service_category, service_name)")
@@ -468,6 +522,10 @@ export default function ContractEditorPage() {
             .eq("id", `contract-${opportunityId}`)
             .eq("kind", "contract")
             .maybeSingle(),
+          supabase
+            .from("services")
+            .select("*")
+            .is("archived_at", null),
         ]);
 
         if (oppResult.error || !oppResult.data) throw new Error(oppResult.error?.message || "Липсва сделка.");
@@ -492,6 +550,9 @@ export default function ContractEditorPage() {
         const serviceRows = Array.isArray(oppResult.data.sales_opportunity_services)
           ? (oppResult.data.sales_opportunity_services as { service_category?: string | null; service_name?: string | null }[])
           : [];
+        const servicePrices = buildServicePriceMap(
+          servicePricesResult.error ? [] : ((servicePricesResult.data as Record<string, unknown>[] | null) ?? [])
+        );
         const fallbackLines = serviceRows.map((row, index) => ({
           id: `service-${index}`,
           name: serviceLabel(row),
@@ -499,8 +560,8 @@ export default function ContractEditorPage() {
           periodicity: "по график",
           object: String(oppResult.data.object_name ?? ""),
           quantity: 1,
-          unitPrice: [120, 180, 240, 360][index % 4],
-          price: [120, 180, 240, 360][index % 4],
+          unitPrice: servicePriceFor(row, servicePrices),
+          price: servicePriceFor(row, servicePrices),
         }));
 
         const draft = readDraftContract(contractDocResult.data?.payload);

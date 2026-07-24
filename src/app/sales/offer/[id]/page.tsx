@@ -94,14 +94,64 @@ function money(value: number) {
   return `${formatAmount(value)} €`;
 }
 
-function fakePriceFor(index: number) {
-  return [45, 65, 120, 180, 240, 360][index % 6];
-}
-
 function serviceLabel(row: { service_category?: string | null; service_name?: string | null }) {
   const category = String(row.service_category ?? "").trim();
   const name = String(row.service_name ?? "").trim();
   return category && category !== name ? `${category} - ${name}` : name || category || "Услуга";
+}
+
+function numberValue(record: Record<string, unknown> | null | undefined, keys: string[]) {
+  if (!record) return 0;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+
+  return 0;
+}
+
+function buildServicePriceMap(rows: Record<string, unknown>[]) {
+  const byId = new Map<string, Record<string, unknown>>();
+  const prices = new Map<string, number>();
+
+  for (const row of rows) {
+    const id = String(row.id ?? "").trim();
+    if (id) byId.set(id, row);
+  }
+
+  for (const row of rows) {
+    const name = String(row.name ?? row.title ?? "").trim();
+    if (!name) continue;
+
+    const parentId = String(row.parent_id ?? row.parentId ?? "").trim();
+    const parent = parentId ? byId.get(parentId) : null;
+    const parentName = String(parent?.name ?? parent?.title ?? "").trim();
+    const price = numberValue(row, ["unit_price", "unitPrice"]);
+
+    prices.set(name.toLowerCase(), price);
+    if (parentName) {
+      prices.set(`${parentName} - ${name}`.toLowerCase(), price);
+      prices.set(`${parentName} / ${name}`.toLowerCase(), price);
+    }
+  }
+
+  return prices;
+}
+
+function servicePriceFor(
+  row: { service_category?: string | null; service_name?: string | null },
+  prices: Map<string, number>
+) {
+  const label = serviceLabel(row).toLowerCase();
+  const category = String(row.service_category ?? "").trim().toLowerCase();
+  const name = String(row.service_name ?? "").trim().toLowerCase();
+
+  return prices.get(label) ?? prices.get(name) ?? prices.get(category) ?? 0;
 }
 
 function defaultPeriodFor(serviceName: string) {
@@ -418,7 +468,7 @@ export default function SalesOfferEditorPage() {
       setLoadState("loading");
       try {
         const supabase = createSupabaseBrowserClient();
-        const [{ data, error }, draftResult, session] = await Promise.all([
+        const [{ data, error }, draftResult, servicePricesResult, session] = await Promise.all([
           supabase
             .from("sales_opportunities")
             .select("*, sales_opportunity_services(service_category, service_name)")
@@ -430,6 +480,10 @@ export default function SalesOfferEditorPage() {
             .eq("id", `offer-${opportunityId}`)
             .eq("kind", "offer")
             .maybeSingle(),
+          supabase
+            .from("services")
+            .select("*")
+            .is("archived_at", null),
           Promise.resolve(readSession()),
         ]);
 
@@ -457,6 +511,9 @@ export default function SalesOfferEditorPage() {
         const serviceRows = Array.isArray(data.sales_opportunity_services)
           ? (data.sales_opportunity_services as { service_category?: string | null; service_name?: string | null }[])
           : [];
+        const servicePrices = buildServicePriceMap(
+          servicePricesResult.error ? [] : ((servicePricesResult.data as Record<string, unknown>[] | null) ?? [])
+        );
         const lines = serviceRows.length
           ? serviceRows.map((row, index) => ({
               id: `${index}-${serviceLabel(row)}`,
@@ -464,7 +521,7 @@ export default function SalesOfferEditorPage() {
               description: "",
               period: defaultPeriodFor(serviceLabel(row)),
               quantity: 1,
-              unitPrice: fakePriceFor(index),
+              unitPrice: servicePriceFor(row, servicePrices),
             }))
           : [{
               id: "default-service",
@@ -472,7 +529,7 @@ export default function SalesOfferEditorPage() {
               description: "",
               period: "по заявка",
               quantity: 1,
-              unitPrice: 180,
+              unitPrice: 0,
             }];
 
         const draftOffer = readDraftOffer(draftResult.data?.payload);
